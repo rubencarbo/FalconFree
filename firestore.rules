@@ -1,0 +1,32 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Clasificación: un documento por jugador y escenario -> scores/{stage}_{uid}
+    match /scores/{scoreId} {
+      allow read: if true;
+
+      allow create: if request.auth != null
+        && scoreId == request.resource.data.stage + '_' + request.auth.uid
+        && validScore(request.resource.data);
+
+      // Solo se puede mejorar la marca propia
+      allow update: if request.auth != null
+        && resource.data.uid == request.auth.uid
+        && validScore(request.resource.data)
+        && request.resource.data.stage == resource.data.stage
+        && request.resource.data.rings > resource.data.rings;
+
+      allow delete: if false;
+    }
+
+    function validScore(d) {
+      return d.keys().hasOnly(['uid', 'name', 'stage', 'rings', 'maxSpeed', 'updatedAt'])
+        && d.uid == request.auth.uid
+        && d.name is string && d.name.size() > 0 && d.name.size() <= 16
+        && d.stage in ['metropolis', 'archipelago', 'dusk']
+        && d.rings is int && d.rings >= 0 && d.rings <= 500
+        && d.maxSpeed is number && d.maxSpeed >= 0 && d.maxSpeed <= 3000
+        && d.updatedAt == request.time;
+    }
+  }
+}

@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#1b2a44" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="description" content="FalconFree: vuela un caza sobre una ciudad vóxel infinita y atraviesa anillos." />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <title>FalconFree</title>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="scene"></canvas>
+      <canvas id="cockpit"></canvas>
+
+      <div id="hud" class="hidden">
+        <div class="stats">
+          <div>Velocidad <b id="hud-speed">0</b> km/h</div>
+          <div>Anillos <b id="hud-rings">0</b></div>
+          <div class="alt">Altitud <b id="hud-alt">0</b> m</div>
+        </div>
+        <div class="top-right">
+          <button id="btn-stage" class="pill">Cambiar escenario</button>
+          <button id="btn-view" class="pill">Vista: Básica</button>
+          <button id="btn-pause" class="pill icon" aria-label="Pausa">❚❚</button>
+        </div>
+        <div id="ring-marker"><span class="diamond"></span><span id="ring-dist"></span></div>
+        <div id="toast"></div>
+        <div id="warning">¡ASCIENDE!</div>
+        <div id="joy-zone"><div id="joy-base"><div id="joy-knob"></div></div></div>
+        <button id="btn-climb" class="round">Subir</button>
+        <button id="btn-boost" class="round big">Turbo</button>
+        <div id="keys-hint">W/S cabeceo · A/D alabeo · Espacio turbo · E subir · C vista · P pausa</div>
+      </div>
+
+      <div id="menu" class="overlay">
+        <div class="panel menu-panel">
+          <h1>Falcon<span>Free</span></h1>
+          <p class="tagline">Vuela sobre ciudades vóxel infinitas y atraviesa todos los anillos que puedas.</p>
+          <label class="field">
+            <span>Nombre de piloto</span>
+            <input id="pilot-name" maxlength="16" placeholder="Piloto" autocomplete="off" />
+          </label>
+          <div class="field">
+            <span>Escenario</span>
+            <div id="stage-list" class="stage-list"></div>
+          </div>
+          <button id="btn-start" class="primary">Despegar</button>
+          <div class="row">
+            <button id="btn-board" class="secondary">Clasificación</button>
+            <button id="btn-sound" class="secondary">Sonido: sí</button>
+            <button id="btn-invert" class="secondary">Eje Y: normal</button>
+          </div>
+          <p id="fb-status" class="muted"></p>
+        </div>
+      </div>
+
+      <div id="stage-picker" class="overlay hidden">
+        <div class="panel">
+          <h2>Cambiar escenario</h2>
+          <div id="stage-list-2" class="stage-list"></div>
+          <button class="secondary" data-close>Cancelar</button>
+        </div>
+      </div>
+
+      <div id="pause" class="overlay hidden">
+        <div class="panel">
+          <h2>Pausa</h2>
+          <button id="btn-resume" class="primary">Continuar</button>
+          <button id="btn-pause-menu" class="secondary">Menú principal</button>
+        </div>
+      </div>
+
+      <div id="crash" class="overlay hidden">
+        <div class="panel">
+          <h2>¡Te has estrellado!</h2>
+          <div class="result">
+            <div><span>Anillos</span><b id="crash-rings">0</b></div>
+            <div><span>Velocidad máx.</span><b id="crash-speed">0</b></div>
+            <div><span>Récord</span><b id="crash-best">0</b></div>
+          </div>
+          <p id="crash-msg" class="muted"></p>
+          <button id="btn-retry" class="primary">Volver a volar</button>
+          <button id="btn-crash-menu" class="secondary">Menú principal</button>
+        </div>
+      </div>
+
+      <div id="board" class="overlay hidden">
+        <div class="panel">
+          <h2>Clasificación</h2>
+          <div id="board-tabs" class="tabs"></div>
+          <ol id="board-list" class="board-list"></ol>
+          <button class="secondary" data-close>Cerrar</button>
+        </div>
+      </div>
+
+      <div id="loading" class="hidden">Generando ciudad…</div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

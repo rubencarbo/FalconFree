@@ -1,0 +1,10 @@
+{
+  "name": "FalconFree",
+  "short_name": "FalconFree",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#1b2a44",
+  "theme_color": "#1b2a44",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}
