@@ -98,7 +98,12 @@ export class Input {
     let climb = this.touchClimb || k.has('KeyE');
 
     // Mando
-    const pads = navigator.getGamepads?.() ?? [];
+    let pads: (Gamepad | null)[] = [];
+    try {
+      pads = navigator.getGamepads?.() ?? [];
+    } catch {
+      /* API de mandos bloqueada (p. ej. en un iframe) */
+    }
     for (const p of pads) {
       if (!p) continue;
       const ax = p.axes[0] ?? 0;
