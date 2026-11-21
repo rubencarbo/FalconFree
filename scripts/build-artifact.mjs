@@ -4,6 +4,7 @@ import { build } from 'vite';
 import { readFileSync, writeFileSync, readdirSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
+process.env.VITE_ARTIFACT = '1';
 const outDir = 'dist-artifact/build';
 await build({
   logLevel: 'warn',

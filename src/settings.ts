@@ -1,6 +1,6 @@
 /** Ajustes del jugador, guardados en el navegador */
 
-export type ControlId = 'joy' | 'boost' | 'climb' | 'fire';
+export type ControlId = 'joy' | 'boost' | 'climb' | 'fire' | 'missile' | 'flare';
 
 export interface ControlLayout {
   /** Centro del control como fracción del ancho/alto de la pantalla */
@@ -21,16 +21,23 @@ export interface Settings {
   aimAssist: boolean;
   /** Bloom y partículas extra */
   effects: 'high' | 'low';
+  /** Clima variable (lluvia, niebla, tormenta…) */
+  weather: boolean;
+  vibration: boolean;
+  /** Mostrar el fantasma de tu mejor vuelta */
+  ghost: boolean;
   controls: Record<ControlId, ControlLayout>;
 }
 
-export const CONTROL_IDS: ControlId[] = ['joy', 'fire', 'boost', 'climb'];
+export const CONTROL_IDS: ControlId[] = ['joy', 'fire', 'missile', 'flare', 'boost', 'climb'];
 
 export const CONTROL_LABELS: Record<ControlId, string> = {
   joy: 'Joystick',
   fire: 'Disparo',
   boost: 'Turbo',
   climb: 'Subir',
+  missile: 'Misil',
+  flare: 'Bengalas',
 };
 
 /** Tamaño base en px (a escala 1) */
@@ -39,6 +46,8 @@ export const CONTROL_BASE_SIZE: Record<ControlId, number> = {
   fire: 80,
   boost: 92,
   climb: 60,
+  missile: 60,
+  flare: 54,
 };
 
 export function defaultControls(): Record<ControlId, ControlLayout> {
@@ -46,7 +55,9 @@ export function defaultControls(): Record<ControlId, ControlLayout> {
     joy: { x: 0.2, y: 0.74, scale: 1, opacity: 0.9 },
     fire: { x: 0.64, y: 0.84, scale: 1, opacity: 0.95 },
     boost: { x: 0.84, y: 0.74, scale: 1, opacity: 0.95 },
-    climb: { x: 0.85, y: 0.56, scale: 1, opacity: 0.9 },
+    climb: { x: 0.85, y: 0.5, scale: 1, opacity: 0.9 },
+    missile: { x: 0.58, y: 0.62, scale: 1, opacity: 0.95 },
+    flare: { x: 0.47, y: 0.93, scale: 1, opacity: 0.9 },
   };
 }
 
@@ -60,6 +71,9 @@ function defaults(): Settings {
     sensitivity: 1,
     aimAssist: true,
     effects: isTouch ? 'low' : 'high',
+    weather: true,
+    vibration: true,
+    ghost: true,
     controls: defaultControls(),
   };
 }
@@ -92,6 +106,9 @@ export function loadSettings(): Settings {
       sensitivity: clamp(Number(s.sensitivity ?? 1), 0.5, 1.5),
       aimAssist: s.aimAssist ?? true,
       effects: s.effects === 'low' || s.effects === 'high' ? s.effects : d.effects,
+      weather: s.weather ?? true,
+      vibration: s.vibration ?? true,
+      ghost: s.ghost ?? true,
       controls,
     };
   } catch {

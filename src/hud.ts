@@ -123,6 +123,73 @@ export class Hud {
     this.lockName.textContent = d.lockName ?? '';
   }
 
+  setWeapons(missiles: number, flares: number, flareWindow: boolean) {
+    $('hud-missiles').textContent = String(missiles);
+    $('hud-flares').textContent = String(flares);
+    $('btn-missile').dataset.count = String(missiles);
+    $('btn-flare').dataset.count = String(flares);
+    $('btn-flare').classList.toggle('active', flareWindow);
+  }
+
+  /** Aviso de misil entrante con su dirección en pantalla */
+  missileWarning(on: boolean, angleDeg = 0) {
+    const el = $('missile-warning');
+    el.classList.toggle('show', on);
+    if (on) (el.querySelector('.mw-arrow') as HTMLElement).style.transform = `rotate(${angleDeg}deg)`;
+  }
+
+  setPowerups(list: { name: string; color: string; left: number; total: number }[]) {
+    const el = $('powerups');
+    if (!list.length) {
+      if (el.childElementCount) el.replaceChildren();
+      return;
+    }
+    el.replaceChildren(
+      ...list.map((p) => {
+        const d = document.createElement('div');
+        d.className = 'pw';
+        d.style.setProperty('--c', p.color);
+        d.style.setProperty('--k', String(p.left / p.total));
+        d.innerHTML = `<b></b><span>${Math.ceil(p.left)} s</span>`;
+        (d.firstChild as HTMLElement).textContent = p.name;
+        return d;
+      }),
+    );
+  }
+
+  battleScore(text: string | null, time?: string) {
+    const el = $('battle-score');
+    el.classList.toggle('hidden', text === null);
+    if (text !== null) el.innerHTML = `<span class="bs-time">${time ?? ''}</span><span class="bs-text"></span>`;
+    if (text !== null) (el.querySelector('.bs-text') as HTMLElement).textContent = text;
+  }
+
+  killfeed(text: string, mine = false) {
+    const el = $('killfeed');
+    const row = document.createElement('div');
+    row.textContent = text;
+    if (mine) row.className = 'mine';
+    el.prepend(row);
+    while (el.childElementCount > 4) el.lastElementChild?.remove();
+    setTimeout(() => row.remove(), 5000);
+  }
+
+  offRoute(on: boolean) {
+    $('offroute').classList.toggle('show', on);
+  }
+
+  private achTimer = 0;
+  achievement(name: string, reward: number) {
+    const el = $('ach-banner');
+    (el.querySelector('b') as HTMLElement).textContent = name;
+    (el.querySelector('small') as HTMLElement).textContent = `+${reward} créditos`;
+    el.classList.remove('show');
+    void el.offsetWidth;
+    el.classList.add('show');
+    clearTimeout(this.achTimer);
+    this.achTimer = window.setTimeout(() => el.classList.remove('show'), 3800);
+  }
+
   hitMarker(kill = false) {
     this.hitEl.classList.remove('show', 'kill');
     void this.hitEl.offsetWidth;

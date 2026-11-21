@@ -18,7 +18,7 @@ interface Drone extends Target {
   bodyMat: THREE.MeshLambertMaterial;
 }
 
-function buildDrone(): { group: THREE.Group; rotors: THREE.Object3D[]; bodyMat: THREE.MeshLambertMaterial } {
+export function buildDrone(): { group: THREE.Group; rotors: THREE.Object3D[]; bodyMat: THREE.MeshLambertMaterial } {
   const g = new THREE.Group();
   const bodyMat = new THREE.MeshLambertMaterial({ color: 0xd8323a, emissive: 0x000000 });
   const dark = new THREE.MeshLambertMaterial({ color: 0x24262b });

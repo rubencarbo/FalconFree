@@ -16,6 +16,8 @@ export interface Target {
   radius: number;
   alive: boolean;
   name?: string;
+  /** bengalas activas (despistan misiles) */
+  flares?: boolean;
 }
 
 export interface GunContext {
@@ -34,7 +36,10 @@ const GUN_OFFSETS = [new THREE.Vector3(-2.3, -0.3, -3), new THREE.Vector3(2.3, -
 
 /** Cañones, balas trazadoras y apuntado asistido */
 export class Guns {
+  maxAmmo = MAX_AMMO;
   ammo = MAX_AMMO;
+  /** Multiplicador de daño (recompensa «Doble daño») */
+  damageMul = 1;
   lock: Target | null = null;
   /** 0..1 progreso de fijación (para el retículo) */
   lockStrength = 0;
@@ -81,13 +86,13 @@ export class Guns {
 
   reload(amount: number) {
     const before = this.ammo;
-    this.ammo = Math.min(MAX_AMMO, this.ammo + amount);
+    this.ammo = Math.min(this.maxAmmo, this.ammo + amount);
     if (this.ammo > 0) this.emptyWarned = false;
     return this.ammo - before;
   }
 
   refill() {
-    this.ammo = MAX_AMMO;
+    this.ammo = this.maxAmmo;
     this.emptyWarned = false;
   }
 
@@ -215,7 +220,7 @@ export class Guns {
           const r = t.radius;
           if (segmentSphere(a, b, t.pos, r)) {
             const point = closestPoint(a, b, t.pos, this._c);
-            ctx.onHit(t, point.clone(), BULLET_DAMAGE);
+            ctx.onHit(t, point.clone(), BULLET_DAMAGE * this.damageMul);
             this.fx.hit(point, t.vel);
             dead = true;
             break;

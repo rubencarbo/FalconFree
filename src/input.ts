@@ -13,6 +13,9 @@ export class Input {
   onCamera?: () => void;
   onPause?: () => void;
   onBoostStart?: () => void;
+  onMissile?: () => void;
+  onFlare?: () => void;
+  onResetRoute?: () => void;
   private prevBoost = false;
   private padPrev: boolean[] = [];
 
@@ -24,13 +27,21 @@ export class Input {
     climbBtn: HTMLElement,
     fireBtn: HTMLElement,
     canvas: HTMLElement,
+    missileBtn: HTMLElement,
+    flareBtn: HTMLElement,
   ) {
+    this.bindTap(missileBtn, () => this.onMissile?.());
+    this.bindTap(flareBtn, () => this.onFlare?.());
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     window.addEventListener('keydown', (e) => {
       if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
       if (e.repeat) return;
       this.keys.add(e.code);
       if (e.code === 'KeyC') this.onCamera?.();
       if (e.code === 'KeyP' || e.code === 'Escape') this.onPause?.();
+      if (e.code === 'KeyQ') this.onMissile?.();
+      if (e.code === 'KeyG') this.onFlare?.();
+      if (e.code === 'KeyR') this.onResetRoute?.();
       if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
@@ -42,6 +53,7 @@ export class Input {
     // Ratón: clic izquierdo dispara (solo con puntero fino)
     canvas.addEventListener('pointerdown', (e) => {
       if (e.pointerType === 'mouse' && e.button === 0) this.mouseFire = true;
+      if (e.pointerType === 'mouse' && e.button === 2) this.onMissile?.();
     });
     window.addEventListener('pointerup', (e) => {
       if (e.pointerType === 'mouse') this.mouseFire = false;
@@ -79,6 +91,18 @@ export class Input {
     el.addEventListener('pointerup', up);
     el.addEventListener('pointercancel', up);
     el.addEventListener('lostpointercapture', up);
+  }
+
+  private bindTap(el: HTMLElement, fn: () => void) {
+    el.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      el.classList.add('pressed');
+      fn();
+    });
+    const up = () => el.classList.remove('pressed');
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+    el.addEventListener('pointerleave', up);
   }
 
   private moveJoy(e: PointerEvent) {
@@ -127,6 +151,12 @@ export class Input {
       boost ||= !!(p.buttons[0]?.pressed || p.buttons[7]?.pressed);
       climb ||= !!p.buttons[1]?.pressed;
       fire ||= !!(p.buttons[2]?.pressed || p.buttons[6]?.pressed);
+      const rb = !!p.buttons[5]?.pressed;
+      const lb = !!p.buttons[4]?.pressed;
+      if (rb && !this.padPrev[5]) this.onMissile?.();
+      if (lb && !this.padPrev[4]) this.onFlare?.();
+      this.padPrev[5] = rb;
+      this.padPrev[4] = lb;
       const camBtn = !!p.buttons[3]?.pressed;
       const pauseBtn = !!p.buttons[9]?.pressed;
       if (camBtn && !this.padPrev[3]) this.onCamera?.();

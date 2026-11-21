@@ -1,7 +1,7 @@
 # FalconFree
 
-Simulador de vuelo arcade en el navegador: pilota un caza sobre ciudades vóxel generadas
-proceduralmente (infinitas), atraviesa anillos, compite contrarreloj y juega con amigos.
+Simulador de vuelo arcade instalable (PWA): pilota un caza sobre ciudades vóxel generadas
+proceduralmente (infinitas), compite contrarreloj, combate contra bots y juega con amigos.
 
 ## Mundo
 
@@ -10,26 +10,66 @@ proceduralmente (infinitas), atraviesa anillos, compite contrarreloj y juega con
 - 4 vistas: Básica, Lejana, Cenital y Cabina (HUD e instrumentos).
 - Sonido sintetizado con WebAudio y bloom en los efectos luminosos.
 
+## Instalar como app (PWA)
+
+FalconFree es una **Progressive Web App**: se instala desde el navegador y se abre a pantalla
+completa, con su icono, sin barra del navegador.
+
+- **Android / Chrome / Edge (escritorio)**: botón **Instalar app** del menú (o el icono de
+  instalar de la barra de direcciones).
+- **iPhone / iPad**: Safari → Compartir → **Añadir a pantalla de inicio** (el botón del menú
+  muestra estas instrucciones).
+- Funciona **sin conexión** en los modos en solitario (vuelo libre, competición, desafío diario
+  y batalla contra bots). Clasificaciones y multijugador necesitan conexión.
+- Cuando se publica una versión nueva, aparece el aviso **Actualizar**.
+- Accesos directos (mantener pulsado el icono): *Vuelo libre* y *Desafío diario*.
+- La pantalla no se apaga mientras juegas.
+
 ## Modos de juego
 
-- **Vuelo libre**: anillos que recargan balas y drones de práctica para disparar.
-- **Competición**: carrera contrarreloj por **hitos** (puertas con pilares). Entre hito e hito
-  eliges la ruta: la **baja**, entre edificios, tiene anillos azules que restan 1 s; la **alta**
-  tiene anillos verdes de acelerón. Tiempos parciales comparados con tu mejor vuelta
-  (verde/rojo) y clasificación online por circuito. 2 circuitos por escenario.
-- **Multijugador** (2 a 8 jugadores) con **código de sala** de 6 caracteres:
-  - *Vuelo libre en equipo*: contador de anillos compartido.
-  - *Carrera en grupo*: misma parrilla, salida sincronizada y clasificación de la sala.
+- **Vuelo libre**: anillos, drones de práctica y cajas de recompensa.
+- **Competición**: carrera contrarreloj por **hitos**. Entre hito e hito eliges ruta: la
+  **baja**, entre edificios, tiene anillos azules que restan 1 s; la **alta**, anillos verdes de
+  acelerón. Tiempos parciales frente a tu mejor vuelta y **fantasma** de tu récord.
+- **Desafío diario**: un circuito nuevo cada día (igual para todo el mundo, cambia a las 00:00
+  UTC) con su propia clasificación.
+- **Batalla** contra bots: *todos contra todos*, *equipos* (tú y bots aliados contra bots) o
+  *tú contra la máquina*. Límite de derribos y de tiempo configurables.
+- **Multijugador** (2 a 8 jugadores) con **código de sala**: vuelo libre en equipo, carrera en
+  grupo o batalla (todos contra todos, equipos Naranja vs Azul o todos contra la máquina, con
+  bots de relleno que simula el anfitrión).
+
+## Orientación en las carreras
+
+Para no perderse en un mundo abierto, sin mover los hitos (sería injusto en la clasificación):
+
+- Circuitos compactos: ~800 m entre hitos.
+- **Haz de luz** vertical en el siguiente hito (y uno tenue en el posterior), visible a km.
+- **Flecha 3D** delante del avión apuntando al siguiente hito.
+- **Radar** orientado al rumbo, con el siguiente hito, el posterior y la ruta.
+- **Fuera de ruta**: si te alejas, aparece *Volver a la ruta* (tecla R): vuelves al último hito
+  con 3 s de penalización.
 
 ## Combate y daños
 
-- **Disparo** con balas trazadoras, fogonazos, chispas, humo y explosiones con onda expansiva.
+- **Disparo** con trazadoras, fogonazos, chispas, humo y explosiones con onda expansiva.
 - **Apuntado asistido**: fija el objetivo dentro de un cono de 20° y corrige la anticipación.
-- **Munición** limitada (160). Se recarga al pasar por hitos (+80) o anillos (+40).
-- **Blindaje**: los impactos quitan vida; con mucho daño el avión sale humeando y explota.
-- **Choques**: un roce o un golpe leve (contra edificios, suelo u otro avión) produce chispas,
-  daños y un breve aturdimiento; solo un golpe fuerte destruye el avión. En carrera
-  reapareces en el último hito, habiendo perdido tiempo.
+- **Misiles con fijación** (2 al empezar, máx. 4): necesitan el blanco fijado. Persiguen al
+  objetivo; se pueden esquivar con un giro brusco o con **bengalas** (3, se recargan solas).
+  Aviso de *MISIL* con su dirección.
+- **Recompensas**: escudo, munición (+2 misiles), reparación, turbo infinito y doble daño.
+- **Blindaje**: los impactos quitan vida; con mucho daño el avión humea y explota.
+- **Choques**: un roce o un golpe leve produce chispas, daño y aturdimiento; solo un golpe
+  fuerte destruye el avión.
+
+## Progreso
+
+- **Créditos** por anillos, drones, carreras, batallas, desafíos y logros.
+- **Hangar**: 4 aviones (Halcón, Raptor, Tifón, Colibrí) con velocidad, agilidad y blindaje
+  distintos; 8 pinturas; mejoras de motor, blindaje y cargador (3 niveles).
+- **19 logros**, algunos desbloquean pinturas o aviones.
+- **Repetición** de las mejores jugadas (derribos, misiles, rozaduras, meta) con cámara
+  cinematográfica y cámara lenta.
 
 ## Controles
 
@@ -37,14 +77,17 @@ proceduralmente (infinitas), atraviesa anillos, compite contrarreloj y juega con
 | --- | --- | --- | --- |
 | Cabeceo / alabeo | Joystick | W/S · A/D (o flechas) | Stick izquierdo |
 | Disparo | Disparo | F, J o clic izquierdo | X / LT |
+| Misil | Misil | Q o clic derecho | RB |
+| Bengalas | Bengalas | G | LB |
 | Turbo | Turbo | Espacio / Shift | A / RT |
 | Subir | Subir | E | B |
+| Volver a la ruta | botón en pantalla | R | — |
 | Cambiar vista | Vista | C | Y |
 | Pausa | ❚❚ | P / Esc | Start |
 
-En **Ajustes → Personalizar controles táctiles** puedes mover cada control, cambiar su
-tamaño (60-200 %) y su opacidad (20-100 %). También: sensibilidad, apuntado asistido,
-eje vertical invertido, sonido y efectos visuales.
+**Ajustes**: personalizar controles táctiles (posición, tamaño, opacidad), sensibilidad,
+apuntado asistido, **clima** (variable: lluvia, niebla, tormenta con rayos y turbulencias,
+nieve / siempre despejado), **vibración**, fantasma, eje invertido, sonido y efectos.
 
 ## Tecnologías
 
@@ -125,6 +168,7 @@ Realtime Database (`rooms/{CODE}`):
 - `players/{uid}` → nombre, color · `pos/{uid}` → posición y estado (10 Hz)
 - `events/{id}` → impactos, choques y derribos dirigidos a un jugador
 - `results/{uid}` → tiempo de carrera · `rings/{id}` → anillos recogidos por el equipo
+- `bots/{botId}` → estado de los bots (solo escribe el anfitrión) · `score/{id}` → derribos y caídas
 
 Las reglas (`firestore.rules`, `database.rules.json`) solo permiten a cada jugador escribir
 sus propios datos, validan los campos, y en las clasificaciones solo aceptan **mejoras**.
@@ -150,6 +194,18 @@ src/
   settings.ts      Ajustes guardados
   audio.ts         Sonido sintetizado
   firebase.ts      Auth anónima, clasificaciones, emuladores
+  pwa.ts           Instalación, actualizaciones, pantalla encendida
+  nav.ts           Flecha guía y radar
+  weather.ts       Clima
+  ghost.ts         Fantasma de la mejor vuelta
+  powerups.ts      Recompensas
+  missiles.ts      Misiles y bengalas
+  bots.ts          IA de los bots
+  battle.ts        Reglas y marcador de batalla
+  progress.ts      Créditos, logros, hangar
+  daily.ts         Desafío diario
+  replay.ts        Grabación y repetición cinematográfica
+  haptics.ts       Vibración
   stages.ts        Definición de escenarios (paletas, agua, alturas)
   world/
     noise.ts       Hash y ruido deterministas

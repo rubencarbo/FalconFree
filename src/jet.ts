@@ -34,6 +34,9 @@ export class Flight {
   burst = 0;
   /** congelado (cuenta atrás) */
   frozen = false;
+  /** Multiplicadores del avión elegido y sus mejoras */
+  speedMul = 1;
+  agility = 1;
   private prevY = 500;
 
   reset(x: number, y: number, z: number, yaw: number) {
@@ -84,27 +87,27 @@ export class Flight {
     // Alabeo: el stick fija el ángulo objetivo, vuelve a nivel al soltar
     const maxRoll = THREE.MathUtils.degToRad(72);
     const targetRoll = -input.x * maxRoll;
-    this.roll += (targetRoll - this.roll) * Math.min(1, dt * 3.2);
+    this.roll += (targetRoll - this.roll) * Math.min(1, dt * 3.2 * this.agility);
 
     // Cabeceo
     const py = input.climb ? 1 : input.y;
     const pitchRate = 0.95 * (0.6 + 0.4 * Math.min(1, this.speed / (CRUISE_KMH / KMH)));
-    this.pitch += py * pitchRate * dt;
+    this.pitch += py * pitchRate * this.agility * dt;
     // Ligera recuperación hacia el horizonte sin input
     if (Math.abs(py) < 0.05) this.pitch *= 1 - Math.min(1, dt * 0.25);
     const maxPitch = THREE.MathUtils.degToRad(80);
     this.pitch = THREE.MathUtils.clamp(this.pitch, -maxPitch, maxPitch);
 
     // Giro coordinado por alabeo
-    this.yaw += Math.sin(this.roll) * 0.95 * dt;
+    this.yaw += Math.sin(this.roll) * 0.95 * this.agility * dt;
 
     // Velocidad: empuje + gravedad
-    const target = (this.burst > 0 ? MAX_KMH : input.boost ? BOOST_KMH : CRUISE_KMH) / KMH;
+    const target = ((this.burst > 0 ? MAX_KMH : input.boost ? BOOST_KMH : CRUISE_KMH) / KMH) * (this.burst > 0 ? 1 : this.speedMul);
     const accel = this.burst > 0 ? 260 : input.boost ? 110 : 45;
     if (this.speed < target) this.speed = Math.min(target, this.speed + accel * dt);
     else this.speed = Math.max(target, this.speed - 35 * dt);
     this.speed -= Math.sin(this.pitch) * 9.81 * 1.6 * dt;
-    this.speed = THREE.MathUtils.clamp(this.speed, MIN_KMH / KMH, MAX_KMH / KMH);
+    this.speed = THREE.MathUtils.clamp(this.speed, MIN_KMH / KMH, (MAX_KMH / KMH) * Math.max(1, this.speedMul));
     this.thrust += ((input.boost || this.burst > 0 ? 1 : 0.55) - this.thrust) * Math.min(1, dt * 3);
 
     const f = this.forward(_v);
@@ -124,7 +127,7 @@ export class JetModel {
   private flames: THREE.Mesh[] = [];
   readonly wingTips = [new THREE.Vector3(-7.2, 0.1, 3.6), new THREE.Vector3(7.2, 0.1, 3.6)];
 
-  constructor(accentColor = 0xff7a1a, bodyColor = 0x40454e) {
+  constructor(accentColor = 0xff7a1a, bodyColor = 0x40454e, variant: 'falcon' | 'raptor' | 'typhoon' | 'colibri' = 'falcon') {
     const body = new THREE.MeshLambertMaterial({ color: bodyColor });
     const dark = new THREE.MeshLambertMaterial({ color: 0x2a2d33 });
     const wingMat = new THREE.MeshLambertMaterial({ color: 0x4d535d });
@@ -176,6 +179,26 @@ export class JetModel {
     // Toberas
     add(1.1, 1.1, 1.2, -0.6, 0, 6.6, dark);
     add(1.1, 1.1, 1.2, 0.6, 0, 6.6, dark);
+    // Variantes
+    if (variant === 'raptor') {
+      add(0.9, 0.9, 3, 0, -0.1, -11.5, body);
+      add(0.4, 0.4, 1.2, 0, -0.1, -13.4, dark);
+      add(16.5, 0.3, 1.2, 0, -0.25, 3.9, wingMat);
+      add(1.2, 0.4, 1.4, -8, -0.2, 3.9, accent);
+      add(1.2, 0.4, 1.4, 8, -0.2, 3.9, accent);
+    } else if (variant === 'typhoon') {
+      add(3.4, 2.6, 9, 0, -0.2, 1.5, body);
+      add(1.6, 1.6, 1.6, -1.2, -0.2, 6.6, dark);
+      add(1.6, 1.6, 1.6, 1.2, -0.2, 6.6, dark);
+      add(17, 0.5, 2.2, 0, -0.3, 2.8, wingMat);
+      add(2, 0.6, 1.6, -8.2, -0.25, 2.8, accent);
+      add(2, 0.6, 1.6, 8.2, -0.25, 2.8, accent);
+    } else if (variant === 'colibri') {
+      this.group.scale.setScalar(0.85);
+      add(5.6, 0.3, 1.1, 0, 0.2, -6.4, accent);
+      add(1.2, 0.3, 1.1, -2.6, 0.5, -6.4, accent).rotation.z = 0.5;
+      add(1.2, 0.3, 1.1, 2.6, 0.5, -6.4, accent).rotation.z = -0.5;
+    }
     // Luces de navegación
     add(0.4, 0.4, 0.4, -7.3, -0.1, 3.4, red);
     add(0.4, 0.4, 0.4, 7.3, -0.1, 3.4, green);

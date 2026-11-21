@@ -368,7 +368,36 @@ export class Fx {
     }
   }
 
-  /** Polvo/agua al rozar el suelo */
+  /** Estela de un misil */
+  missileTrail(pos: THREE.Vector3, dir: THREE.Vector3) {
+    this.glow.spawn({ x: pos.x - dir.x * 2.5, y: pos.y - dir.y * 2.5, z: pos.z - dir.z * 2.5, life: 0.12, size0: 1.6, size1: 0.4, color: pick(FIRE) });
+    if (Math.random() < (this.high ? 0.9 : 0.5)) {
+      this.smoke.spawn({
+        x: pos.x - dir.x * 3,
+        y: pos.y - dir.y * 3,
+        z: pos.z - dir.z * 3,
+        vy: rnd(0.5, 2),
+        life: rnd(1.2, 2.2),
+        size0: 1,
+        size1: rnd(3, 5),
+        color: pick([0xd8d8d8, 0xc0c0c0, 0xeeeeee]),
+        drag: 1,
+      });
+    }
+  }
+
+  /** Bengala incandescente */
+  flareSpark(pos: THREE.Vector3) {
+    this.glow.spawn({ x: pos.x, y: pos.y, z: pos.z, life: 0.25, size0: 2.4, size1: 0.6, color: pick([0xffffff, 0xfff2b0, 0xffd040]) });
+    if (Math.random() < 0.5) this.smoke.spawn({ x: pos.x, y: pos.y, z: pos.z, vy: 1, life: 1.2, size0: 0.8, size1: 3, color: 0xdddddd, drag: 1 });
+  }
+
+  /** Burbuja de escudo: chispas azules alrededor */
+  shieldSpark(pos: THREE.Vector3) {
+    const d = this._v.set(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).normalize().multiplyScalar(11);
+    this.glow.spawn({ x: pos.x + d.x, y: pos.y + d.y, z: pos.z + d.z, life: 0.2, size0: 0.9, size1: 0.2, color: 0x40e0ff });
+  }
+
   update(dt: number) {
     this.glow.update(dt);
     this.smoke.update(dt);

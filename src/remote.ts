@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { JetModel, Flight } from './jet';
-import type { NetState, PlayerInfo } from './net';
+import type { BotNet, NetState, PlayerInfo } from './net';
+import { TEAM_COLORS } from './bots';
 import type { Target } from './combat';
 import type { Fx } from './fx';
 import type { Guns } from './combat';
@@ -47,13 +48,17 @@ class RemotePlayer {
     public info: PlayerInfo,
     private scene: THREE.Scene,
   ) {
-    this.jet = new JetModel(info.color, 0x3a3f48);
+    this.jet = new JetModel(info.team ? TEAM_COLORS[info.team] : info.color, 0x3a3f48);
     this.tex = nameTexture(info.name, info.color);
     this.tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.tex, depthTest: false, sizeAttenuation: false }));
     this.tag.scale.set(0.16, 0.04, 1);
     this.tag.renderOrder = 10;
     scene.add(this.jet.group, this.tag);
     this.target = { id: uid, name: info.name, pos: new THREE.Vector3(), vel: new THREE.Vector3(), radius: 9, alive: false };
+  }
+
+  get flaresActive() {
+    return this.target.flares === true;
   }
 
   push(s: NetState) {
@@ -104,6 +109,7 @@ class RemotePlayer {
     this.hp = cur.hp;
     this.firing = cur.f === 1;
     this.alive = cur.a === 1;
+    this.target.flares = cur.fl === 1;
 
     this.target.pos.copy(f.pos);
     // Velocidad a partir del estado enviado (robusto ante saltos/reapariciones)
@@ -151,13 +157,22 @@ export class RemotePlayers {
 
   constructor(private scene: THREE.Scene) {}
 
-  sync(players: Map<string, PlayerInfo>, myUid: string) {
+  sync(players: Map<string, PlayerInfo>, myUid: string, bots?: Map<string, BotNet>) {
     for (const [uid, info] of players) {
       if (uid === myUid) continue;
       if (!this.map.has(uid)) this.map.set(uid, new RemotePlayer(uid, info, this.scene));
     }
+    if (bots) {
+      for (const [id, b] of bots) {
+        if (!this.map.has(id)) {
+          const color = b.tm ? TEAM_COLORS[b.tm] : b.c;
+          this.map.set(id, new RemotePlayer(id, { name: b.n, color, joinedAt: 0, team: b.tm }, this.scene));
+        }
+        this.map.get(id)!.push(b);
+      }
+    }
     for (const [uid, p] of this.map) {
-      if (!players.has(uid)) {
+      if (!players.has(uid) && !bots?.has(uid)) {
         p.dispose();
         this.map.delete(uid);
       }

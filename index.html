@@ -3,12 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <meta name="theme-color" content="#1b2a44" />
+    <meta name="theme-color" content="#14213a" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="FalconFree" />
     <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="description" content="FalconFree: vuela un caza sobre una ciudad vóxel infinita, compite en carreras y juega con amigos." />
+    <meta name="description" content="FalconFree: vuela un caza sobre una ciudad vóxel infinita, compite en carreras y batallas y juega con amigos." />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <title>FalconFree</title>
   </head>
   <body>
@@ -25,32 +28,59 @@
           <div class="bars">
             <div class="bar"><span class="bar-label">Blindaje</span><span class="track"><i id="hud-hp"></i></span></div>
             <div class="bar ammo"><span class="bar-label">Balas <b id="hud-ammo-text">0</b></span><span class="track"><i id="hud-ammo"></i></span></div>
+            <div class="weapons"><span>Misiles <b id="hud-missiles">0</b></span><span>Bengalas <b id="hud-flares">0</b></span></div>
           </div>
+          <div id="powerups"></div>
         </div>
         <div class="top-right">
           <button id="btn-stage" class="pill">Cambiar escenario</button>
           <button id="btn-view" class="pill">Vista: Básica</button>
           <button id="btn-pause" class="pill icon" aria-label="Pausa">❚❚</button>
+          <canvas id="radar" aria-label="Radar"></canvas>
         </div>
         <div id="race-timer" class="hidden">0:00.00</div>
+        <div id="battle-score" class="hidden"></div>
         <div id="race-split"></div>
+        <div id="killfeed"></div>
         <div id="countdown"></div>
         <div id="ring-marker"><span class="diamond"></span><span id="ring-label"></span><span id="ring-dist"></span></div>
         <div id="lock"><span id="lock-name"></span></div>
         <div id="hitmarker"></div>
         <div id="toast"></div>
         <div id="warning">¡ASCIENDE!</div>
+        <div id="missile-warning"><span class="mw-arrow"></span><b>MISIL</b><small>Bengalas: G / botón</small></div>
+        <div id="offroute">
+          <span>Te has alejado del siguiente hito</span>
+          <button id="btn-route-reset" class="pill">Volver a la ruta (+3 s) · R</button>
+        </div>
+        <div id="ach-banner"><span class="medal"></span><div><span>Logro desbloqueado</span><b></b><small></small></div></div>
         <div id="joy-zone"><div id="joy-base"><div id="joy-knob"></div></div></div>
         <button id="btn-climb" class="round">Subir</button>
         <button id="btn-fire" class="round">Disparo</button>
+        <button id="btn-missile" class="round">Misil</button>
+        <button id="btn-flare" class="round">Bengalas</button>
         <button id="btn-boost" class="round">Turbo</button>
-        <div id="keys-hint">W/S cabeceo · A/D alabeo · Espacio turbo · F o clic disparo · E subir · C vista · P pausa</div>
+        <div id="keys-hint">W/S/A/D vuelo · Espacio turbo · F/clic disparo · Q/clic dcho. misil · G bengalas · E subir · C vista · P pausa</div>
+      </div>
+
+      <div id="replay-ui" class="hidden">
+        <div class="letterbox top"><span class="rec">● REPETICIÓN</span><span id="replay-label"></span></div>
+        <div class="letterbox bottom"><button id="btn-replay-skip" class="pill">Saltar repetición</button></div>
+      </div>
+
+      <div id="update-banner" class="hidden">
+        <span>Hay una nueva versión de FalconFree</span>
+        <button id="btn-update" class="pill strong">Actualizar</button>
+        <button id="btn-update-later" class="pill">Luego</button>
       </div>
 
       <div id="menu" class="overlay">
         <div class="panel menu-panel">
-          <h1>Falcon<span>Free</span></h1>
-          <p class="tagline">Vuela sobre ciudades vóxel, compite contra el reloj y juega con tus amigos.</p>
+          <div class="menu-head">
+            <h1>Falcon<span>Free</span></h1>
+            <span id="menu-credits" class="credits">0 créditos</span>
+          </div>
+          <p class="tagline">Vuela sobre ciudades vóxel, compite contra el reloj, combate y juega con tus amigos.</p>
           <label class="field">
             <span>Nombre de piloto</span>
             <input id="pilot-name" maxlength="16" placeholder="Piloto" autocomplete="off" />
@@ -60,23 +90,65 @@
             <div id="stage-list" class="stage-list"></div>
           </div>
           <div class="modes">
-            <button id="btn-start" class="mode-btn primary"><b>Vuelo libre</b><small>Anillos y drones de práctica</small></button>
-            <button id="btn-race" class="mode-btn race"><b>Competición</b><small>Carrera contrarreloj por hitos</small></button>
+            <button id="btn-start" class="mode-btn primary"><b>Vuelo libre</b><small>Anillos, drones y recompensas</small></button>
+            <button id="btn-race" class="mode-btn race"><b>Competición</b><small>Contrarreloj por hitos</small></button>
+            <button id="btn-daily" class="mode-btn daily"><b>Desafío diario</b><small id="daily-sub">Un circuito nuevo cada día</small></button>
+            <button id="btn-battle" class="mode-btn battle"><b>Batalla</b><small>Contra bots: todos, equipos o cooperativo</small></button>
             <button id="btn-mp" class="mode-btn mp"><b>Multijugador</b><small>Invita con un código</small></button>
           </div>
           <div class="row">
+            <button id="btn-hangar" class="secondary">Hangar</button>
+            <button id="btn-achievements" class="secondary">Logros</button>
             <button id="btn-board" class="secondary">Clasificación</button>
             <button id="btn-settings" class="secondary">Ajustes</button>
           </div>
+          <button id="btn-install" class="install hidden">Instalar app</button>
           <p id="fb-status" class="muted"></p>
+        </div>
+      </div>
+
+      <div id="install-help" class="overlay hidden">
+        <div class="panel">
+          <h2>Instalar en iPhone o iPad</h2>
+          <ol class="steps">
+            <li>Abre FalconFree en <b>Safari</b>.</li>
+            <li>Toca el botón <b>Compartir</b> (el cuadrado con la flecha hacia arriba).</li>
+            <li>Elige <b>Añadir a pantalla de inicio</b> y confirma.</li>
+          </ol>
+          <p class="muted left">Se abrirá a pantalla completa, como una app, y podrás jugar sin conexión a los modos en solitario.</p>
+          <button class="primary" data-close>Entendido</button>
         </div>
       </div>
 
       <div id="course-picker" class="overlay hidden">
         <div class="panel">
           <h2>Competición</h2>
-          <p class="muted left">Escenario: <b id="course-stage"></b>. Pasa por todos los hitos en orden. Entre hito e hito elige tu ruta: la <span class="tag time">baja</span> tiene anillos que restan 1 s, la <span class="tag boost">alta</span> anillos de acelerón. Cada hito recarga balas.</p>
+          <p class="muted left">Escenario: <b id="course-stage"></b>. Pasa por todos los hitos en orden: el siguiente tiene un <span class="tag beam">haz de luz</span> y la flecha y el radar te guían. Entre hito e hito elige ruta: la <span class="tag time">baja</span> tiene anillos que restan 1 s, la <span class="tag boost">alta</span> anillos de acelerón. Si te pierdes, pulsa <b>R</b> para volver a la ruta (+3 s).</p>
           <div id="course-list" class="stage-list"></div>
+          <button class="secondary" data-close>Cancelar</button>
+        </div>
+      </div>
+
+      <div id="battle-picker" class="overlay hidden">
+        <div class="panel">
+          <h2>Batalla contra bots</h2>
+          <label class="field"><span>Modo</span>
+            <select id="bp-bkind">
+              <option value="ffa">Todos contra todos</option>
+              <option value="teams">Equipos: tú y bots aliados contra bots</option>
+              <option value="coop">Tú contra la máquina</option>
+            </select>
+          </label>
+          <label class="field slider"><span>Bots <b id="bp-bots-val">4</b></span><input id="bp-bots" type="range" min="1" max="7" step="1" value="4" /></label>
+          <div class="two">
+            <label class="field"><span>Derribos para ganar</span>
+              <select id="bp-blimit"><option value="5">5</option><option value="10" selected>10</option><option value="20">20</option></select>
+            </label>
+            <label class="field"><span>Tiempo</span>
+              <select id="bp-btime"><option value="180">3 min</option><option value="300" selected>5 min</option><option value="600">10 min</option></select>
+            </label>
+          </div>
+          <button id="btn-battle-go" class="primary">Empezar batalla</button>
           <button class="secondary" data-close>Cancelar</button>
         </div>
       </div>
@@ -91,9 +163,24 @@
                 <select id="mp-mode">
                   <option value="free">Vuelo libre en equipo</option>
                   <option value="race">Carrera en grupo</option>
+                  <option value="battle">Batalla</option>
                 </select>
               </label>
               <label id="mp-course-field" class="field hidden"><span>Circuito</span><select id="mp-course"></select></label>
+              <div id="mp-battle" class="hidden battle-opts">
+                <label class="field"><span>Tipo de batalla</span>
+                  <select id="mp-bkind">
+                    <option value="ffa">Todos contra todos</option>
+                    <option value="teams">Equipos: Naranja vs Azul</option>
+                    <option value="coop">Todos contra la máquina</option>
+                  </select>
+                </label>
+                <label class="field slider"><span>Bots <b id="mp-bots-val">2</b></span><input id="mp-bots" type="range" min="0" max="6" step="1" value="2" /></label>
+                <div class="two">
+                  <label class="field"><span>Derribos</span><select id="mp-blimit"><option value="5">5</option><option value="10" selected>10</option><option value="20">20</option></select></label>
+                  <label class="field"><span>Tiempo</span><select id="mp-btime"><option value="180">3 min</option><option value="300" selected>5 min</option><option value="600">10 min</option></select></label>
+                </div>
+              </div>
               <button id="btn-mp-create" class="primary">Crear y obtener código</button>
             </section>
             <section class="mp-box">
@@ -119,15 +206,31 @@
           </div>
           <div class="lobby-head"><span>Pilotos</span><span id="lobby-count" class="muted"></span></div>
           <ul id="lobby-players" class="lobby-players"></ul>
+          <button id="btn-team" class="secondary hidden">Cambiar de equipo</button>
           <div class="lobby-opts">
             <label class="field"><span>Modo</span>
               <select id="lobby-mode">
                 <option value="free">Vuelo libre en equipo</option>
                 <option value="race">Carrera en grupo</option>
+                <option value="battle">Batalla</option>
               </select>
             </label>
             <label class="field"><span>Escenario</span><select id="lobby-stage"></select></label>
             <label id="lobby-course-field" class="field"><span>Circuito</span><select id="lobby-course"></select></label>
+          </div>
+          <div id="lobby-battle" class="battle-opts hidden">
+            <label class="field"><span>Tipo de batalla</span>
+              <select id="lobby-bkind">
+                <option value="ffa">Todos contra todos</option>
+                <option value="teams">Equipos: Naranja vs Azul</option>
+                <option value="coop">Todos contra la máquina</option>
+              </select>
+            </label>
+            <label class="field slider"><span>Bots <b id="lobby-bots-val">2</b></span><input id="lobby-bots" type="range" min="0" max="6" step="1" value="2" /></label>
+            <div class="two">
+              <label class="field"><span>Derribos</span><select id="lobby-blimit"><option value="5">5</option><option value="10">10</option><option value="20">20</option></select></label>
+              <label class="field"><span>Tiempo</span><select id="lobby-btime"><option value="180">3 min</option><option value="300">5 min</option><option value="600">10 min</option></select></label>
+            </div>
           </div>
           <button id="btn-lobby-start" class="primary">Empezar</button>
           <p id="lobby-wait" class="muted">Esperando a que el anfitrión empiece…</p>
@@ -148,6 +251,7 @@
           <h2>Pausa</h2>
           <button id="btn-resume" class="primary">Continuar</button>
           <button id="btn-restart" class="secondary">Reiniciar</button>
+          <button id="btn-pause-replay" class="secondary">Ver repetición</button>
           <button id="btn-pause-settings" class="secondary">Ajustes</button>
           <button id="btn-pause-menu" class="secondary">Menú principal</button>
           <button id="btn-room-lobby" class="secondary hidden">Volver todos a la sala</button>
@@ -164,10 +268,36 @@
             <input id="set-sensitivity" type="range" min="50" max="150" step="5" value="100" />
           </label>
           <button id="set-aim" class="toggle" aria-pressed="true"><span>Apuntado asistido</span><b>Activado</b></button>
+          <button id="set-weather" class="toggle" aria-pressed="true"><span>Clima</span><b>Variable</b></button>
+          <button id="set-vibration" class="toggle" aria-pressed="true"><span>Vibración</span><b>Sí</b></button>
+          <button id="set-ghost" class="toggle" aria-pressed="true"><span>Fantasma en carreras</span><b>Sí</b></button>
           <button id="set-invert" class="toggle" aria-pressed="false"><span>Eje vertical</span><b>Normal</b></button>
           <button id="set-sound" class="toggle" aria-pressed="true"><span>Sonido</span><b>Sí</b></button>
           <button id="set-effects" class="toggle" aria-pressed="true"><span>Efectos visuales (brillo)</span><b>Altos</b></button>
           <button class="primary" data-close>Listo</button>
+        </div>
+      </div>
+
+      <div id="hangar" class="overlay hidden">
+        <div class="panel wide">
+          <div class="menu-head"><h2>Hangar</h2><span id="hangar-credits" class="credits">0 créditos</span></div>
+          <div id="hangar-tabs" class="tabs">
+            <button data-tab="planes">Aviones</button>
+            <button data-tab="paints">Pinturas</button>
+            <button data-tab="upgrades">Mejoras</button>
+          </div>
+          <div id="hangar-list" class="hangar-list"></div>
+          <p class="muted">Gana créditos con anillos, drones, carreras, batallas y logros.</p>
+          <button class="primary" data-close>Listo</button>
+        </div>
+      </div>
+
+      <div id="achievements" class="overlay hidden">
+        <div class="panel wide">
+          <h2>Logros</h2>
+          <p id="ach-count" class="muted left"></p>
+          <ul id="ach-list" class="ach-list"></ul>
+          <button class="primary" data-close>Cerrar</button>
         </div>
       </div>
 
@@ -193,8 +323,10 @@
             <div><span>Drones</span><b id="crash-kills">0</b></div>
             <div><span>Récord</span><b id="crash-best">0</b></div>
           </div>
+          <p id="crash-credits" class="credits-line"></p>
           <p id="crash-msg" class="muted"></p>
           <button id="btn-retry" class="primary">Volver a volar</button>
+          <button id="btn-crash-replay" class="secondary">Ver repetición</button>
           <button id="btn-crash-menu" class="secondary">Menú principal</button>
         </div>
       </div>
@@ -204,6 +336,7 @@
           <h2 id="rr-title">¡Carrera completada!</h2>
           <p id="rr-course" class="muted left"></p>
           <div class="rr-time" id="rr-time">0:00.00</div>
+          <p id="rr-credits" class="credits-line"></p>
           <ol id="rr-splits" class="splits"></ol>
           <div id="rr-room" class="hidden">
             <div class="lobby-head"><span>Clasificación de la sala</span></div>
@@ -216,8 +349,25 @@
           <div id="rr-solo-actions">
             <p id="rr-msg" class="muted"></p>
             <button id="btn-rr-retry" class="primary">Repetir carrera</button>
+            <button id="btn-rr-replay" class="secondary">Ver repetición</button>
             <button id="btn-rr-menu" class="secondary">Menú principal</button>
           </div>
+        </div>
+      </div>
+
+      <div id="battle-results" class="overlay hidden">
+        <div class="panel">
+          <h2 id="br-title">Fin de la batalla</h2>
+          <p id="br-sub" class="muted left"></p>
+          <div id="br-teams" class="br-teams hidden"></div>
+          <p id="br-credits" class="credits-line"></p>
+          <ol id="br-list" class="board-list"></ol>
+          <button id="btn-br-again" class="primary">Otra batalla</button>
+          <button id="btn-br-replay" class="secondary">Ver repetición</button>
+          <button id="btn-br-lobby" class="secondary">Volver a la sala</button>
+          <p id="br-wait" class="muted">El anfitrión decide la siguiente batalla.</p>
+          <button id="btn-br-menu" class="secondary">Menú principal</button>
+          <button id="btn-br-leave" class="secondary">Salir de la sala</button>
         </div>
       </div>
 

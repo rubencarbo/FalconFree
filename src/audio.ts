@@ -197,4 +197,25 @@ export class GameAudio {
     this.tone(520, 0.06, 'square', 0.06);
     this.tone(780, 0.08, 'square', 0.06, 0.08);
   }
+
+  /** Trueno: retumbo grave con retardo según la distancia del rayo */
+  thunder(distance: number) {
+    if (!this.ctx || !this.master || !this.noiseBuf) return;
+    const delay = Math.min(4, distance / 343);
+    const t = this.ctx.currentTime + delay;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.noiseBuf;
+    const f = this.ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.setValueAtTime(400, t);
+    f.frequency.exponentialRampToValueAtTime(60, t + 3);
+    const g = this.ctx.createGain();
+    const vol = Math.max(0.3, 1.4 - distance / 2500);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.15);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 3.2);
+    src.connect(f).connect(g).connect(this.master);
+    src.start(t, Math.random());
+    src.stop(t + 3.3);
+  }
 }

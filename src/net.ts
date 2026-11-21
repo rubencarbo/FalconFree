@@ -20,8 +20,10 @@ import {
 } from 'firebase/database';
 import { firebase } from './firebase';
 import type { StageId } from './stages';
+import type { Team } from './bots';
+import type { BattleKind } from './battle';
 
-export type RoomMode = 'free' | 'race';
+export type RoomMode = 'free' | 'race' | 'battle';
 export type RoomState = 'lobby' | 'countdown' | 'running';
 
 export interface RoomMeta {
@@ -33,12 +35,25 @@ export interface RoomMeta {
   startAt: number;
   round: number;
   createdAt: number;
+  /** Batalla: tipo, nº de bots, límite de derribos, límite de tiempo (s) */
+  bk?: BattleKind;
+  bb?: number;
+  bl?: number;
+  bt?: number;
 }
 
 export interface PlayerInfo {
   name: string;
   color: number;
   joinedAt: number;
+  team?: Team;
+}
+
+/** Bot simulado por el anfitrión */
+export interface BotNet extends NetState {
+  n: string;
+  c: number;
+  tm?: Team;
 }
 
 /** Estado de vuelo compacto que se envía ~10 veces por segundo */
@@ -58,9 +73,11 @@ export interface NetState {
   a: 0 | 1;
   /** hora del servidor (ms) */
   t: number;
+  /** bengalas activas */
+  fl?: 0 | 1;
 }
 
-export type NetEventType = 'hit' | 'bump' | 'crash' | 'kill';
+export type NetEventType = 'hit' | 'bump' | 'crash' | 'kill' | 'bhit' | 'mlaunch';
 
 export interface NetEvent {
   from: string;
@@ -69,6 +86,8 @@ export interface NetEvent {
   /** daño o intensidad */
   v: number;
   t: number;
+  /** bot implicado (si lo hay) */
+  b?: string;
 }
 
 export interface RaceResult {
@@ -103,6 +122,10 @@ export class Room {
   players = new Map<string, PlayerInfo>();
   results = new Map<string, RaceResult>();
   rings = new Set<string>();
+  bots = new Map<string, BotNet>();
+  scores = new Map<string, { k: number; d: number }>();
+  onBots?: () => void;
+  onScores?: () => void;
 
   onMeta?: (m: RoomMeta) => void;
   onPlayers?: () => void;
@@ -145,16 +168,29 @@ export class Room {
     return user.uid;
   }
 
-  static async create(name: string, mode: RoomMode, stage: StageId, course: string): Promise<Room> {
+  static async create(name: string, mode: RoomMode, stage: StageId, course: string, battle?: { kind: BattleKind; bots: number; kill: number; time: number }): Promise<Room> {
     const uid = await Room.ready();
     const db = firebase.database()!;
     for (let attempt = 0; attempt < 5; attempt++) {
       const code = randomCode();
-      const meta: RoomMeta = { host: uid, mode, stage, course, state: 'lobby', startAt: 0, round: 0, createdAt: Date.now() };
+      const meta: RoomMeta = {
+        host: uid,
+        mode,
+        stage,
+        course,
+        state: 'lobby',
+        startAt: 0,
+        round: 0,
+        createdAt: Date.now(),
+        bk: battle?.kind ?? 'ffa',
+        bb: battle?.bots ?? 2,
+        bl: battle?.kill ?? 10,
+        bt: battle?.time ?? 300,
+      };
       const res = await runTransaction(ref(db, `rooms/${code}/meta`), (cur) => (cur === null ? meta : undefined));
       if (!res.committed) continue;
       const room = new Room(code, uid, name);
-      await room.enter(0);
+      await room.enter(0, 'A');
       return room;
     }
     throw new NetError('No se pudo crear la sala. Inténtalo de nuevo.');
@@ -175,14 +211,17 @@ export class Room {
     if (meta.mode === 'race' && meta.state !== 'lobby' && !players[uid]) {
       throw new NetError('La carrera ya ha empezado. Espera a que vuelvan a la sala.');
     }
-    const used = new Set(Object.entries(players).filter(([k]) => k !== uid).map(([, p]) => p.color));
+    const others = Object.entries(players).filter(([k]) => k !== uid).map(([, p]) => p);
+    const used = new Set(others.map((p) => p.color));
     const colorIdx = PLAYER_COLORS.findIndex((c) => !used.has(c));
+    const a = others.filter((p) => p.team === 'A').length;
+    const b = others.filter((p) => p.team === 'B').length;
     const room = new Room(code, uid, name);
-    await room.enter(Math.max(0, colorIdx));
+    await room.enter(Math.max(0, colorIdx), a <= b ? 'A' : 'B');
     return room;
   }
 
-  private async enter(colorIdx: number) {
+  private async enter(colorIdx: number, team: Team) {
     const db = firebase.database()!;
     this.unsubs.push(
       onValue(ref(db, '.info/serverTimeOffset'), (s) => {
@@ -193,7 +232,7 @@ export class Room {
     const pos = ref(db, `rooms/${this.code}/pos/${this.uid}`);
     await onDisconnect(me).remove();
     await onDisconnect(pos).remove();
-    await set(me, { name: this.name, color: PLAYER_COLORS[colorIdx], joinedAt: serverTimestamp() });
+    await set(me, { name: this.name, color: PLAYER_COLORS[colorIdx], joinedAt: serverTimestamp(), team });
 
     this.unsubs.push(
       onValue(ref(db, `rooms/${this.code}/meta`), (s) => {
@@ -241,6 +280,18 @@ export class Room {
       onChildRemoved(ref(db, `rooms/${this.code}/rings`), (s) => {
         this.rings.delete(s.key!);
       }),
+      onValue(ref(db, `rooms/${this.code}/bots`), (s) => {
+        this.bots.clear();
+        const v = (s.val() ?? {}) as Record<string, BotNet>;
+        for (const [k, b] of Object.entries(v)) this.bots.set(k, b);
+        this.onBots?.();
+      }),
+      onValue(ref(db, `rooms/${this.code}/score`), (s) => {
+        this.scores.clear();
+        const v = (s.val() ?? {}) as Record<string, { k: number; d: number }>;
+        for (const [k, sc] of Object.entries(v)) this.scores.set(k, sc);
+        this.onScores?.();
+      }),
     );
   }
 
@@ -252,6 +303,35 @@ export class Room {
     if (oldest && oldest[0] === this.uid) {
       update(ref(firebase.database()!, `rooms/${this.code}/meta`), { host: this.uid }).catch(() => undefined);
     }
+  }
+
+  /** El anfitrión publica el estado de todos los bots en una sola escritura */
+  sendBots(list: (Omit<BotNet, 't'>)[]) {
+    if (this.closed || !this.isHost) return;
+    const t = Math.round(this.serverNow());
+    const r = (v: number) => Math.round(v * 10) / 10;
+    const r3 = (v: number) => Math.round(v * 1000) / 1000;
+    const out: Record<string, BotNet> = {};
+    list.forEach((b, i) => {
+      const o: BotNet = { x: r(b.x), y: r(b.y), z: r(b.z), yaw: r3(b.yaw), pitch: r3(b.pitch), roll: r3(b.roll), s: r(b.s), f: b.f, hp: Math.round(b.hp), a: b.a, t, n: b.n, c: b.c };
+      if (b.tm) o.tm = b.tm;
+      out[`bot${i + 1}`] = o;
+    });
+    set(ref(firebase.database()!, `rooms/${this.code}/bots`), out).catch(() => undefined);
+  }
+
+  async clearBots() {
+    if (!this.isHost) return;
+    await remove(ref(firebase.database()!, `rooms/${this.code}/bots`)).catch(() => undefined);
+  }
+
+  setScore(id: string, k: number, d: number) {
+    if (this.closed) return;
+    set(ref(firebase.database()!, `rooms/${this.code}/score/${id}`), { k, d }).catch(() => undefined);
+  }
+
+  async setTeam(team: Team) {
+    await update(ref(firebase.database()!, `rooms/${this.code}/players/${this.uid}`), { team });
   }
 
   sendState(s: Omit<NetState, 't'>) {
@@ -269,13 +349,15 @@ export class Room {
       f: s.f,
       hp: Math.round(s.hp),
       a: s.a,
+      fl: s.fl ?? 0,
       t: Math.round(this.serverNow()),
     }).catch(() => undefined);
   }
 
-  sendEvent(to: string, type: NetEventType, v: number) {
+  sendEvent(to: string, type: NetEventType, v: number, b?: string) {
     if (this.closed) return;
     const e: NetEvent = { from: this.uid, to, type, v: Math.round(v * 10) / 10, t: Math.round(this.serverNow()) };
+    if (b) e.b = b;
     push(ref(firebase.database()!, `rooms/${this.code}/events`), e).catch(() => undefined);
   }
 
@@ -290,6 +372,7 @@ export class Room {
     const db = firebase.database()!;
     await remove(ref(db, `rooms/${this.code}/results`));
     await remove(ref(db, `rooms/${this.code}/rings`)).catch(() => undefined);
+    await remove(ref(db, `rooms/${this.code}/score`)).catch(() => undefined);
     await this.setMeta({ state: 'countdown', startAt: Math.round(this.serverNow() + 5000), round: this.meta.round + 1 });
   }
 

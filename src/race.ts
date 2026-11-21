@@ -13,8 +13,8 @@ export interface CourseDef {
 }
 
 export const COURSES: CourseDef[] = [
-  { id: 'sprint', name: 'Sprint', description: '7 hitos · circuito corto y rápido', gates: 7, radius: 1300, seedOffset: 11 },
-  { id: 'grand', name: 'Gran circuito', description: '12 hitos · ruta larga con muchas variantes', gates: 12, radius: 2600, seedOffset: 29 },
+  { id: 'sprint', name: 'Sprint', description: '7 hitos · circuito corto y rápido', gates: 7, radius: 900, seedOffset: 11 },
+  { id: 'grand', name: 'Gran circuito', description: '12 hitos · ruta larga con muchas variantes', gates: 12, radius: 1700, seedOffset: 29 },
 ];
 
 export interface Gate {
@@ -179,6 +179,7 @@ interface GateVis {
   group: THREE.Group;
   frameMat: THREE.MeshLambertMaterial;
   field: THREE.Mesh;
+  beam: THREE.Mesh;
 }
 
 /** Sesión de carrera: visuales, paso por hitos, tiempos parciales */
@@ -222,6 +223,16 @@ export class Race {
     return this.course.gates[this.nextGate].pos;
   }
 
+  /** Hito posterior al siguiente (para el radar) */
+  get followingGatePos() {
+    return this.course.gates[(this.nextGate + 1) % this.totalCheckpoints].pos;
+  }
+
+  /** Penalización de tiempo (s) */
+  penalty(sec: number) {
+    this.bonusTime -= sec;
+  }
+
   private buildVisuals() {
     const checker = checkerTexture();
     checker.wrapS = THREE.RepeatWrapping;
@@ -230,6 +241,17 @@ export class Race {
     this.disposables.push(box);
     const pylonMat = new THREE.MeshLambertMaterial({ color: 0x3a4050 });
     this.disposables.push(pylonMat);
+    const beamGeo = new THREE.CylinderGeometry(7, 7, 1400, 8, 1, true);
+    const beamMat = new THREE.MeshBasicMaterial({
+      color: 0x40e0ff,
+      transparent: true,
+      opacity: 0.35,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      fog: false,
+    });
+    this.disposables.push(beamGeo, beamMat);
 
     this.course.gates.forEach((g, i) => {
       const grp = new THREE.Group();
@@ -289,8 +311,14 @@ export class Race {
       sprite.scale.set(40, 20, 1);
       sprite.position.set(0, g.h / 2 + 22, 0);
       grp.add(sprite);
+      // Haz de luz vertical: se ve desde muy lejos, incluso con niebla
+      const beam = new THREE.Mesh(beamGeo, beamMat.clone());
+      this.disposables.push(beam.material as THREE.Material);
+      beam.position.set(0, g.h / 2 + 700, 0);
+      beam.visible = false;
+      grp.add(beam);
       this.group.add(grp);
-      this.gateVis.push({ group: grp, frameMat, field });
+      this.gateVis.push({ group: grp, frameMat, field, beam });
     });
 
     const timeGeo = new THREE.TorusGeometry(11, 1.8, 6, 18);
@@ -309,8 +337,14 @@ export class Race {
   }
 
   private highlight() {
+    const following = (this.nextGate + 1) % this.totalCheckpoints;
     this.gateVis.forEach((v, i) => {
       const active = i === this.nextGate && !this.finished;
+      const after = i === following && !this.finished && this.nextGate !== 0;
+      v.beam.visible = active || after;
+      const bm = v.beam.material as THREE.MeshBasicMaterial;
+      bm.color.setHex(active ? (i === 0 ? 0xffd040 : 0x40e0ff) : 0xffffff);
+      bm.opacity = active ? 0.4 : 0.12;
       const done = !this.finished && i !== 0 && i < this.nextGate;
       v.field.visible = active;
       v.frameMat.emissive.setRGB(active ? 0.2 : 0, active ? 1.4 : 0, active ? 1.8 : 0);
