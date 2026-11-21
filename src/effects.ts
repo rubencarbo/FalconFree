@@ -34,7 +34,7 @@ export class Sky {
           vec3 col = mix(uHorizon, uTop, pow(y, 0.55));
           if (vDir.y < 0.0) col = uHorizon;
           float s = max(dot(normalize(vDir), uSun), 0.0);
-          col += uSunColor * (pow(s, 600.0) * 2.0 + pow(s, 12.0) * 0.25);
+          col += uSunColor * (pow(s, 600.0) * 1.6 + pow(s, 12.0) * 0.2);
           if (uNight > 0.5 && vDir.y > 0.05) {
             vec3 cell = floor(vDir * 260.0);
             float st = step(0.9965, h(cell));
@@ -246,7 +246,11 @@ export class Rings {
     this.mat = new THREE.MeshLambertMaterial({ color: 0xffa020, emissive: 0xff6a00, emissiveIntensity: 0.6 });
   }
 
+  /** false en modo carrera: no aparecen anillos libres */
+  enabled = true;
+
   addChunk(cx: number, cz: number) {
+    if (!this.enabled) return;
     const s = this.gen.ringForChunk(cx, cz);
     if (!s || this.rings.has(s.id) || this.collected.has(s.id)) return;
     const mesh = new THREE.Mesh(this.geo, this.mat);
@@ -258,7 +262,7 @@ export class Rings {
   }
 
   removeChunk(cx: number, cz: number) {
-    const id = `${cx},${cz}`;
+    const id = `${cx}_${cz}`;
     const r = this.rings.get(id);
     if (r) {
       this.scene.remove(r.mesh);
@@ -266,9 +270,23 @@ export class Rings {
     }
   }
 
+  /** Un compañero ha recogido el anillo: desaparece sin contar para mí */
+  takenByOther(id: string) {
+    this.collected.add(id);
+    const r = this.rings.get(id);
+    if (r && r.collecting === 0) {
+      this.scene.remove(r.mesh);
+      this.rings.delete(id);
+    }
+  }
+
+  /** Último anillo recogido en update() */
+  lastCollected: string[] = [];
+
   /** Devuelve cuántos anillos se recogieron en este frame */
   update(dt: number, prev: THREE.Vector3, cur: THREE.Vector3): number {
     let got = 0;
+    this.lastCollected = [];
     for (const [id, r] of this.rings) {
       if (r.collecting > 0) {
         r.collecting += dt;
@@ -296,6 +314,7 @@ export class Rings {
         if (ix * ix + iy * iy < 27 * 27) {
           got++;
           this.collected.add(id);
+          this.lastCollected.push(id);
           r.collecting = 0.0001;
           r.mesh.material = new THREE.MeshBasicMaterial({ color: 0xfff4a0, transparent: true, opacity: 0.7 });
         }

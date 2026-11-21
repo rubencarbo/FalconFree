@@ -5,20 +5,46 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 
 const GREEN = '#46ff7a';
 
-
 export interface HudData {
   flight: Flight;
-  rings: number;
+  /** Línea principal de puntuación (p. ej. "Anillos 3") */
+  scoreLabel: string;
+  scoreValue: string;
   groundClearance: number;
-  ringTarget: THREE.Vector3 | null;
+  /** Objetivo de navegación (anillo o hito) */
+  navTarget: THREE.Vector3 | null;
+  navLabel?: string;
+  navGate?: boolean;
   camera: THREE.PerspectiveCamera;
   cockpit: boolean;
+  hp01: number;
+  ammo: number;
+  maxAmmo: number;
+  lockPos: THREE.Vector3 | null;
+  lockStrength: number;
+  lockName?: string;
 }
 
 export class Hud {
   root = $('hud');
   private speed = $('hud-speed');
   private rings = $('hud-rings');
+  private ringsLabel = $('hud-rings-label');
+  private hpBar = $('hud-hp');
+  private ammoBar = $('hud-ammo');
+  private ammoText = $('hud-ammo-text');
+  private lockEl = $('lock');
+  private lockName = $('lock-name');
+  private hitEl = $('hitmarker');
+  private navLabel = $('ring-label');
+  private timerEl = $('race-timer');
+  private splitEl = $('race-split');
+  private countEl = $('countdown');
+  private dmgEl = $('damage-flash');
+  private lastLock = false;
+  private splitTimer = 0;
+  /** Se llama cuando se fija un objetivo nuevo */
+  onLock?: () => void;
   private alt = $('hud-alt');
   private marker = $('ring-marker');
   private markerDist = $('ring-dist');
@@ -74,23 +100,91 @@ export class Hud {
     this.ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
   }
 
+  private updateLock(d: HudData) {
+    const has = !!d.lockPos;
+    if (has && !this.lastLock) this.onLock?.();
+    this.lastLock = has;
+    if (!d.lockPos) {
+      this.lockEl.style.display = 'none';
+      return;
+    }
+    const p = this.v.copy(d.lockPos).project(d.camera);
+    if (p.z > 1) {
+      this.lockEl.style.display = 'none';
+      return;
+    }
+    const sx = ((p.x + 1) / 2) * window.innerWidth;
+    const sy = ((1 - p.y) / 2) * window.innerHeight;
+    const size = 70 - d.lockStrength * 26;
+    this.lockEl.style.display = 'block';
+    this.lockEl.style.transform = `translate(${sx - size / 2}px, ${sy - size / 2}px)`;
+    this.lockEl.style.width = this.lockEl.style.height = `${size}px`;
+    this.lockEl.classList.toggle('locked', d.lockStrength >= 1);
+    this.lockName.textContent = d.lockName ?? '';
+  }
+
+  hitMarker(kill = false) {
+    this.hitEl.classList.remove('show', 'kill');
+    void this.hitEl.offsetWidth;
+    this.hitEl.classList.add('show');
+    if (kill) this.hitEl.classList.add('kill');
+  }
+
+  damageFlash() {
+    this.dmgEl.classList.remove('show');
+    void this.dmgEl.offsetWidth;
+    this.dmgEl.classList.add('show');
+  }
+
+  setTimer(text: string | null) {
+    this.timerEl.classList.toggle('hidden', text === null);
+    if (text !== null) this.timerEl.textContent = text;
+  }
+
+  split(html: string, kind: 'good' | 'bad' | 'neutral') {
+    this.splitEl.innerHTML = html;
+    this.splitEl.className = `show ${kind}`;
+    clearTimeout(this.splitTimer);
+    this.splitTimer = window.setTimeout(() => (this.splitEl.className = ''), 2600);
+  }
+
+  countdown(text: string | null) {
+    if (text === null) {
+      this.countEl.className = '';
+      return;
+    }
+    if (this.countEl.textContent === text && this.countEl.classList.contains('show')) return;
+    this.countEl.textContent = text;
+    this.countEl.className = '';
+    void this.countEl.offsetWidth;
+    this.countEl.className = 'show';
+  }
+
   update(d: HudData) {
     const f = d.flight;
     this.speed.textContent = String(Math.round(f.speedKmh));
-    this.rings.textContent = String(d.rings);
+    this.ringsLabel.textContent = d.scoreLabel;
+    this.rings.textContent = d.scoreValue;
     this.alt.textContent = String(Math.round(f.pos.y));
+    const hp = Math.max(0, d.hp01);
+    this.hpBar.style.transform = `scaleX(${hp})`;
+    this.hpBar.classList.toggle('low', hp < 0.3);
+    this.ammoBar.style.transform = `scaleX(${d.ammo / d.maxAmmo})`;
+    this.ammoText.textContent = String(d.ammo);
+    this.ammoBar.classList.toggle('low', d.ammo < d.maxAmmo * 0.15);
     this.updateMarker(d);
+    this.updateLock(d);
     if (d.cockpit) this.drawCockpit(d);
   }
 
   private updateMarker(d: HudData) {
-    if (!d.ringTarget) {
+    if (!d.navTarget) {
       this.marker.style.display = 'none';
       return;
     }
     const W = window.innerWidth;
     const H = window.innerHeight - (d.cockpit ? this.panelH : 0);
-    const p = this.v.copy(d.ringTarget).project(d.camera);
+    const p = this.v.copy(d.navTarget).project(d.camera);
     const behind = p.z > 1;
     let x = p.x;
     let y = p.y;
@@ -110,8 +204,10 @@ export class Hud {
     this.marker.style.display = 'flex';
     this.marker.style.transform = `translate(${sx}px, ${sy}px)`;
     this.marker.classList.toggle('edge', offscreen);
-    const dist = d.ringTarget.distanceTo(d.flight.pos);
+    const dist = d.navTarget.distanceTo(d.flight.pos);
     this.markerDist.textContent = dist > 1000 ? `${(dist / 1000).toFixed(1)} km` : `${Math.round(dist)} m`;
+    this.marker.classList.toggle('gate', !!d.navGate);
+    this.navLabel.textContent = d.navLabel ?? '';
   }
 
   // ------------------------------------------------------------ Cabina
@@ -274,7 +370,7 @@ export class Hud {
     const rowY = y0 + 20;
     ctx.fillStyle = '#ffb347';
     ctx.textAlign = 'left';
-    ctx.fillText(`Anillos ${d.rings}`, x0 + 6, rowY);
+    ctx.fillText(`${d.scoreLabel} ${d.scoreValue} · Balas ${d.ammo}`, x0 + 6, rowY);
     ctx.fillStyle = '#cfd6e0';
     ctx.textAlign = 'center';
     const barW = Math.min(110, innerW * 0.22);

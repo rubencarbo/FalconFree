@@ -19,6 +19,30 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Tiempos de carrera: times/{courseId}_{uid}
+    match /times/{timeId} {
+      allow read: if true;
+      allow create: if request.auth != null
+        && timeId == request.resource.data.course + '_' + request.auth.uid
+        && validTime(request.resource.data);
+      // Solo se puede mejorar (bajar) el tiempo propio
+      allow update: if request.auth != null
+        && resource.data.uid == request.auth.uid
+        && validTime(request.resource.data)
+        && request.resource.data.course == resource.data.course
+        && request.resource.data.timeMs < resource.data.timeMs;
+      allow delete: if false;
+    }
+
+    function validTime(d) {
+      return d.keys().hasOnly(['uid', 'name', 'course', 'timeMs', 'updatedAt'])
+        && d.uid == request.auth.uid
+        && d.name is string && d.name.size() > 0 && d.name.size() <= 16
+        && d.course is string && d.course.size() <= 40
+        && d.timeMs is int && d.timeMs >= 10000 && d.timeMs <= 3600000
+        && d.updatedAt == request.time;
+    }
+
     function validScore(d) {
       return d.keys().hasOnly(['uid', 'name', 'stage', 'rings', 'maxSpeed', 'updatedAt'])
         && d.uid == request.auth.uid

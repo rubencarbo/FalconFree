@@ -195,6 +195,20 @@ export class CityGen {
     return h;
   }
 
+  /** Caja (edificio) más alta que contiene el punto (x, z) */
+  boxAt(x: number, z: number): Box | null {
+    const bx = Math.floor(x / PERIOD);
+    const bz = Math.floor(z / PERIOD);
+    const lx = x - bx * PERIOD;
+    const lz = z - bz * PERIOD;
+    if (lx < ROAD || lz < ROAD) return null;
+    let best: Box | null = null;
+    for (const box of this.block(bx, bz).buildings) {
+      if (x >= box.x0 && x <= box.x1 && z >= box.z0 && z <= box.z1 && (!best || box.h > best.h)) best = box;
+    }
+    return best;
+  }
+
   /** Altura máxima aproximada en un radio (por manzanas) */
   maxHeightNear(x: number, z: number, radius: number): number {
     const b0x = Math.floor((x - radius) / PERIOD), b1x = Math.floor((x + radius) / PERIOD);
@@ -213,7 +227,7 @@ export class CityGen {
     const base = 90 + hash3(cx, cz, 3, seed) * 520;
     const y = Math.max(base, this.maxHeightNear(x, z, 40) + 60);
     const yaw = hash3(cx, cz, 4, seed) * Math.PI * 2;
-    return { id: `${cx},${cz}`, x, y, z, yaw };
+    return { id: `${cx}_${cz}`, x, y, z, yaw };
   }
 
   /** Cubos de nubes de un chunk */

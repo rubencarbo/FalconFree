@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#1b2a44" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="description" content="FalconFree: vuela un caza sobre una ciudad vóxel infinita y atraviesa anillos." />
+    <meta name="description" content="FalconFree: vuela un caza sobre una ciudad vóxel infinita, compite en carreras y juega con amigos." />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <title>FalconFree</title>
@@ -15,31 +15,42 @@
     <div id="app">
       <canvas id="scene"></canvas>
       <canvas id="cockpit"></canvas>
+      <div id="damage-flash"></div>
 
       <div id="hud" class="hidden">
         <div class="stats">
           <div>Velocidad <b id="hud-speed">0</b> km/h</div>
-          <div>Anillos <b id="hud-rings">0</b></div>
+          <div><span id="hud-rings-label">Anillos</span> <b id="hud-rings">0</b></div>
           <div class="alt">Altitud <b id="hud-alt">0</b> m</div>
+          <div class="bars">
+            <div class="bar"><span class="bar-label">Blindaje</span><span class="track"><i id="hud-hp"></i></span></div>
+            <div class="bar ammo"><span class="bar-label">Balas <b id="hud-ammo-text">0</b></span><span class="track"><i id="hud-ammo"></i></span></div>
+          </div>
         </div>
         <div class="top-right">
           <button id="btn-stage" class="pill">Cambiar escenario</button>
           <button id="btn-view" class="pill">Vista: Básica</button>
           <button id="btn-pause" class="pill icon" aria-label="Pausa">❚❚</button>
         </div>
-        <div id="ring-marker"><span class="diamond"></span><span id="ring-dist"></span></div>
+        <div id="race-timer" class="hidden">0:00.00</div>
+        <div id="race-split"></div>
+        <div id="countdown"></div>
+        <div id="ring-marker"><span class="diamond"></span><span id="ring-label"></span><span id="ring-dist"></span></div>
+        <div id="lock"><span id="lock-name"></span></div>
+        <div id="hitmarker"></div>
         <div id="toast"></div>
         <div id="warning">¡ASCIENDE!</div>
         <div id="joy-zone"><div id="joy-base"><div id="joy-knob"></div></div></div>
         <button id="btn-climb" class="round">Subir</button>
-        <button id="btn-boost" class="round big">Turbo</button>
-        <div id="keys-hint">W/S cabeceo · A/D alabeo · Espacio turbo · E subir · C vista · P pausa</div>
+        <button id="btn-fire" class="round">Disparo</button>
+        <button id="btn-boost" class="round">Turbo</button>
+        <div id="keys-hint">W/S cabeceo · A/D alabeo · Espacio turbo · F o clic disparo · E subir · C vista · P pausa</div>
       </div>
 
       <div id="menu" class="overlay">
         <div class="panel menu-panel">
           <h1>Falcon<span>Free</span></h1>
-          <p class="tagline">Vuela sobre ciudades vóxel infinitas y atraviesa todos los anillos que puedas.</p>
+          <p class="tagline">Vuela sobre ciudades vóxel, compite contra el reloj y juega con tus amigos.</p>
           <label class="field">
             <span>Nombre de piloto</span>
             <input id="pilot-name" maxlength="16" placeholder="Piloto" autocomplete="off" />
@@ -48,13 +59,79 @@
             <span>Escenario</span>
             <div id="stage-list" class="stage-list"></div>
           </div>
-          <button id="btn-start" class="primary">Despegar</button>
+          <div class="modes">
+            <button id="btn-start" class="mode-btn primary"><b>Vuelo libre</b><small>Anillos y drones de práctica</small></button>
+            <button id="btn-race" class="mode-btn race"><b>Competición</b><small>Carrera contrarreloj por hitos</small></button>
+            <button id="btn-mp" class="mode-btn mp"><b>Multijugador</b><small>Invita con un código</small></button>
+          </div>
           <div class="row">
             <button id="btn-board" class="secondary">Clasificación</button>
-            <button id="btn-sound" class="secondary">Sonido: sí</button>
-            <button id="btn-invert" class="secondary">Eje Y: normal</button>
+            <button id="btn-settings" class="secondary">Ajustes</button>
           </div>
           <p id="fb-status" class="muted"></p>
+        </div>
+      </div>
+
+      <div id="course-picker" class="overlay hidden">
+        <div class="panel">
+          <h2>Competición</h2>
+          <p class="muted left">Escenario: <b id="course-stage"></b>. Pasa por todos los hitos en orden. Entre hito e hito elige tu ruta: la <span class="tag time">baja</span> tiene anillos que restan 1 s, la <span class="tag boost">alta</span> anillos de acelerón. Cada hito recarga balas.</p>
+          <div id="course-list" class="stage-list"></div>
+          <button class="secondary" data-close>Cancelar</button>
+        </div>
+      </div>
+
+      <div id="mp-panel" class="overlay hidden">
+        <div class="panel">
+          <h2>Multijugador</h2>
+          <div class="mp-grid">
+            <section class="mp-box">
+              <h3>Crear sala</h3>
+              <label class="field"><span>Modo</span>
+                <select id="mp-mode">
+                  <option value="free">Vuelo libre en equipo</option>
+                  <option value="race">Carrera en grupo</option>
+                </select>
+              </label>
+              <label id="mp-course-field" class="field hidden"><span>Circuito</span><select id="mp-course"></select></label>
+              <button id="btn-mp-create" class="primary">Crear y obtener código</button>
+            </section>
+            <section class="mp-box">
+              <h3>Unirse con código</h3>
+              <label class="field"><span>Código de sala</span>
+                <input id="mp-code" maxlength="7" placeholder="ABC-123" autocomplete="off" autocapitalize="characters" spellcheck="false" />
+              </label>
+              <button id="btn-mp-join" class="secondary strong">Unirse</button>
+            </section>
+          </div>
+          <p id="mp-error" class="error"></p>
+          <button class="secondary" data-close>Volver</button>
+        </div>
+      </div>
+
+      <div id="lobby" class="overlay hidden">
+        <div class="panel">
+          <h2>Sala multijugador</h2>
+          <div class="code-box">
+            <span class="muted">Código para invitar</span>
+            <b id="lobby-code">---</b>
+            <button id="btn-copy-code" class="secondary">Copiar código</button>
+          </div>
+          <div class="lobby-head"><span>Pilotos</span><span id="lobby-count" class="muted"></span></div>
+          <ul id="lobby-players" class="lobby-players"></ul>
+          <div class="lobby-opts">
+            <label class="field"><span>Modo</span>
+              <select id="lobby-mode">
+                <option value="free">Vuelo libre en equipo</option>
+                <option value="race">Carrera en grupo</option>
+              </select>
+            </label>
+            <label class="field"><span>Escenario</span><select id="lobby-stage"></select></label>
+            <label id="lobby-course-field" class="field"><span>Circuito</span><select id="lobby-course"></select></label>
+          </div>
+          <button id="btn-lobby-start" class="primary">Empezar</button>
+          <p id="lobby-wait" class="muted">Esperando a que el anfitrión empiece…</p>
+          <button id="btn-lobby-leave" class="secondary">Salir de la sala</button>
         </div>
       </div>
 
@@ -70,7 +147,41 @@
         <div class="panel">
           <h2>Pausa</h2>
           <button id="btn-resume" class="primary">Continuar</button>
+          <button id="btn-restart" class="secondary">Reiniciar</button>
+          <button id="btn-pause-settings" class="secondary">Ajustes</button>
           <button id="btn-pause-menu" class="secondary">Menú principal</button>
+          <button id="btn-room-lobby" class="secondary hidden">Volver todos a la sala</button>
+          <button id="btn-leave-room" class="secondary hidden">Salir de la sala</button>
+        </div>
+      </div>
+
+      <div id="settings" class="overlay hidden">
+        <div class="panel">
+          <h2>Ajustes</h2>
+          <button id="btn-customize" class="secondary strong">Personalizar controles táctiles</button>
+          <label class="field slider">
+            <span>Sensibilidad <b id="set-sensitivity-val">100 %</b></span>
+            <input id="set-sensitivity" type="range" min="50" max="150" step="5" value="100" />
+          </label>
+          <button id="set-aim" class="toggle" aria-pressed="true"><span>Apuntado asistido</span><b>Activado</b></button>
+          <button id="set-invert" class="toggle" aria-pressed="false"><span>Eje vertical</span><b>Normal</b></button>
+          <button id="set-sound" class="toggle" aria-pressed="true"><span>Sonido</span><b>Sí</b></button>
+          <button id="set-effects" class="toggle" aria-pressed="true"><span>Efectos visuales (brillo)</span><b>Altos</b></button>
+          <button class="primary" data-close>Listo</button>
+        </div>
+      </div>
+
+      <div id="controls-editor" class="hidden">
+        <div id="ce-stage"></div>
+        <div class="ce-toolbar">
+          <div class="ce-title">Arrastra los controles · <b id="ce-selected">Joystick</b></div>
+          <label class="ce-slider"><span>Tamaño</span><input id="ce-size" type="range" min="60" max="200" step="5" value="100" /><b id="ce-size-val">100 %</b></label>
+          <label class="ce-slider"><span>Opacidad</span><input id="ce-opacity" type="range" min="20" max="100" step="5" value="90" /><b id="ce-opacity-val">90 %</b></label>
+          <div class="ce-actions">
+            <button id="ce-reset" class="secondary">Restablecer</button>
+            <button id="ce-cancel" class="secondary">Cancelar</button>
+            <button id="ce-save" class="primary">Guardar</button>
+          </div>
         </div>
       </div>
 
@@ -79,12 +190,34 @@
           <h2>¡Te has estrellado!</h2>
           <div class="result">
             <div><span>Anillos</span><b id="crash-rings">0</b></div>
-            <div><span>Velocidad máx.</span><b id="crash-speed">0</b></div>
+            <div><span>Drones</span><b id="crash-kills">0</b></div>
             <div><span>Récord</span><b id="crash-best">0</b></div>
           </div>
           <p id="crash-msg" class="muted"></p>
           <button id="btn-retry" class="primary">Volver a volar</button>
           <button id="btn-crash-menu" class="secondary">Menú principal</button>
+        </div>
+      </div>
+
+      <div id="race-results" class="overlay hidden">
+        <div class="panel">
+          <h2 id="rr-title">¡Carrera completada!</h2>
+          <p id="rr-course" class="muted left"></p>
+          <div class="rr-time" id="rr-time">0:00.00</div>
+          <ol id="rr-splits" class="splits"></ol>
+          <div id="rr-room" class="hidden">
+            <div class="lobby-head"><span>Clasificación de la sala</span></div>
+            <ol id="rr-room-list" class="board-list"></ol>
+            <button id="btn-rr-again" class="primary">Otra carrera</button>
+            <button id="btn-rr-lobby" class="secondary">Volver a la sala</button>
+            <p id="rr-wait-host" class="muted">El anfitrión decide la siguiente carrera.</p>
+            <button id="btn-rr-leave" class="secondary">Salir de la sala</button>
+          </div>
+          <div id="rr-solo-actions">
+            <p id="rr-msg" class="muted"></p>
+            <button id="btn-rr-retry" class="primary">Repetir carrera</button>
+            <button id="btn-rr-menu" class="secondary">Menú principal</button>
+          </div>
         </div>
       </div>
 

@@ -13,6 +13,7 @@ export interface FlightInput {
   y: number;
   boost: boolean;
   climb: boolean;
+  fire?: boolean;
 }
 
 /** Modelo de vuelo arcade: rumbo/cabeceo/alabeo (sin loopings) */
@@ -27,6 +28,12 @@ export class Flight {
   thrust = 0.5;
   verticalSpeed = 0;
   maxSpeedKmh = 0;
+  /** s restantes de aturdimiento tras un golpe (control reducido) */
+  stun = 0;
+  /** s restantes de acelerón (anillo de turbo) */
+  burst = 0;
+  /** congelado (cuenta atrás) */
+  frozen = false;
   private prevY = 500;
 
   reset(x: number, y: number, z: number, yaw: number) {
@@ -38,6 +45,17 @@ export class Flight {
     this.thrust = 0.5;
     this.maxSpeedKmh = 0;
     this.prevY = y;
+    this.stun = 0;
+    this.burst = 0;
+  }
+
+  /** Cambia la dirección y velocidad a partir de un vector velocidad */
+  setVelocity(v: THREE.Vector3) {
+    const sp = v.length();
+    if (sp < 1) return;
+    this.speed = THREE.MathUtils.clamp(sp, MIN_KMH / KMH, MAX_KMH / KMH);
+    this.yaw = Math.atan2(-v.x, -v.z);
+    this.pitch = THREE.MathUtils.clamp(Math.asin(v.y / sp), -1.3, 1.3);
   }
 
   get speedKmh() {
@@ -54,6 +72,15 @@ export class Flight {
   }
 
   update(dt: number, input: FlightInput) {
+    if (this.frozen) {
+      this.verticalSpeed = 0;
+      return;
+    }
+    this.stun = Math.max(0, this.stun - dt);
+    this.burst = Math.max(0, this.burst - dt);
+    const ctrl = this.stun > 0 ? 0.25 : 1;
+    input = { ...input, x: input.x * ctrl, y: input.y * ctrl, climb: input.climb && this.stun <= 0 };
+    if (this.stun > 0) this.roll += Math.sin(this.stun * 25) * dt * 2;
     // Alabeo: el stick fija el ángulo objetivo, vuelve a nivel al soltar
     const maxRoll = THREE.MathUtils.degToRad(72);
     const targetRoll = -input.x * maxRoll;
@@ -72,13 +99,13 @@ export class Flight {
     this.yaw += Math.sin(this.roll) * 0.95 * dt;
 
     // Velocidad: empuje + gravedad
-    const target = (input.boost ? BOOST_KMH : CRUISE_KMH) / KMH;
-    const accel = input.boost ? 110 : 45;
+    const target = (this.burst > 0 ? MAX_KMH : input.boost ? BOOST_KMH : CRUISE_KMH) / KMH;
+    const accel = this.burst > 0 ? 260 : input.boost ? 110 : 45;
     if (this.speed < target) this.speed = Math.min(target, this.speed + accel * dt);
     else this.speed = Math.max(target, this.speed - 35 * dt);
     this.speed -= Math.sin(this.pitch) * 9.81 * 1.6 * dt;
     this.speed = THREE.MathUtils.clamp(this.speed, MIN_KMH / KMH, MAX_KMH / KMH);
-    this.thrust += ((input.boost ? 1 : 0.55) - this.thrust) * Math.min(1, dt * 3);
+    this.thrust += ((input.boost || this.burst > 0 ? 1 : 0.55) - this.thrust) * Math.min(1, dt * 3);
 
     const f = this.forward(_v);
     this.pos.addScaledVector(f, this.speed * dt);
@@ -97,14 +124,14 @@ export class JetModel {
   private flames: THREE.Mesh[] = [];
   readonly wingTips = [new THREE.Vector3(-7.2, 0.1, 3.6), new THREE.Vector3(7.2, 0.1, 3.6)];
 
-  constructor() {
-    const body = new THREE.MeshLambertMaterial({ color: 0x40454e });
+  constructor(accentColor = 0xff7a1a, bodyColor = 0x40454e) {
+    const body = new THREE.MeshLambertMaterial({ color: bodyColor });
     const dark = new THREE.MeshLambertMaterial({ color: 0x2a2d33 });
     const wingMat = new THREE.MeshLambertMaterial({ color: 0x4d535d });
     const glass = new THREE.MeshLambertMaterial({ color: 0x66c8ff, emissive: 0x113355 });
     const red = new THREE.MeshBasicMaterial({ color: 0xff3030 });
     const green = new THREE.MeshBasicMaterial({ color: 0x30ff60 });
-    const accent = new THREE.MeshLambertMaterial({ color: 0xff7a1a });
+    const accent = new THREE.MeshLambertMaterial({ color: accentColor });
 
     const add = (w: number, h: number, d: number, x: number, y: number, z: number, m: THREE.Material) => {
       const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
@@ -136,6 +163,9 @@ export class JetModel {
     // Franjas de color en las alas
     add(1.2, 0.4, 1.4, -6.6, -0.15, 3.3, accent);
     add(1.2, 0.4, 1.4, 6.6, -0.15, 3.3, accent);
+    add(1.9, 0.3, 0.8, 0, 1.05, -0.6, accent);
+    add(0.35, 0.8, 1.4, -1.35, 3.4, 5.4, accent).rotation.z = 0.25;
+    add(0.35, 0.8, 1.4, 1.35, 3.4, 5.4, accent).rotation.z = -0.25;
     // Estabilizadores horizontales
     add(8, 0.3, 1.6, 0, 0, 6.2, wingMat);
     // Derivas dobles

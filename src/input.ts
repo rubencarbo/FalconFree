@@ -3,6 +3,9 @@ import type { FlightInput } from './jet';
 /** Agrupa joystick táctil, botones en pantalla, teclado y mando */
 export class Input {
   invertY = false;
+  sensitivity = 1;
+  private touchFire = false;
+  private mouseFire = false;
   private keys = new Set<string>();
   private joy = { x: 0, y: 0, id: -1 as number };
   private touchBoost = false;
@@ -19,6 +22,8 @@ export class Input {
     private joyKnob: HTMLElement,
     boostBtn: HTMLElement,
     climbBtn: HTMLElement,
+    fireBtn: HTMLElement,
+    canvas: HTMLElement,
   ) {
     window.addEventListener('keydown', (e) => {
       if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
@@ -33,6 +38,14 @@ export class Input {
 
     this.bindHold(boostBtn, (v) => (this.touchBoost = v));
     this.bindHold(climbBtn, (v) => (this.touchClimb = v));
+    this.bindHold(fireBtn, (v) => (this.touchFire = v));
+    // Ratón: clic izquierdo dispara (solo con puntero fino)
+    canvas.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse' && e.button === 0) this.mouseFire = true;
+    });
+    window.addEventListener('pointerup', (e) => {
+      if (e.pointerType === 'mouse') this.mouseFire = false;
+    });
 
     joyZone.addEventListener('pointerdown', (e) => {
       if (this.joy.id !== -1) return;
@@ -96,6 +109,7 @@ export class Input {
     if (k.has('KeyS') || k.has('ArrowDown')) y -= 1;
     let boost = this.touchBoost || k.has('Space') || k.has('ShiftLeft') || k.has('ShiftRight');
     let climb = this.touchClimb || k.has('KeyE');
+    let fire = this.touchFire || this.mouseFire || k.has('KeyF') || k.has('KeyJ') || k.has('ControlLeft');
 
     // Mando
     let pads: (Gamepad | null)[] = [];
@@ -112,6 +126,7 @@ export class Input {
       if (Math.abs(ay) > 0.12) y -= ay;
       boost ||= !!(p.buttons[0]?.pressed || p.buttons[7]?.pressed);
       climb ||= !!p.buttons[1]?.pressed;
+      fire ||= !!(p.buttons[2]?.pressed || p.buttons[6]?.pressed);
       const camBtn = !!p.buttons[3]?.pressed;
       const pauseBtn = !!p.buttons[9]?.pressed;
       if (camBtn && !this.padPrev[3]) this.onCamera?.();
@@ -121,17 +136,19 @@ export class Input {
       break;
     }
 
-    x = Math.max(-1, Math.min(1, x));
-    y = Math.max(-1, Math.min(1, y));
+    x = Math.max(-1, Math.min(1, x * this.sensitivity));
+    y = Math.max(-1, Math.min(1, y * this.sensitivity));
     if (this.invertY) y = -y;
     if (boost && !this.prevBoost) this.onBoostStart?.();
     this.prevBoost = boost;
-    return { x, y, boost, climb };
+    return { x, y, boost, climb, fire };
   }
 
   reset() {
     this.keys.clear();
     this.touchBoost = false;
     this.touchClimb = false;
+    this.touchFire = false;
+    this.mouseFire = false;
   }
 }

@@ -119,4 +119,82 @@ export class GameAudio {
     o.start(t);
     o.stop(t + 0.15);
   }
+
+  private tone(freq: number, dur: number, type: OscillatorType, gain: number, delay = 0, slideTo?: number) {
+    if (!this.ctx || !this.master) return;
+    const t = this.ctx.currentTime + delay;
+    const o = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(freq, t);
+    if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+    g.gain.setValueAtTime(gain, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(this.master);
+    o.start(t);
+    o.stop(t + dur + 0.02);
+  }
+
+  private noise(dur: number, freq: number, gain: number, q = 1) {
+    if (!this.ctx || !this.master || !this.noiseBuf) return;
+    const t = this.ctx.currentTime;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.noiseBuf;
+    const f = this.ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.frequency.value = freq;
+    f.Q.value = q;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(gain, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(f).connect(g).connect(this.master);
+    src.start(t, Math.random() * 1.5);
+    src.stop(t + dur + 0.02);
+  }
+
+  shot() {
+    this.noise(0.07, 1800, 0.5, 0.8);
+    this.tone(180, 0.06, 'square', 0.05, 0, 60);
+  }
+
+  hitMarker() {
+    this.tone(2400, 0.05, 'square', 0.05);
+  }
+
+  lockOn() {
+    this.tone(1400, 0.06, 'sine', 0.08);
+    this.tone(1900, 0.08, 'sine', 0.08, 0.07);
+  }
+
+  empty() {
+    this.tone(300, 0.08, 'square', 0.06);
+    this.tone(220, 0.1, 'square', 0.06, 0.09);
+  }
+
+  scrape() {
+    this.noise(0.5, 3200, 0.9, 0.6);
+    this.tone(90, 0.3, 'sawtooth', 0.15, 0, 40);
+  }
+
+  damaged() {
+    this.noise(0.12, 900, 0.5, 1.2);
+  }
+
+  countdown(final: boolean) {
+    this.tone(final ? 1320 : 660, final ? 0.5 : 0.18, 'square', 0.09);
+  }
+
+  gate(best: boolean) {
+    this.tone(best ? 1046 : 784, 0.12, 'triangle', 0.2);
+    this.tone(best ? 1568 : 1046, 0.2, 'triangle', 0.2, 0.1);
+  }
+
+  boostRing() {
+    this.tone(300, 0.5, 'sawtooth', 0.08, 0, 1200);
+  }
+
+  reload() {
+    this.tone(520, 0.06, 'square', 0.06);
+    this.tone(780, 0.08, 'square', 0.06, 0.08);
+  }
 }
