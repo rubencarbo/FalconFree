@@ -554,14 +554,7 @@ button:disabled {
   transform: scale(0.92);
 }
 
-#btn-climb {
-  background: rgba(16, 28, 48, 0.75);
-  border: 2px solid rgba(255, 255, 255, 0.7);
-}
 
-#btn-climb.pressed {
-  background: #2456c8;
-}
 
 #btn-boost {
   background: radial-gradient(circle at 35% 30%, var(--orange-2), var(--orange));
@@ -599,7 +592,6 @@ button:disabled {
 /* Mostrar controles táctiles solo donde hay pantalla táctil */
 @media (hover: hover) and (pointer: fine) {
   #joy-zone,
-  #btn-climb,
   #btn-boost,
   #btn-fire {
     display: none;
@@ -673,10 +665,6 @@ button:disabled {
   background: radial-gradient(circle at 35% 30%, #ff6a6a, #c81e2e);
 }
 
-.ce-climb {
-  background: rgba(16, 28, 48, 0.85);
-  border-width: 2px;
-}
 
 .ce-toolbar {
   position: absolute;
@@ -1976,4 +1964,152 @@ html.standalone .install {
   #race-timer {
     font-size: 22px;
   }
+}
+
+/* ================================================================ Identidad de pilotos */
+#pilots {
+  position: absolute;
+  inset: 0;
+  pointer-events: none !important;
+  overflow: hidden;
+}
+
+.pilot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px 2px 5px;
+  border-radius: 8px;
+  background: rgba(8, 12, 22, 0.62);
+  border: 2px solid var(--pc);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  will-change: transform;
+  text-shadow: 0 1px 2px #000;
+}
+
+.pilot .pi-icon {
+  color: var(--pc);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.pilot .pi-dist {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.pilot.enemy {
+  box-shadow: 0 0 0 1px #ff3030, 0 0 10px rgba(255, 48, 48, 0.5);
+}
+
+.pilot.edge {
+  opacity: 0.85;
+  padding: 2px 6px;
+}
+
+.pilot.edge .pi-name {
+  display: none;
+}
+
+#leash {
+  position: absolute;
+  bottom: calc(34% + var(--safe-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 16px;
+  border-radius: 14px;
+  background: rgba(0, 40, 20, 0.75);
+  border: 1px solid var(--green);
+  color: #c8ffd8;
+  font-weight: 700;
+  text-align: center;
+  pointer-events: none !important;
+}
+
+#leash.show {
+  display: flex;
+  animation: blink 1s steps(2) infinite;
+}
+
+#leash b {
+  font-size: 18px;
+  color: var(--green);
+}
+
+#leash small {
+  font-weight: 500;
+  font-size: 11px;
+}
+
+.profile {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.swatches,
+.icon-picks {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 6px;
+}
+
+.swatch-btn,
+.icon-btn {
+  aspect-ratio: 1;
+  min-width: 0;
+  border-radius: 10px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  position: relative;
+}
+
+.icon-btn {
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 20px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+}
+
+.swatch-btn.selected,
+.icon-btn.selected {
+  border-color: #fff;
+  box-shadow: 0 0 0 2px var(--orange);
+}
+
+.swatch-btn:disabled,
+.icon-btn:disabled {
+  opacity: 0.3;
+}
+
+.swatch-btn:disabled::after,
+.icon-btn:disabled::after {
+  content: '';
+  position: absolute;
+  inset: 45% -2px auto;
+  height: 2px;
+  background: #fff;
+  transform: rotate(-35deg);
+}
+
+.lobby-players .dot.icon {
+  width: auto;
+  height: auto;
+  background: none !important;
+  font-size: 16px;
+  line-height: 1;
 }

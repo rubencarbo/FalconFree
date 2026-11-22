@@ -49,8 +49,11 @@ export interface BlockData {
   maxH: number;
 }
 
+export type RingKind = 'normal' | 'ammo' | 'repair' | 'missile' | 'turbo' | 'gold' | 'sea';
+
 export interface RingSpawn {
   id: string;
+  kind: RingKind;
   x: number;
   y: number;
   z: number;
@@ -367,15 +370,31 @@ export class CityGen {
   }
 
   /** Anillo (o ninguno) asociado a un chunk */
-  ringForChunk(cx: number, cz: number): RingSpawn | null {
+  ringsForChunk(cx: number, cz: number): RingSpawn[] {
     const seed = this.stage.seed + 555;
-    if (hash2(cx, cz, seed) > 0.3) return null;
-    const x = (cx + 0.15 + hash3(cx, cz, 1, seed) * 0.7) * CHUNK;
-    const z = (cz + 0.15 + hash3(cx, cz, 2, seed) * 0.7) * CHUNK;
-    const base = 90 + hash3(cx, cz, 3, seed) * 520;
-    const y = Math.max(base, this.maxHeightNear(x, z, 40) + 60);
-    const yaw = hash3(cx, cz, 4, seed) * Math.PI * 2;
-    return { id: `${cx}_${cz}`, x, y, z, yaw };
+    const out: RingSpawn[] = [];
+    if (hash2(cx, cz, seed) < 0.34) {
+      const x = (cx + 0.15 + hash3(cx, cz, 1, seed) * 0.7) * CHUNK;
+      const z = (cz + 0.15 + hash3(cx, cz, 2, seed) * 0.7) * CHUNK;
+      const base = 90 + hash3(cx, cz, 3, seed) * 520;
+      const y = Math.max(base, this.maxHeightNear(x, z, 40) + 60);
+      const yaw = hash3(cx, cz, 4, seed) * Math.PI * 2;
+      const k = hash3(cx, cz, 5, seed);
+      const kind: RingKind = k < 0.52 ? 'normal' : k < 0.63 ? 'ammo' : k < 0.74 ? 'repair' : k < 0.83 ? 'missile' : k < 0.93 ? 'turbo' : 'gold';
+      out.push({ id: `${cx}_${cz}`, kind, x, y, z, yaw });
+    }
+    // Aros marinos gigantes, medio sumergidos en aguas abiertas
+    if (hash2(cx, cz, seed + 9) < 0.5) {
+      for (let t = 0; t < 4; t++) {
+        const x = (cx + 0.2 + hash3(cx, cz, 10 + t, seed) * 0.6) * CHUNK;
+        const z = (cz + 0.2 + hash3(cx, cz, 20 + t, seed) * 0.6) * CHUNK;
+        if (this.waterValue(x, z) < this.stage.waterLevel - 0.05 && this.maxHeightNear(x, z, 90) === 0) {
+          out.push({ id: `s${cx}_${cz}`, kind: 'sea', x, y: 8, z, yaw: hash3(cx, cz, 30, seed) * Math.PI * 2 });
+          break;
+        }
+      }
+    }
+    return out;
   }
 
   /** Cubos de nubes de un chunk */

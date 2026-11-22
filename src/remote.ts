@@ -9,29 +9,14 @@ import type { Guns } from './combat';
 /** Retraso de interpolación (ms): suaviza el movimiento a cambio de un poco de latencia */
 const INTERP_DELAY = 140;
 
-function nameTexture(name: string, color: number) {
-  const c = document.createElement('canvas');
-  c.width = 256;
-  c.height = 64;
-  const g = c.getContext('2d')!;
-  g.font = '800 30px system-ui, sans-serif';
-  const w = Math.min(244, g.measureText(name).width + 28);
-  g.fillStyle = 'rgba(10,16,30,0.7)';
-  g.beginPath();
-  g.roundRect((256 - w) / 2, 8, w, 46, 14);
-  g.fill();
-  g.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.fillText(name, 128, 32, 230);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
+/** Cuerpo del avión teñido con el color del piloto */
+export function bodyTint(color: number) {
+  const c = new THREE.Color(color).lerp(new THREE.Color(0x22252b), 0.5);
+  return c.getHex();
 }
 
 class RemotePlayer {
   jet: JetModel;
-  tag: THREE.Sprite;
   buffer: NetState[] = [];
   target: Target;
   quat = new THREE.Quaternion();
@@ -40,7 +25,6 @@ class RemotePlayer {
   firing = false;
   private flight = new Flight();
   private shotTimer = 0;
-  private tex: THREE.CanvasTexture;
   private wasAlive = true;
 
   constructor(
@@ -48,13 +32,33 @@ class RemotePlayer {
     public info: PlayerInfo,
     private scene: THREE.Scene,
   ) {
-    this.jet = new JetModel(info.team ? TEAM_COLORS[info.team] : info.color, 0x3a3f48);
-    this.tex = nameTexture(info.name, info.color);
-    this.tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.tex, depthTest: false, sizeAttenuation: false }));
-    this.tag.scale.set(0.16, 0.04, 1);
-    this.tag.renderOrder = 10;
-    scene.add(this.jet.group, this.tag);
+    this.jet = this.makeJet(info);
+    scene.add(this.jet.group);
     this.target = { id: uid, name: info.name, pos: new THREE.Vector3(), vel: new THREE.Vector3(), radius: 9, alive: false };
+  }
+
+  /** Color con el que se identifica (equipo en batalla por equipos, si no el suyo) */
+  get color() {
+    return this.info.color;
+  }
+
+  private makeJet(info: PlayerInfo) {
+    const c = info.color;
+    return new JetModel(info.team ? TEAM_COLORS[info.team] : c, bodyTint(c));
+  }
+
+  /** Actualiza nombre/color/icono si el piloto los cambia */
+  setInfo(info: PlayerInfo) {
+    const changed = info.color !== this.info.color || info.team !== this.info.team;
+    this.info = info;
+    this.target.name = info.name;
+    if (changed) {
+      const vis = this.jet.group.visible;
+      this.scene.remove(this.jet.group);
+      this.jet = this.makeJet(info);
+      this.jet.group.visible = vis;
+      this.scene.add(this.jet.group);
+    }
   }
 
   get flaresActive() {
@@ -119,8 +123,6 @@ class RemotePlayer {
 
     this.jet.update(f, time);
     this.jet.group.visible = this.alive;
-    this.tag.visible = this.alive;
-    this.tag.position.copy(f.pos).add(new THREE.Vector3(0, 9, 0));
 
     if (this.alive) {
       fx.damageTrail(f.pos, this.hp / 100, dt);
@@ -138,9 +140,7 @@ class RemotePlayer {
   }
 
   dispose() {
-    this.scene.remove(this.jet.group, this.tag);
-    this.tex.dispose();
-    this.tag.material.dispose();
+    this.scene.remove(this.jet.group);
   }
 }
 
@@ -160,7 +160,9 @@ export class RemotePlayers {
   sync(players: Map<string, PlayerInfo>, myUid: string, bots?: Map<string, BotNet>) {
     for (const [uid, info] of players) {
       if (uid === myUid) continue;
-      if (!this.map.has(uid)) this.map.set(uid, new RemotePlayer(uid, info, this.scene));
+      const ex = this.map.get(uid);
+      if (!ex) this.map.set(uid, new RemotePlayer(uid, info, this.scene));
+      else ex.setInfo(info);
     }
     if (bots) {
       for (const [id, b] of bots) {

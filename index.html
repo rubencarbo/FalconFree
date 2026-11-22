@@ -49,13 +49,14 @@
         <div id="toast"></div>
         <div id="warning">¡ASCIENDE!</div>
         <div id="missile-warning"><span class="mw-arrow"></span><b>MISIL</b><small>Bengalas: G / botón</small></div>
+        <div id="pilots"></div>
+        <div id="leash"><span>¡Te alejas del escuadrón!</span><b></b><small>Sigue la flecha verde o te reagruparemos</small></div>
         <div id="offroute">
           <span>Te has alejado del siguiente hito</span>
           <button id="btn-route-reset" class="pill">Volver a la ruta (+3 s) · R</button>
         </div>
         <div id="ach-banner"><span class="medal"></span><div><span>Logro desbloqueado</span><b></b><small></small></div></div>
         <div id="joy-zone"><div id="joy-base"><div id="joy-knob"></div></div></div>
-        <button id="btn-climb" class="round">Subir</button>
         <button id="btn-fire" class="round">Disparo</button>
         <button id="btn-missile" class="round">Misil</button>
         <button id="btn-flare" class="round">Bengalas</button>
@@ -203,6 +204,11 @@
             <span class="muted">Código para invitar</span>
             <b id="lobby-code">---</b>
             <button id="btn-copy-code" class="secondary">Copiar código</button>
+          </div>
+          <div class="profile">
+            <label class="field"><span>Tu nombre</span><input id="lobby-name" maxlength="16" autocomplete="off" /></label>
+            <div class="field"><span>Tu color</span><div id="lobby-colors" class="swatches"></div></div>
+            <div class="field"><span>Tu icono</span><div id="lobby-icons" class="icon-picks"></div></div>
           </div>
           <div class="lobby-head"><span>Pilotos</span><span id="lobby-count" class="muted"></span></div>
           <ul id="lobby-players" class="lobby-players"></ul>

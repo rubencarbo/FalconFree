@@ -49,7 +49,7 @@ export class Bot {
     skill = 0.7,
   ) {
     this.skill = skill;
-    this.jet = new JetModel(spec.team ? TEAM_COLORS[spec.team] : spec.color, 0x3a3436);
+    this.jet = new JetModel(spec.team ? TEAM_COLORS[spec.team] : spec.color, new THREE.Color(spec.color).lerp(new THREE.Color(0x22252b), 0.5).getHex());
     scene.add(this.jet.group);
     this.guns = new Guns(scene, gen, fx);
     this.guns.maxAmmo = this.guns.ammo = 99999;

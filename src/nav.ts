@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { drawIcon, type IconId } from './identity';
 
 /** Flecha 3D que flota delante del avión y apunta al siguiente objetivo */
 export class GuideArrow {
@@ -60,6 +61,8 @@ export interface RadarItem {
   kind: RadarKind;
   color?: string;
   label?: string;
+  /** Icono del piloto (aliados y enemigos) */
+  icon?: IconId;
 }
 
 const RADAR_COLORS: Record<RadarKind, string> = {
@@ -160,6 +163,17 @@ export class Radar {
       const color = it.color ?? RADAR_COLORS[it.kind];
       ctx.fillStyle = color;
       ctx.strokeStyle = color;
+      if (it.icon) {
+        drawIcon(ctx, it.icon, R + x, R + y, outside ? 4.5 : 6.5, color);
+        if (it.kind === 'enemy') {
+          ctx.strokeStyle = '#ff3030';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.arc(R + x, R + y, outside ? 7 : 9.5, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        continue;
+      }
       ctx.save();
       ctx.translate(R + x, R + y);
       if (outside && (it.kind === 'gate' || it.kind === 'enemy' || it.kind === 'ally')) {

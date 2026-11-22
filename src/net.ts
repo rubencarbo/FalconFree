@@ -22,6 +22,7 @@ import { firebase } from './firebase';
 import type { StageId } from './stages';
 import type { Team } from './bots';
 import type { BattleKind } from './battle';
+import { ICONS, type IconId } from './identity';
 
 export type RoomMode = 'free' | 'race' | 'battle';
 export type RoomState = 'lobby' | 'countdown' | 'running';
@@ -47,6 +48,7 @@ export interface PlayerInfo {
   color: number;
   joinedAt: number;
   team?: Team;
+  icon?: IconId;
 }
 
 /** Bot simulado por el anfitrión */
@@ -190,7 +192,7 @@ export class Room {
       const res = await runTransaction(ref(db, `rooms/${code}/meta`), (cur) => (cur === null ? meta : undefined));
       if (!res.committed) continue;
       const room = new Room(code, uid, name);
-      await room.enter(0, 'A');
+      await room.enter(0, 'A', ICONS[0]);
       return room;
     }
     throw new NetError('No se pudo crear la sala. Inténtalo de nuevo.');
@@ -214,14 +216,16 @@ export class Room {
     const others = Object.entries(players).filter(([k]) => k !== uid).map(([, p]) => p);
     const used = new Set(others.map((p) => p.color));
     const colorIdx = PLAYER_COLORS.findIndex((c) => !used.has(c));
+    const usedIcons = new Set(others.map((p) => p.icon));
+    const icon = ICONS.find((i) => !usedIcons.has(i)) ?? ICONS[0];
     const a = others.filter((p) => p.team === 'A').length;
     const b = others.filter((p) => p.team === 'B').length;
     const room = new Room(code, uid, name);
-    await room.enter(Math.max(0, colorIdx), a <= b ? 'A' : 'B');
+    await room.enter(Math.max(0, colorIdx), a <= b ? 'A' : 'B', icon);
     return room;
   }
 
-  private async enter(colorIdx: number, team: Team) {
+  private async enter(colorIdx: number, team: Team, icon: IconId) {
     const db = firebase.database()!;
     this.unsubs.push(
       onValue(ref(db, '.info/serverTimeOffset'), (s) => {
@@ -232,7 +236,7 @@ export class Room {
     const pos = ref(db, `rooms/${this.code}/pos/${this.uid}`);
     await onDisconnect(me).remove();
     await onDisconnect(pos).remove();
-    await set(me, { name: this.name, color: PLAYER_COLORS[colorIdx], joinedAt: serverTimestamp(), team });
+    await set(me, { name: this.name, color: PLAYER_COLORS[colorIdx], joinedAt: serverTimestamp(), team, icon });
 
     this.unsubs.push(
       onValue(ref(db, `rooms/${this.code}/meta`), (s) => {
@@ -328,6 +332,19 @@ export class Room {
   setScore(id: string, k: number, d: number) {
     if (this.closed) return;
     set(ref(firebase.database()!, `rooms/${this.code}/score/${id}`), { k, d }).catch(() => undefined);
+  }
+
+  /** Cambia nombre, color o icono del piloto (desde la sala) */
+  async setProfile(patch: { name?: string; color?: number; icon?: IconId }) {
+    if (patch.name !== undefined) {
+      patch.name = patch.name.trim().slice(0, 16) || 'Piloto';
+      this.name = patch.name;
+    }
+    await update(ref(firebase.database()!, `rooms/${this.code}/players/${this.uid}`), patch);
+  }
+
+  get myIcon(): IconId {
+    return this.players.get(this.uid)?.icon ?? ICONS[0];
   }
 
   async setTeam(team: Team) {

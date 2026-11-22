@@ -50,6 +50,31 @@ Para no perderse en un mundo abierto, sin mover los hitos (sería injusto en la 
 - **Fuera de ruta**: si te alejas, aparece *Volver a la ruta* (tecla R): vuelves al último hito
   con 3 s de penalización.
 
+## Aros
+
+| Aro | Premio |
+| --- | --- |
+| Naranja | 1 anillo y +40 balas |
+| Amarillo | 1 anillo y munición completa |
+| Verde | 1 anillo y +25 % de blindaje |
+| Violeta | 1 anillo y +1 misil |
+| Rojo | 1 anillo y acelerón |
+| Dorado (pequeño, gira rápido) | 5 anillos |
+| Marino (gigante, medio sumergido en el agua) | 3 anillos |
+
+Cada 5 anillos recogidos se gana además 1 misil.
+
+## Multijugador: identidad y escuadrón
+
+- En la sala cada piloto elige **nombre, color e icono** (✕ ● ■ ★ ▲ ➤ ◆ ✚). Los que ya
+  usa otro jugador aparecen tachados.
+- En vuelo, cada avión va pintado con su color y lleva una **etiqueta** con icono, nombre y
+  distancia; si está fuera de la pantalla, la etiqueta se queda en el borde señalando dónde está.
+- En el radar, cada piloto aparece con su icono y su color (los enemigos, con un aro rojo).
+- **Vuelo en equipo**: sin fuego amigo. Si te alejas más de 1,1 km del compañero más cercano
+  aparece un aviso y una flecha verde; a más de 1,7 km durante 4 s te reagrupa detrás de un
+  compañero.
+
 ## Combate y daños
 
 - **Disparo** con trazadoras, fogonazos, chispas, humo y explosiones con onda expansiva.
@@ -80,7 +105,7 @@ Para no perderse en un mundo abierto, sin mover los hitos (sería injusto en la 
 | Misil | Misil | Q o clic derecho | RB |
 | Bengalas | Bengalas | G | LB |
 | Turbo | Turbo | Espacio / Shift | A / RT |
-| Subir | Subir | E | B |
+| Subir | — | E | B |
 | Volver a la ruta | botón en pantalla | R | — |
 | Cambiar vista | Vista | C | Y |
 | Pausa | ❚❚ | P / Esc | Start |

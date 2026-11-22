@@ -9,7 +9,8 @@ import { CityGen, type Box } from './world/city';
 import { ChunkManager } from './world/chunks';
 import { Flight, JetModel, CRUISE_KMH, BOOST_KMH, type FlightInput } from './jet';
 import { CameraRig, CAMERA_LABELS, CAMERA_MODES } from './cameraRig';
-import { Contrails, FarGround, Rings, Sky } from './effects';
+import { Contrails, FarGround, Rings, Sky, RING_INFO, type RingPickup } from './effects';
+import { ICONS, ICON_GLYPH, ICON_NAMES, hexColor, type IconId } from './identity';
 import { Fx } from './fx';
 import { Guns, MAX_AMMO, type Target } from './combat';
 import { Drones } from './drones';
@@ -18,8 +19,8 @@ import { Input } from './input';
 import { Hud } from './hud';
 import { GameAudio } from './audio';
 import { firebase } from './firebase';
-import { Room, NetError, formatCode, normalizeCode, MAX_PLAYERS, type NetEvent, type RoomMeta, type RoomMode } from './net';
-import { RemotePlayers } from './remote';
+import { Room, NetError, formatCode, normalizeCode, MAX_PLAYERS, PLAYER_COLORS, type NetEvent, type RoomMeta, type RoomMode } from './net';
+import { RemotePlayers, bodyTint } from './remote';
 import { loadSettings, saveSettings, store, type Settings } from './settings';
 import { applyControlLayout, ControlsEditor } from './controls';
 import { GuideArrow, Radar, type RadarItem } from './nav';
@@ -52,6 +53,9 @@ const RESPAWN_TIME = 3;
 const NET_RATE = 10;
 const ROUTE_PENALTY = 3;
 const ARENA = new THREE.Vector3(0, 0, 0);
+/** Cooperativo: distancia (m) a la que se avisa y a la que se reagrupa */
+const LEASH_WARN = 1100;
+const LEASH_MAX = 1700;
 
 class Game {
   renderer: THREE.WebGLRenderer;
@@ -130,6 +134,10 @@ class Game {
   private lowFlightT = 0;
   private remoteFlares = new Set<string>();
   private missileBeep = 0;
+  /** Anillos acumulados para el próximo misil (1 cada 5) */
+  private ringsToMissile = 0;
+  private leashT = 0;
+  private leashTarget: THREE.Vector3 | null = null;
 
   private timer = new THREE.Timer();
   private time = 0;
@@ -162,7 +170,6 @@ class Game {
       $('joy-base'),
       $('joy-knob'),
       $('btn-boost'),
-      $('btn-climb'),
       $('btn-fire'),
       canvas,
       $('btn-missile'),
@@ -303,7 +310,9 @@ class Game {
     const paint = pr.paint;
     const visible = this.jet.group.visible;
     this.scene.remove(this.jet.group);
-    this.jet = new JetModel(paint.accent, paint.body, pr.p.plane);
+    // En multijugador el avión lleva el color elegido en la sala (igual que lo ven los demás)
+    const mp = this.room?.players.get(this.room.uid);
+    this.jet = mp ? new JetModel(mp.color, bodyTint(mp.color), pr.p.plane) : new JetModel(paint.accent, paint.body, pr.p.plane);
     this.jet.group.visible = visible;
     this.scene.add(this.jet.group);
     this.flight.speedMul = mods.speed;
@@ -336,6 +345,9 @@ class Game {
   private resetSession() {
     this.rings.enabled = true;
     this.ringCount = 0;
+    this.ringsToMissile = 0;
+    this.leashT = 0;
+    this.leashTarget = null;
     this.kills = 0;
     this.sessionCredits = 0;
     this.shield = this.doubleDamage = this.turbo = 0;
@@ -763,7 +775,8 @@ class Game {
       const list: Target[] = [...this.remotes.targets(), ...this.bots.map((x) => x.target)];
       return list.filter((t) => b.enemies(this.myId, t.id));
     }
-    if (this.room) return this.remotes.targets();
+    // Vuelo libre en equipo: sin fuego amigo
+    if (this.room) return [];
     return this.drones.active ? this.drones.list : [];
   }
 
@@ -1207,7 +1220,7 @@ class Game {
         for (const ev of this.race.update(sdt, this.prevPos, f.pos, this.time)) this.onRaceEvent(ev);
       } else {
         const got = this.rings.update(sdt, this.prevPos, f.pos);
-        if (got) this.onRingsCollected(got);
+        if (got.length) this.onRingsCollected(got);
       }
       if (!f.frozen && this.checkCollision()) break;
     }
@@ -1222,6 +1235,7 @@ class Game {
     }
 
     this.checkPlayerCollisions();
+    this.updateLeash(dt);
     this.guns.update(dt, this.gunContext(!!input.fire && !f.frozen && !this.paused));
 
     // Aviso de proximidad al suelo
@@ -1335,18 +1349,115 @@ class Game {
     return out;
   }
 
-  private onRingsCollected(got: number) {
-    this.audio.ring();
+  private onRingsCollected(got: RingPickup[]) {
     Haptic.pickup();
+    let value = 0;
+    const msgs: string[] = [];
+    for (const g of got) {
+      const info = RING_INFO[g.kind];
+      value += info.value;
+      switch (g.kind) {
+        case 'ammo':
+          this.guns.refill();
+          break;
+        case 'repair':
+          this.hp = Math.min(this.maxHp, this.hp + this.maxHp * 0.25);
+          break;
+        case 'missile':
+          this.missiles.addMissiles(1);
+          break;
+        case 'turbo':
+          this.flight.burst = 3;
+          this.audio.boostRing();
+          break;
+        default:
+          this.guns.reload(40);
+      }
+      if (g.kind !== 'normal') msgs.push(info.label);
+      if (g.kind === 'gold' || g.kind === 'sea') this.fx.sparks(this.flight.pos, null, 40, 70);
+    }
+    this.audio.ring();
     if (this.room) {
       for (const id of this.rings.lastCollected) this.room.claimRing(id);
     } else {
-      this.ringCount += got;
+      this.ringCount += value;
     }
-    this.progress.add('rings', got);
-    this.earn(5 * got);
-    const added = this.guns.reload(40);
-    this.hud.toast(added > 0 ? `+${got} anillo · +${added} balas` : `+${got} anillo`);
+    this.progress.add('rings', value);
+    this.earn(5 * value);
+    // Cada 5 anillos, un misil
+    this.ringsToMissile += value;
+    let newMissiles = 0;
+    while (this.ringsToMissile >= 5) {
+      this.ringsToMissile -= 5;
+      this.missiles.addMissiles(1);
+      newMissiles++;
+    }
+    if (newMissiles) msgs.push(`+${newMissiles} misil`);
+    this.hud.toast(`+${value} ${value === 1 ? 'anillo' : 'anillos'}${msgs.length ? ' · ' + msgs.join(' · ') : ''}`, 1300);
+  }
+
+  /** Cooperativo: no alejarse demasiado del escuadrón */
+  private updateLeash(dt: number) {
+    this.leashTarget = null;
+    const coop = this.room && ((this.mode === 'free' && !this.battle) || this.battle?.config.kind === 'coop');
+    if (!coop || !this.alive) {
+      this.hud.leash(false, 0);
+      return;
+    }
+    let mate: { pos: THREE.Vector3; yaw: number } | null = null;
+    let d = Infinity;
+    // Ancla: compañero más cercano que entró antes que yo (el primero no se mueve nunca,
+    // así dos pilotos separados no se teletransportan a la vez el uno hacia el otro)
+    let anchor: { pos: THREE.Vector3; yaw: number } | null = null;
+    let da = Infinity;
+    const joined = (uid: string) => this.room!.players.get(uid)?.joinedAt ?? Infinity;
+    const myJoin = joined(this.room!.uid);
+    for (const p of this.remotes.map.values()) {
+      if (!p.alive || !p.buffer.length || p.uid.startsWith('bot')) continue;
+      const dd = p.target.pos.distanceTo(this.flight.pos);
+      const m = { pos: p.target.pos, yaw: new THREE.Euler().setFromQuaternion(p.quat, 'YXZ').y };
+      if (dd < d) {
+        d = dd;
+        mate = m;
+      }
+      if (joined(p.uid) < myJoin && dd < da) {
+        da = dd;
+        anchor = m;
+      }
+    }
+    if (!mate) {
+      this.hud.leash(false, 0);
+      return;
+    }
+    const warn = d > LEASH_WARN;
+    this.hud.leash(warn, d);
+    if (warn) this.leashTarget = mate.pos;
+    this.leashT = d > LEASH_MAX && anchor ? this.leashT + dt : 0;
+    if (this.leashT > 4 && anchor) {
+      this.leashT = 0;
+      mate = anchor;
+      const back = new THREE.Vector3(Math.sin(mate.yaw), 0, Math.cos(mate.yaw)).multiplyScalar(140);
+      const pos = mate.pos.clone().add(back);
+      pos.y = Math.max(pos.y + 20, this.gen.maxHeightNear(pos.x, pos.z, 120) + 60);
+      this.spawnAt(pos, mate.yaw);
+      this.hp = Math.min(this.maxHp, Math.max(this.hp, 1));
+      this.hud.toast('Reagrupado con el escuadrón', 1600);
+    }
+  }
+
+  /** Identidad visible de otro piloto o bot */
+  private pilotInfo(id: string): { name: string; icon: IconId; color: string; teamColor: string } {
+    const room = this.room;
+    const p = room?.players.get(id);
+    const bot = this.bots.find((b) => b.spec.id === id);
+    const remote = this.remotes.get(id);
+    const name = p?.name ?? bot?.spec.name ?? remote?.info.name ?? '?';
+    const idx = Math.max(0, parseInt(id.replace(/\D/g, ''), 10) || 0);
+    const icon: IconId = p?.icon ?? remote?.info.icon ?? ICONS[idx % ICONS.length];
+    const color = p?.color ?? bot?.spec.color ?? remote?.info.color ?? 0xffffff;
+    const team = this.battle?.teamOf(id);
+    const teamColor = team && this.battle?.config.kind === 'teams' ? TEAM_COLORS[team] : color;
+    return { name, icon, color: hexColor(color), teamColor: hexColor(teamColor) };
   }
 
   private onRaceEvent(ev: RaceEvent) {
@@ -1459,7 +1570,8 @@ class Game {
       let nearest: Target | null = null;
       let nd = Infinity;
       for (const t of enemies) {
-        items.push({ pos: t.pos, kind: 'enemy' });
+        const pi = this.pilotInfo(t.id);
+        items.push({ pos: t.pos, kind: 'enemy', icon: pi.icon, color: pi.teamColor });
         const d = t.pos.distanceTo(f.pos);
         if (d < nd) {
           nd = d;
@@ -1467,7 +1579,10 @@ class Game {
         }
       }
       for (const t of [...this.remotes.targets(), ...this.bots.map((b) => b.target)]) {
-        if (t.alive && !this.battle.enemies(this.myId, t.id)) items.push({ pos: t.pos, kind: 'ally' });
+        if (t.alive && !this.battle.enemies(this.myId, t.id)) {
+          const pi = this.pilotInfo(t.id);
+          items.push({ pos: t.pos, kind: 'ally', icon: pi.icon, color: pi.teamColor });
+        }
       }
       if (nearest && nd > 700) {
         arrowTarget = nearest.pos;
@@ -1479,7 +1594,15 @@ class Game {
       if (this.room) {
         scoreLabel = 'Anillos equipo';
         scoreValue = String(this.room.rings.size);
-        for (const t of this.remotes.targets()) if (t.alive) items.push({ pos: t.pos, kind: 'ally' });
+        for (const t of this.remotes.targets()) {
+          if (!t.alive) continue;
+          const pi = this.pilotInfo(t.id);
+          items.push({ pos: t.pos, kind: 'ally', icon: pi.icon, color: pi.color });
+        }
+        if (this.leashTarget) {
+          arrowTarget = this.leashTarget;
+          arrowColor = 0x5cff8a;
+        }
       } else if (this.kills > 0) {
         scoreLabel = 'Anillos · Drones';
         scoreValue = `${this.ringCount} · ${this.kills}`;
@@ -1490,9 +1613,7 @@ class Game {
     if (this.mode !== 'race') {
       for (const p of this.powerups.positions()) items.push({ pos: p.pos, kind: 'power', color: POWER_INFO[p.kind].css });
       if (this.mode === 'free') {
-        // anillos cercanos
-        const near = this.rings.nearest(f.pos);
-        if (near) items.push({ pos: near, kind: 'ring' });
+        for (const r of this.rings.list()) items.push({ pos: r.pos, kind: 'ring', color: RING_INFO[r.kind].css });
       }
     }
 
@@ -1521,6 +1642,18 @@ class Game {
     if (this.turbo > 0) pws.push({ name: 'Turbo', color: POWER_INFO.turbo.css, left: this.turbo, total: POWER_INFO.turbo.duration });
     this.hud.setPowerups(pws);
     this.radar.draw(f.pos, f.yaw, items, route);
+    // Etiquetas de los demás pilotos
+    const tags = [];
+    if (this.screen === 'playing' || this.screen === 'results') {
+      const others: Target[] = [...this.remotes.targets(), ...this.bots.map((b) => b.target)];
+      for (const t of others) {
+        if (!t.alive) continue;
+        const pi = this.pilotInfo(t.id);
+        const enemy = this.battle ? this.battle.enemies(this.myId, t.id) : false;
+        tags.push({ id: t.id, name: pi.name, glyph: ICON_GLYPH[pi.icon], color: pi.teamColor, pos: t.pos, enemy });
+      }
+    }
+    this.hud.updatePilots(this.camera, f.pos, tags);
     this.arrow.update(f.pos, f.yaw, arrowTarget, this.alive && this.screen === 'playing' && this.rig.mode !== 'cockpit' && this.rig.mode !== 'top', arrowColor);
     if (this.rig.mode === 'cockpit') this.layoutControls();
   }
@@ -1781,8 +1914,14 @@ class Game {
     show('mp-panel', false);
     this.myRound = room.meta?.round ?? 0;
     const resync = () => this.remotes.sync(room.players, room.uid, room.isHost ? undefined : room.bots);
+    let myColor = -1;
     room.onPlayers = () => {
       resync();
+      const me = room.players.get(room.uid);
+      if (me && me.color !== myColor) {
+        myColor = me.color;
+        this.applyLoadout();
+      }
       this.renderLobby();
       if (this.screen === 'results') this.renderRoomResults();
       if (this.battle) for (const [uid, p] of room.players) if (!this.battle.fighters.has(uid)) this.battle.add({ id: uid, name: p.name, team: this.battleConfig.kind === 'ffa' ? null : this.battleConfig.kind === 'coop' ? 'A' : (p.team ?? 'A'), color: p.color, isBot: false });
@@ -1818,6 +1957,8 @@ class Game {
   private detachRoom() {
     this.remotes.dispose();
     this.room = null;
+    this.applyLoadout();
+    this.hud.updatePilots(this.camera, this.flight.pos, []);
   }
 
   private async leaveRoom() {
@@ -1866,8 +2007,9 @@ class Game {
         .map(([uid, p]) => {
           const li = document.createElement('li');
           const dot = document.createElement('span');
-          dot.className = 'dot';
-          dot.style.background = hex(teamMode && p.team ? TEAM_COLORS[p.team] : p.color);
+          dot.className = 'dot icon';
+          dot.style.color = hex(teamMode && p.team ? TEAM_COLORS[p.team] : p.color);
+          dot.textContent = ICON_GLYPH[p.icon ?? 'o'];
           const name = document.createElement('span');
           name.textContent = p.name + (uid === room.uid ? ' (tú)' : '');
           li.append(dot, name);
@@ -1886,6 +2028,38 @@ class Game {
         }),
     );
     $('lobby-count').textContent = `${room.players.size}/${MAX_PLAYERS}`;
+    // Mi piloto: nombre, color e icono (sin repetir los de otros)
+    const mine = room.players.get(room.uid);
+    const nameIn = $<HTMLInputElement>('lobby-name');
+    if (document.activeElement !== nameIn) nameIn.value = mine?.name ?? this.pilotName();
+    const others = [...room.players.entries()].filter(([k]) => k !== room.uid).map(([, p]) => p);
+    $('lobby-colors').replaceChildren(
+      ...PLAYER_COLORS.map((c) => {
+        const b = document.createElement('button');
+        b.className = 'swatch-btn';
+        b.style.background = hex(c);
+        const taken = others.some((p) => p.color === c);
+        b.disabled = taken;
+        b.classList.toggle('selected', mine?.color === c);
+        b.setAttribute('aria-label', taken ? 'Color ocupado' : 'Elegir color');
+        b.addEventListener('click', () => void room.setProfile({ color: c }));
+        return b;
+      }),
+    );
+    $('lobby-icons').replaceChildren(
+      ...ICONS.map((ic) => {
+        const b = document.createElement('button');
+        b.className = 'icon-btn';
+        b.textContent = ICON_GLYPH[ic];
+        b.title = ICON_NAMES[ic];
+        b.style.color = hex(mine?.color ?? 0xffffff);
+        const taken = others.some((p) => p.icon === ic);
+        b.disabled = taken;
+        b.classList.toggle('selected', mine?.icon === ic);
+        b.addEventListener('click', () => void room.setProfile({ icon: ic }));
+        return b;
+      }),
+    );
     const host = room.isHost;
     for (const id of ['lobby-mode', 'lobby-stage', 'lobby-course', 'lobby-bkind', 'lobby-bots', 'lobby-blimit', 'lobby-btime']) ($(id) as HTMLSelectElement).disabled = !host;
     $<HTMLSelectElement>('lobby-mode').value = m.mode;
@@ -2058,6 +2232,13 @@ class Game {
     });
     $('btn-lobby-leave').addEventListener('click', () => void this.leaveRoom());
     $('btn-lobby-start').addEventListener('click', () => void this.room?.startRound());
+    $<HTMLInputElement>('lobby-name').addEventListener('change', (e) => {
+      const v = (e.target as HTMLInputElement).value.trim().slice(0, 16) || 'Piloto';
+      this.settings.name = v;
+      this.persist();
+      $<HTMLInputElement>('pilot-name').value = v;
+      void this.room?.setProfile({ name: v });
+    });
     $('btn-team').addEventListener('click', () => {
       const me = this.room?.players.get(this.room.uid);
       if (me) void this.room!.setTeam(me.team === 'A' ? 'B' : 'A');

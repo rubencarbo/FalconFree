@@ -5,6 +5,17 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 
 const GREEN = '#46ff7a';
 
+export interface PilotTag {
+  id: string;
+  name: string;
+  glyph: string;
+  color: string;
+  pos: THREE.Vector3;
+  enemy: boolean;
+}
+
+const _up = new THREE.Vector3(0, 7, 0);
+
 export interface HudData {
   flight: Flight;
   /** Línea principal de puntuación (p. ej. "Anillos 3") */
@@ -123,6 +134,56 @@ export class Hud {
     this.lockName.textContent = d.lockName ?? '';
   }
 
+  private pilotEls = new Map<string, HTMLElement>();
+
+  /** Etiquetas de los otros pilotos: icono, nombre y distancia (en el borde si no se ven) */
+  updatePilots(camera: THREE.PerspectiveCamera, me: THREE.Vector3, list: PilotTag[]) {
+    const root = $('pilots');
+    const W = window.innerWidth;
+    const H = window.innerHeight - this.panelH;
+    const seen = new Set<string>();
+    for (const p of list) {
+      seen.add(p.id);
+      let el = this.pilotEls.get(p.id);
+      if (!el) {
+        el = document.createElement('div');
+        el.className = 'pilot';
+        el.innerHTML = '<span class="pi-icon"></span><span class="pi-name"></span><span class="pi-dist"></span>';
+        root.append(el);
+        this.pilotEls.set(p.id, el);
+      }
+      (el.children[0] as HTMLElement).textContent = p.glyph;
+      (el.children[1] as HTMLElement).textContent = p.name;
+      const d = p.pos.distanceTo(me);
+      (el.children[2] as HTMLElement).textContent = d > 1000 ? `${(d / 1000).toFixed(1)} km` : `${Math.round(d)} m`;
+      el.style.setProperty('--pc', p.color);
+      el.classList.toggle('enemy', p.enemy);
+      const v = this.v.copy(p.pos).add(_up).project(camera);
+      const behind = v.z > 1;
+      let x = v.x;
+      let y = v.y;
+      if (behind) {
+        x = -x;
+        y = -y;
+      }
+      const m = 0.9;
+      const edge = behind || Math.abs(x) > m || Math.abs(y) > m;
+      if (edge) {
+        const k = Math.max(Math.abs(x), Math.abs(y)) || 1;
+        x = (x / k) * m;
+        y = (y / k) * m;
+      }
+      el.classList.toggle('edge', edge);
+      el.style.transform = `translate(${((x + 1) / 2) * W}px, ${((1 - y) / 2) * H}px) translate(-50%, -100%)`;
+    }
+    for (const [id, el] of this.pilotEls) {
+      if (!seen.has(id)) {
+        el.remove();
+        this.pilotEls.delete(id);
+      }
+    }
+  }
+
   setWeapons(missiles: number, flares: number, flareWindow: boolean) {
     $('hud-missiles').textContent = String(missiles);
     $('hud-flares').textContent = String(flares);
@@ -172,6 +233,12 @@ export class Hud {
     el.prepend(row);
     while (el.childElementCount > 4) el.lastElementChild?.remove();
     setTimeout(() => row.remove(), 5000);
+  }
+
+  leash(on: boolean, dist: number) {
+    const el = $('leash');
+    el.classList.toggle('show', on);
+    if (on) (el.querySelector('b') as HTMLElement).textContent = dist > 1000 ? `${(dist / 1000).toFixed(1)} km` : `${Math.round(dist)} m`;
   }
 
   offRoute(on: boolean) {

@@ -1,6 +1,6 @@
 /** Ajustes del jugador, guardados en el navegador */
 
-export type ControlId = 'joy' | 'boost' | 'climb' | 'fire' | 'missile' | 'flare';
+export type ControlId = 'joy' | 'boost' | 'fire' | 'missile' | 'flare';
 
 export interface ControlLayout {
   /** Centro del control como fracción del ancho/alto de la pantalla */
@@ -29,13 +29,12 @@ export interface Settings {
   controls: Record<ControlId, ControlLayout>;
 }
 
-export const CONTROL_IDS: ControlId[] = ['joy', 'fire', 'missile', 'flare', 'boost', 'climb'];
+export const CONTROL_IDS: ControlId[] = ['joy', 'fire', 'missile', 'flare', 'boost'];
 
 export const CONTROL_LABELS: Record<ControlId, string> = {
   joy: 'Joystick',
   fire: 'Disparo',
   boost: 'Turbo',
-  climb: 'Subir',
   missile: 'Misil',
   flare: 'Bengalas',
 };
@@ -45,7 +44,6 @@ export const CONTROL_BASE_SIZE: Record<ControlId, number> = {
   joy: 130,
   fire: 80,
   boost: 92,
-  climb: 60,
   missile: 60,
   flare: 54,
 };
@@ -55,7 +53,6 @@ export function defaultControls(): Record<ControlId, ControlLayout> {
     joy: { x: 0.2, y: 0.74, scale: 1, opacity: 0.9 },
     fire: { x: 0.64, y: 0.84, scale: 1, opacity: 0.95 },
     boost: { x: 0.84, y: 0.74, scale: 1, opacity: 0.95 },
-    climb: { x: 0.85, y: 0.5, scale: 1, opacity: 0.9 },
     missile: { x: 0.58, y: 0.62, scale: 1, opacity: 0.95 },
     flare: { x: 0.47, y: 0.93, scale: 1, opacity: 0.9 },
   };

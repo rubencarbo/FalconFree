@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { Stage } from './stages';
-import type { CityGen, RingSpawn } from './world/city';
+import type { CityGen, RingKind, RingSpawn } from './world/city';
 
 /** Cúpula de cielo con degradado, sol y estrellas (de noche) */
 export class Sky {
@@ -224,7 +224,34 @@ export class Explosion {
   }
 }
 
+export interface RingInfo {
+  label: string;
+  /** cuántos anillos vale */
+  value: number;
+  radius: number;
+  tube: number;
+  color: number;
+  emissive: number;
+  css: string;
+}
+
+export const RING_INFO: Record<RingKind, RingInfo> = {
+  normal: { label: 'Anillo', value: 1, radius: 24, tube: 3.2, color: 0xffa020, emissive: 0xff6a00, css: '#ff9a2a' },
+  ammo: { label: 'Munición completa', value: 1, radius: 20, tube: 3.2, color: 0xffe040, emissive: 0xc8a000, css: '#ffe040' },
+  repair: { label: 'Reparación', value: 1, radius: 20, tube: 3.2, color: 0x5cff8a, emissive: 0x18a040, css: '#5cff8a' },
+  missile: { label: '+1 misil', value: 1, radius: 20, tube: 3.2, color: 0xc070ff, emissive: 0x7020c0, css: '#c070ff' },
+  turbo: { label: 'Acelerón', value: 1, radius: 22, tube: 3.2, color: 0xff4a4a, emissive: 0xc01010, css: '#ff5a5a' },
+  gold: { label: 'Aro dorado ×5', value: 5, radius: 15, tube: 2.6, color: 0xffe9a0, emissive: 0xffc020, css: '#ffd040' },
+  sea: { label: 'Aro marino ×3', value: 3, radius: 46, tube: 4.5, color: 0x9ff0ff, emissive: 0x2aa0c8, css: '#7fe8ff' },
+};
+
+export interface RingPickup {
+  id: string;
+  kind: RingKind;
+}
+
 interface RingObj {
+  kind: RingKind;
   spawn: RingSpawn;
   mesh: THREE.Mesh;
   collecting: number; // >0 durante la animación de recogida
@@ -234,8 +261,8 @@ interface RingObj {
 export class Rings {
   private rings = new Map<string, RingObj>();
   collected = new Set<string>();
-  private geo = new THREE.TorusGeometry(24, 3.2, 6, 20);
-  private mat: THREE.MeshLambertMaterial;
+  private geos = new Map<RingKind, THREE.TorusGeometry>();
+  private mats = new Map<RingKind, THREE.MeshLambertMaterial>();
   private inv = new THREE.Matrix4();
   private local = new THREE.Vector3();
 
@@ -243,7 +270,10 @@ export class Rings {
     private scene: THREE.Scene,
     private gen: CityGen,
   ) {
-    this.mat = new THREE.MeshLambertMaterial({ color: 0xffa020, emissive: 0xff6a00, emissiveIntensity: 0.6 });
+    for (const [k, info] of Object.entries(RING_INFO) as [RingKind, RingInfo][]) {
+      this.geos.set(k, new THREE.TorusGeometry(info.radius, info.tube, k === 'sea' ? 10 : 6, k === 'sea' ? 40 : 20));
+      this.mats.set(k, new THREE.MeshLambertMaterial({ color: info.color, emissive: info.emissive, emissiveIntensity: k === 'gold' ? 1.1 : 0.6 }));
+    }
   }
 
   /** false en modo carrera: no aparecen anillos libres */
@@ -251,22 +281,24 @@ export class Rings {
 
   addChunk(cx: number, cz: number) {
     if (!this.enabled) return;
-    const s = this.gen.ringForChunk(cx, cz);
-    if (!s || this.rings.has(s.id) || this.collected.has(s.id)) return;
-    const mesh = new THREE.Mesh(this.geo, this.mat);
-    mesh.position.set(s.x, s.y, s.z);
-    mesh.rotation.y = s.yaw;
-    mesh.updateMatrixWorld();
-    this.scene.add(mesh);
-    this.rings.set(s.id, { spawn: s, mesh, collecting: 0 });
+    for (const s of this.gen.ringsForChunk(cx, cz)) {
+      if (this.rings.has(s.id) || this.collected.has(s.id)) continue;
+      const mesh = new THREE.Mesh(this.geos.get(s.kind)!, this.mats.get(s.kind)!);
+      mesh.position.set(s.x, s.y, s.z);
+      mesh.rotation.y = s.yaw;
+      mesh.updateMatrixWorld();
+      this.scene.add(mesh);
+      this.rings.set(s.id, { kind: s.kind, spawn: s, mesh, collecting: 0 });
+    }
   }
 
   removeChunk(cx: number, cz: number) {
-    const id = `${cx}_${cz}`;
-    const r = this.rings.get(id);
-    if (r) {
-      this.scene.remove(r.mesh);
-      this.rings.delete(id);
+    for (const id of [`${cx}_${cz}`, `s${cx}_${cz}`]) {
+      const r = this.rings.get(id);
+      if (r) {
+        this.scene.remove(r.mesh);
+        this.rings.delete(id);
+      }
     }
   }
 
@@ -283,9 +315,9 @@ export class Rings {
   /** Último anillo recogido en update() */
   lastCollected: string[] = [];
 
-  /** Devuelve cuántos anillos se recogieron en este frame */
-  update(dt: number, prev: THREE.Vector3, cur: THREE.Vector3): number {
-    let got = 0;
+  /** Devuelve los anillos recogidos en este frame */
+  update(dt: number, prev: THREE.Vector3, cur: THREE.Vector3): RingPickup[] {
+    const got: RingPickup[] = [];
     this.lastCollected = [];
     for (const [id, r] of this.rings) {
       if (r.collecting > 0) {
@@ -295,14 +327,14 @@ export class Rings {
         r.mesh.rotation.z += dt * 8;
         if (k >= 1) {
           this.scene.remove(r.mesh);
-          r.mesh.material = this.mat;
           this.rings.delete(id);
         }
         continue;
       }
-      r.mesh.rotation.z += dt * 0.6;
+      if (r.kind !== 'sea') r.mesh.rotation.z += dt * (r.kind === 'gold' ? 2 : 0.6);
       // Comprobar si el segmento prev->cur cruza el plano del anillo dentro del radio
-      if (cur.distanceToSquared(r.mesh.position) > 120 * 120) continue;
+      const rad = RING_INFO[r.kind].radius + 3;
+      if (cur.distanceToSquared(r.mesh.position) > (rad + 100) * (rad + 100)) continue;
       this.inv.copy(r.mesh.matrixWorld).invert();
       const a = this.local.copy(prev).applyMatrix4(this.inv);
       const az = a.z, ax = a.x, ay = a.y;
@@ -311,12 +343,12 @@ export class Rings {
         const t = az / (az - b.z || 1e-6);
         const ix = ax + (b.x - ax) * t;
         const iy = ay + (b.y - ay) * t;
-        if (ix * ix + iy * iy < 27 * 27) {
-          got++;
+        if (ix * ix + iy * iy < rad * rad) {
+          got.push({ id, kind: r.kind });
           this.collected.add(id);
           this.lastCollected.push(id);
           r.collecting = 0.0001;
-          r.mesh.material = new THREE.MeshBasicMaterial({ color: 0xfff4a0, transparent: true, opacity: 0.7 });
+          r.mesh.material = new THREE.MeshBasicMaterial({ color: RING_INFO[r.kind].color, transparent: true, opacity: 0.7 });
         }
       }
     }
@@ -337,6 +369,13 @@ export class Rings {
     return best;
   }
 
+  /** Anillos visibles con su tipo (para el radar) */
+  list(): { pos: THREE.Vector3; kind: RingKind }[] {
+    const out: { pos: THREE.Vector3; kind: RingKind }[] = [];
+    for (const r of this.rings.values()) if (r.collecting === 0) out.push({ pos: r.mesh.position, kind: r.kind });
+    return out;
+  }
+
   /** Vuelve a colocar todos los anillos (nuevo vuelo) */
   respawnAll(chunks: Iterable<[number, number]>) {
     for (const r of this.rings.values()) this.scene.remove(r.mesh);
@@ -348,7 +387,7 @@ export class Rings {
   dispose() {
     for (const r of this.rings.values()) this.scene.remove(r.mesh);
     this.rings.clear();
-    this.geo.dispose();
-    this.mat.dispose();
+    for (const g of this.geos.values()) g.dispose();
+    for (const m of this.mats.values()) m.dispose();
   }
 }

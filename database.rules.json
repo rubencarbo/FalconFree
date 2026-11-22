@@ -67,6 +67,9 @@
             },
             "team": {
               ".validate": "newData.val() === 'A' || newData.val() === 'B'"
+            },
+            "icon": {
+              ".validate": "newData.val() === 'x' || newData.val() === 'o' || newData.val() === 'square' || newData.val() === 'star' || newData.val() === 'triangle' || newData.val() === 'arrow' || newData.val() === 'diamond' || newData.val() === 'plus'"
             }
           }
         },

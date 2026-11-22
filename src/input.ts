@@ -24,7 +24,6 @@ export class Input {
     private joyBase: HTMLElement,
     private joyKnob: HTMLElement,
     boostBtn: HTMLElement,
-    climbBtn: HTMLElement,
     fireBtn: HTMLElement,
     canvas: HTMLElement,
     missileBtn: HTMLElement,
@@ -48,7 +47,6 @@ export class Input {
     window.addEventListener('blur', () => this.keys.clear());
 
     this.bindHold(boostBtn, (v) => (this.touchBoost = v));
-    this.bindHold(climbBtn, (v) => (this.touchClimb = v));
     this.bindHold(fireBtn, (v) => (this.touchFire = v));
     // Ratón: clic izquierdo dispara (solo con puntero fino)
     canvas.addEventListener('pointerdown', (e) => {
