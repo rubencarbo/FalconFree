@@ -392,10 +392,25 @@ Quien tenga la app instalada verá el aviso **«Hay una nueva versión — Actua
 | `Error: … database … not found` o `Realtime Database instance … does not exist` al publicar | No se ha creado la Realtime Database | Haz el paso 7 y repite `npm run deploy` |
 | `Error: … Cloud Firestore API has not been used` o *database (default) does not exist* | No se ha creado Firestore | Haz el paso 6 y repite `npm run deploy` |
 | `Error: Authentication Error` / `not logged in` | La terminal no tiene tu sesión de Firebase | `npx firebase login` (o `npx firebase login --reauth`) |
+| Al crear una sala: `transaction at /rooms/…/meta failed: permission_denied` | La Realtime Database sigue con las reglas bloqueadas: las del juego no se han publicado | `npm run deploy:multijugador` (publica solo esas reglas). Comprueba en **Realtime Database → Reglas** que aparece `"rooms"`. Ver la nota de abajo |
+| `auth/configuration-not-found` | Authentication no está activado en el proyecto | Paso 5: **Authentication → Comenzar → Método de acceso → Anónimo → Habilitar** |
 | La clasificación pone *«No se pudo cargar la clasificación»* justo tras publicar | Los índices aún se están creando | Espera 5–10 minutos (Firestore → Índices) |
 | En la consola del navegador: `Missing or insufficient permissions` | Las reglas no se han subido | `npx firebase deploy --only firestore,database` |
 | He cambiado `.env` o `.env.local` y no se nota | Las claves se meten en el juego **al construirlo** | Repite `npm run deploy` |
 | El móvil sigue mostrando la versión antigua | La app guardada en el móvil aún no se ha actualizado | Cierra y abre la app y pulsa **Actualizar** en el aviso; o recarga la página dos veces |
+
+### Publicar solo las reglas
+
+Si `npm run deploy` se detuvo con un error (por ejemplo porque Firestore aún no estaba
+creado), puede que las reglas no se hayan subido. Hay órdenes para publicarlas por separado:
+
+- Solo multijugador (Realtime Database): `npm run deploy:multijugador`
+- Todas las reglas e índices (Realtime Database y Firestore): `npm run deploy:reglas`
+
+**Plan B, sin terminal**: en la consola de Firebase, **Realtime Database → Reglas**, borra lo
+que haya, pega el contenido completo del archivo `database.rules.json` del proyecto y pulsa
+**Publicar**. Para Firestore es igual: **Firestore Database → Reglas**, pega
+`firestore.rules` y **Publicar** (los índices sí necesitan `npm run deploy:reglas`).
 
 ### Proteger el presupuesto cero
 
