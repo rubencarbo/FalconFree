@@ -2402,6 +2402,13 @@ class Game {
 
   private mpError(e: unknown) {
     console.warn(e);
+    const msg = String((e as { message?: string; code?: string })?.message ?? '') + String((e as { code?: string })?.code ?? '');
+    if (/permission[_ ]denied/i.test(msg)) {
+      // Casi siempre: las reglas de Realtime Database no se han publicado (siguen bloqueadas)
+      $('mp-error').textContent =
+        'Firebase ha rechazado la sala: las reglas del multijugador no están publicadas. Ejecuta «npm run deploy:multijugador» o pega database.rules.json en Realtime Database → Reglas (guía DESPLIEGUE.md).';
+      return;
+    }
     $('mp-error').textContent = e instanceof NetError ? e.message : 'No se pudo conectar. Revisa tu conexión e inténtalo otra vez.';
   }
 
