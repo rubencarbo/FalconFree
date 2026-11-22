@@ -122,6 +122,10 @@ npm run build    # typecheck + build en dist/
 
 ## Configurar Firebase
 
+> 📘 **¿Primera vez?** Sigue la guía paso a paso [DESPLIEGUE.md](DESPLIEGUE.md): crear el
+> proyecto, las dos bases de datos y publicar el juego, sin conocimientos previos.
+
+
 1. Crea un proyecto en <https://console.firebase.google.com>.
 2. **Authentication → Método de acceso**: activa **Anónimo**.
 3. **Firestore Database**: créala (modo producción).
