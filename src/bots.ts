@@ -87,7 +87,7 @@ export class Bot {
     arena: THREE.Vector3,
     missiles: Missiles,
     onHit: (t: Target, dmg: number) => void,
-    opts: { goal?: THREE.Vector3; flee?: THREE.Vector3; noFire?: boolean } = {},
+    opts: { goal?: THREE.Vector3; flee?: THREE.Vector3; noFire?: boolean; chase?: boolean } = {},
   ): boolean {
     if (!this.alive) {
       this.guns.update(dt, { firing: false, pos: this.flight.pos, quat: this.jet.group.quaternion, vel: this.target.vel, targets: [], aimAssist: true, onHit: () => undefined });
@@ -116,7 +116,9 @@ export class Bot {
     let dist = Infinity;
     if (this.aimAt) {
       dist = this.aimAt.pos.distanceTo(f.pos);
-      goal = this.aimAt.pos.clone().addScaledVector(this.aimAt.vel, Math.min(1.5, dist / 900) * this.skill);
+      // Persecución (pilla-pilla): poca anticipación para ir directo a por el avión
+      const lead = opts.chase ? Math.min(0.5, dist / 700) : Math.min(1.5, dist / 900) * this.skill;
+      goal = this.aimAt.pos.clone().addScaledVector(this.aimAt.vel, lead);
     } else {
       // Patrulla en círculo alrededor del centro
       const a = time * 0.15 + this.spec.id.length;
@@ -153,9 +155,11 @@ export class Bot {
     const input: FlightInput = {
       x: THREE.MathUtils.clamp(-yawErr * 2.4, -1, 1),
       y: THREE.MathUtils.clamp((desiredPitch - f.pitch) * 3, -1, 1),
-      boost: dist > 700 && dist < 4000,
+      boost: opts.chase ? true : opts.flee ? f.pos.distanceTo(opts.flee) < 900 : dist > 700 && dist < 4000,
       climb: false,
     };
+    // Quien la lleva en pilla-pilla va algo más rápido (igual que los humanos)
+    f.speedMul = opts.chase ? 1.12 : 1;
     f.update(dt, input);
     this.target.vel.copy(f.forward()).multiplyScalar(f.speed);
 

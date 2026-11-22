@@ -1635,12 +1635,18 @@ class Game {
   }
 
   /** Objetivos y comportamiento de un bot según el modo de batalla */
-  private botModeOpts(id: string, enemies: Target[]): { targets: Target[]; goal?: THREE.Vector3; flee?: THREE.Vector3; noFire?: boolean } {
+  private botModeOpts(id: string, enemies: Target[]): { targets: Target[]; goal?: THREE.Vector3; flee?: THREE.Vector3; noFire?: boolean; chase?: boolean } {
     const b = this.battle!;
     if (b.config.kind === 'koth' && this.zone) return { targets: enemies, goal: this.zone.center };
     if (b.config.kind === 'tag') {
       const all = this.allPlanes().filter((p) => p.id !== id && p.alive);
-      if (b.it === id) return { targets: all.filter((p) => p.id !== this.lastTagger || this.time >= this.lastTaggerUntil), noFire: true };
+      if (b.it === id) {
+        const ok = all.filter((p) => p.id !== this.lastTagger || this.time >= this.lastTaggerUntil);
+        // Preferir pilotos humanos cercanos (es más divertido que perseguirse entre bots)
+        const bot = this.bots.find((x) => x.spec.id === id);
+        const humans = ok.filter((p) => !p.id.startsWith('bot') && (!bot || p.pos.distanceTo(bot.flight.pos) < 3000));
+        return { targets: humans.length ? humans : ok, noFire: true, chase: true };
+      }
       const it = all.find((p) => p.id === b.it);
       return { targets: [], flee: it?.pos, noFire: true };
     }
