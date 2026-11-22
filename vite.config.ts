@@ -23,8 +23,8 @@ export default defineConfig({
           },
           manifest: {
             id: '/',
-            name: 'FalconFree',
-            short_name: 'FalconFree',
+            name: 'FalconSky',
+            short_name: 'FalconSky',
             description: 'Vuela un caza sobre ciudades vóxel, compite contra el reloj y juega con amigos.',
             lang: 'es',
             start_url: '/?source=pwa',

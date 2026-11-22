@@ -1,4 +1,4 @@
-# FalconFree
+# FalconSky
 
 Simulador de vuelo arcade instalable (PWA): pilota un caza sobre ciudades vóxel generadas
 proceduralmente (infinitas), compite contrarreloj, combate contra bots y juega con amigos.
@@ -12,7 +12,7 @@ proceduralmente (infinitas), compite contrarreloj, combate contra bots y juega c
 
 ## Instalar como app (PWA)
 
-FalconFree es una **Progressive Web App**: se instala desde el navegador y se abre a pantalla
+FalconSky es una **Progressive Web App**: se instala desde el navegador y se abre a pantalla
 completa, con su icono, sin barra del navegador.
 
 - **Android / Chrome / Edge (escritorio)**: botón **Instalar app** del menú (o el icono de
@@ -126,22 +126,22 @@ npm run build    # typecheck + build en dist/
 > proyecto, las dos bases de datos y publicar el juego, sin conocimientos previos.
 
 
-1. Crea un proyecto en <https://console.firebase.google.com>.
-2. **Authentication → Método de acceso**: activa **Anónimo**.
-3. **Firestore Database**: créala (modo producción).
-4. **Configuración del proyecto → Tus apps**: añade una app web y copia su configuración.
-5. **Realtime Database** (para el multijugador): créala y copia su URL
-   (`https://<proyecto>-default-rtdb.<región>.firebasedatabase.app`).
-6. Copia `.env.example` a `.env.local` y rellena los valores `VITE_FIREBASE_*`,
-   incluida `VITE_FIREBASE_DATABASE_URL`.
-7. Despliega reglas, índices y la web (la CLI ya viene en las dependencias de desarrollo):
+El repositorio ya está configurado para el proyecto **`falconsky`**:
+
+- `.env`: configuración pública de la app web y URL de la Realtime Database
+  (`https://falconsky-default-rtdb.europe-west1.firebasedatabase.app`).
+- `.firebaserc`: proyecto por defecto `falconsky`.
+
+En la consola de Firebase deben estar activados: **Authentication → Anónimo**,
+**Firestore Database** y **Realtime Database**. Después:
 
 ```bash
 npx firebase login
-cp .firebaserc.example .firebaserc               # pon el id de tu proyecto
-npx firebase deploy --only firestore,database    # reglas + índices
-npm run deploy                                   # build + firebase deploy
+npm run deploy        # build + reglas + índices + hosting
 ```
+
+Para usar otro proyecto, crea `.env.local` (tiene prioridad sobre `.env`, ver `.env.example`)
+y cambia el ID en `.firebaserc`.
 
 ### Probar todo en local sin cuenta (emuladores)
 

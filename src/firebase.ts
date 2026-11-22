@@ -38,12 +38,12 @@ const useEmulators = env.VITE_USE_EMULATORS === '1';
 const config = {
   apiKey: env.VITE_FIREBASE_API_KEY || (useEmulators ? 'demo-key' : undefined),
   authDomain: env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: env.VITE_FIREBASE_PROJECT_ID || (useEmulators ? 'demo-falconfree' : undefined),
+  projectId: env.VITE_FIREBASE_PROJECT_ID || (useEmulators ? 'demo-falconsky' : undefined),
   storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET,
   messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID,
   appId: env.VITE_FIREBASE_APP_ID || (useEmulators ? 'demo-app' : undefined),
   databaseURL:
-    env.VITE_FIREBASE_DATABASE_URL || (useEmulators ? `http://127.0.0.1:9000?ns=${env.VITE_FIREBASE_PROJECT_ID || 'demo-falconfree'}` : undefined),
+    env.VITE_FIREBASE_DATABASE_URL || (useEmulators ? `http://127.0.0.1:9000?ns=${env.VITE_FIREBASE_PROJECT_ID || 'demo-falconsky'}` : undefined),
 };
 
 class FirebaseService {

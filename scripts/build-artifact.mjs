@@ -5,6 +5,8 @@ import { readFileSync, writeFileSync, readdirSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 process.env.VITE_ARTIFACT = '1';
+// El artefacto no puede conectar con Firebase: se construye en modo local
+for (const k of ['VITE_FIREBASE_API_KEY', 'VITE_FIREBASE_PROJECT_ID', 'VITE_FIREBASE_APP_ID', 'VITE_FIREBASE_DATABASE_URL']) process.env[k] = '';
 const outDir = 'dist-artifact/build';
 await build({
   logLevel: 'warn',
@@ -27,7 +29,7 @@ const css = files.filter((f) => f.endsWith('.css')).map((f) => readFileSync(join
 const html = readFileSync(join(outDir, 'index.html'), 'utf8');
 const body = html.match(/<body>([\s\S]*)<\/body>/)[1].replace(/<script[\s\S]*?<\/script>/g, '').trim();
 
-const page = `<title>FalconFree</title>
+const page = `<title>FalconSky</title>
 <meta name="description" content="Simulador de vuelo arcade sobre ciudades vóxel infinitas.">
 <style>
 :root { color-scheme: dark; }

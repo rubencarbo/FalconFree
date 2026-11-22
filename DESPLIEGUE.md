@@ -1,13 +1,34 @@
-# Publicar FalconFree en Internet (guía paso a paso)
+# Publicar FalconSky en Internet (guía paso a paso)
 
-Esta guía te lleva desde cero hasta tener FalconFree publicado en una dirección como
-`https://falconfree-xxxx.web.app`, con la clasificación online y el multijugador
+Esta guía te lleva desde cero hasta tener FalconSky publicado en una dirección como
+`https://falconsky.web.app`, con la clasificación online y el multijugador
 funcionando, y con la app instalable en el móvil.
 
 - **Tiempo**: unos 30–45 minutos la primera vez.
 - **Coste**: 0 €. Todo cabe en el plan gratuito de Firebase (plan **Spark**), que no pide
   tarjeta. Mientras no cambies de plan, es imposible que te cobren nada.
 - **Qué necesitas**: un ordenador (Windows, Mac o Linux) y una cuenta de Google.
+
+## Dónde estás ahora (proyecto `falconsky`)
+
+| Paso | Estado |
+| --- | --- |
+| 3. Proyecto de Firebase `falconsky` | ✅ Hecho |
+| 4. App web registrada | ✅ Hecho (sus claves ya están en el archivo `.env` del repositorio) |
+| 5. Inicio de sesión anónimo | ⬜ **Pendiente**: compruébalo |
+| 6. Firestore (clasificaciones) | ⬜ **Pendiente**: aún no está creado |
+| 7. Realtime Database (multijugador) | ✅ Hecho: `https://falconsky-default-rtdb.europe-west1.firebasedatabase.app` |
+| 8. Configurar el juego con las claves | ✅ Hecho en el repositorio (`.env` y `.firebaserc`) |
+| 9. Publicar | ⬜ **Pendiente** |
+
+**Te quedan 4 cosas**: instalar las herramientas (paso 1), descargar el código (paso 2),
+los pasos **5 y 6** en la consola de Firebase, y publicar (paso **9**).
+
+> 🔐 **Sobre las reglas «bloqueadas»** (`".read": false, ".write": false`): es lo correcto
+> para empezar. Nadie puede leer ni escribir hasta que publiques. Al hacer el paso 9, la
+> orden de publicar **sustituye** esas reglas por las del juego (`database.rules.json` y
+> `firestore.rules`), que solo dejan a cada jugador escribir sus propios datos.
+> **No hace falta que edites las reglas a mano en la consola.**
 
 > 💡 Cuando veas un bloque como este:
 > ```
@@ -119,8 +140,8 @@ Es normal que salgan avisos (`warn`) o un mensaje sobre `npm audit`. Mientras no
 
 1. Entra en <https://console.firebase.google.com> con tu cuenta de Google.
 2. Pulsa **Crear un proyecto** (o *Comenzar con un proyecto de Firebase*).
-3. **Nombre**: escribe `FalconFree`. Debajo verás el **ID del proyecto**, por ejemplo
-   `falconfree-3a7c1`. **Apúntalo**: lo necesitarás varias veces.
+3. **Nombre**: escribe `FalconSky`. Debajo verás el **ID del proyecto**, por ejemplo
+   `falconsky`. **Apúntalo**: lo necesitarás varias veces.
 4. Acepta las condiciones y pulsa **Continuar**.
 5. Si te pregunta por **Gemini** o por **Google Analytics**, puedes **desactivarlos**: el
    juego no los usa.
@@ -136,7 +157,7 @@ Es normal que salgan avisos (`warn`) o un mensaje sobre `npm audit`. Mientras no
 1. En la página principal del proyecto, pulsa el icono **`</>`** (Web). Si no lo ves,
    ve al engranaje ⚙️ (arriba a la izquierda) → **Configuración del proyecto** → bajando,
    **Tus apps** → icono **`</>`**.
-2. **Sobrenombre de la app**: `FalconFree web`.
+2. **Sobrenombre de la app**: `FalconSky web`.
 3. **No** marques la casilla de Firebase Hosting (lo haremos nosotros más tarde).
 4. Pulsa **Registrar app**.
 5. Aparece un bloque de código con algo así:
@@ -144,9 +165,9 @@ Es normal que salgan avisos (`warn`) o un mensaje sobre `npm audit`. Mientras no
    ```js
    const firebaseConfig = {
      apiKey: "AIzaSyB...",
-     authDomain: "falconfree-3a7c1.firebaseapp.com",
-     projectId: "falconfree-3a7c1",
-     storageBucket: "falconfree-3a7c1.firebasestorage.app",
+     authDomain: "falconsky.firebaseapp.com",
+     projectId: "falconsky",
+     storageBucket: "falconsky.firebasestorage.app",
      messagingSenderId: "123456789012",
      appId: "1:123456789012:web:abc123def456"
    };
@@ -210,7 +231,7 @@ los disparos.
 6. Arriba de los datos verás un enlace parecido a:
 
    ```
-   https://falconfree-3a7c1-default-rtdb.europe-west1.firebasedatabase.app/
+   https://falconsky-default-rtdb.europe-west1.firebasedatabase.app/
    ```
 
    **Cópialo** a tu bloc de notas, **sin la barra `/` final**. Es tu
@@ -222,70 +243,40 @@ los disparos.
 
 ## 8. Configurar el juego con tus claves
 
-Hay que crear dos archivos pequeños en la carpeta del juego.
+✅ **Para FalconSky ya está hecho**: el repositorio incluye
 
-### 8.1 El archivo `.env.local` (las claves de la app)
+- `.env`, con las claves de la app web `falconsky` y la dirección de la Realtime Database.
+- `.firebaserc`, que dice a la terminal que publique en el proyecto `falconsky`.
 
-En la terminal, dentro de la carpeta del juego:
+No tienes que tocar nada. Puedes saltar al paso 9.
 
-- **Windows (PowerShell)**:
-  ```
-  copy .env.example .env.local
-  notepad .env.local
-  ```
-- **Mac / Linux**:
-  ```
-  cp .env.example .env.local
-  open -e .env.local
-  ```
-  (En Linux, usa `nano .env.local` o tu editor de texto.)
+<details>
+<summary>Solo si algún día usas otro proyecto de Firebase</summary>
 
-Se abre el archivo. Rellénalo con los valores de tu bloc de notas. Pon cada valor **justo
-después del `=`, sin espacios ni comillas**:
+Crea un archivo `.env.local` en la carpeta del juego (tiene prioridad sobre `.env` y no se
+sube a GitHub) con tus valores, cada uno justo después del `=`, sin espacios ni comillas:
 
 ```
-VITE_FIREBASE_API_KEY=AIzaSyB...
-VITE_FIREBASE_AUTH_DOMAIN=falconfree-3a7c1.firebaseapp.com
-VITE_FIREBASE_PROJECT_ID=falconfree-3a7c1
-VITE_FIREBASE_STORAGE_BUCKET=falconfree-3a7c1.firebasestorage.app
-VITE_FIREBASE_MESSAGING_SENDER_ID=123456789012
-VITE_FIREBASE_APP_ID=1:123456789012:web:abc123def456
-VITE_FIREBASE_DATABASE_URL=https://falconfree-3a7c1-default-rtdb.europe-west1.firebasedatabase.app
-
-VITE_USE_EMULATORS=
+VITE_FIREBASE_API_KEY=...
+VITE_FIREBASE_AUTH_DOMAIN=tu-proyecto.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=tu-proyecto
+VITE_FIREBASE_STORAGE_BUCKET=tu-proyecto.firebasestorage.app
+VITE_FIREBASE_MESSAGING_SENDER_ID=...
+VITE_FIREBASE_APP_ID=...
+VITE_FIREBASE_DATABASE_URL=https://tu-proyecto-default-rtdb.europe-west1.firebasedatabase.app
 ```
 
-Deja `VITE_USE_EMULATORS` **vacío**. Guarda y cierra.
-
-> En Windows, si el Bloc de notas guarda el archivo como `.env.local.txt`, en *Guardar como*
-> elige **Tipo: Todos los archivos** y nombre `.env.local`.
-
-### 8.2 El archivo `.firebaserc` (qué proyecto usar)
-
-- **Windows**:
-  ```
-  copy .firebaserc.example .firebaserc
-  notepad .firebaserc
-  ```
-- **Mac / Linux**:
-  ```
-  cp .firebaserc.example .firebaserc
-  open -e .firebaserc
-  ```
-
-Cambia `tu-proyecto-firebase` por **tu ID de proyecto** (el del paso 3):
+Y cambia el ID en `.firebaserc`:
 
 ```json
 {
   "projects": {
-    "default": "falconfree-3a7c1"
+    "default": "tu-proyecto"
   }
 }
 ```
 
-Guarda y cierra.
-
-> 🔒 Ninguno de los dos archivos se sube a GitHub: ya están excluidos en `.gitignore`.
+</details>
 
 ---
 
@@ -321,8 +312,8 @@ Tarda 1–2 minutos. Al final verás algo así:
 ```
 ✔  Deploy complete!
 
-Project Console: https://console.firebase.google.com/project/falconfree-3a7c1/overview
-Hosting URL: https://falconfree-3a7c1.web.app
+Project Console: https://console.firebase.google.com/project/falconsky/overview
+Hosting URL: https://falconsky.web.app
 ```
 
 🎉 **Esa `Hosting URL` es la dirección de tu juego.** Ábrela en el navegador.
@@ -373,8 +364,7 @@ conexión**.
 
 Cada vez que haya cambios en el código:
 
-1. Descarga la versión nueva del código (paso 2) **en la misma carpeta**, o en una nueva y
-   vuelve a copiar dentro tus archivos `.env.local` y `.firebaserc`.
+1. Descarga la versión nueva del código (paso 2). Ya trae `.env` y `.firebaserc`.
 2. En la terminal, dentro de la carpeta:
    ```
    npm install
@@ -395,16 +385,16 @@ Quien tenga la app instalada verá el aviso **«Hay una nueva versión — Actua
 | Lo que ves | Qué pasa | Solución |
 | --- | --- | --- |
 | `node` o `npm` *no se reconoce como un comando* | Node.js no está instalado o la terminal se abrió antes de instalarlo | Instala Node.js (paso 1.1) y **abre una terminal nueva** |
-| En el menú pone *«Modo local: configura Firebase…»* | El juego se construyó sin el archivo `.env.local` | Revisa el paso 8.1 (nombre exacto `.env.local`, en la carpeta del juego) y repite `npm run deploy` |
-| *«Sin conexión con Firebase»* | El inicio de sesión anónimo no está activado, o alguna clave está mal copiada | Revisa el paso 5 y las claves de `.env.local`. Después, `npm run deploy` |
-| Multijugador: *«El multijugador necesita Firebase con Realtime Database»* | Falta `VITE_FIREBASE_DATABASE_URL` | Rellénalo (paso 7.6 y 8.1) y repite `npm run deploy` |
+| En el menú pone *«Modo local: configura Firebase…»* | El juego se construyó sin el archivo `.env` | Comprueba que el archivo `.env` está en la carpeta del juego (en Windows, activa *Ver → Elementos ocultos*; en Mac, `Cmd+Mayús+.`) y repite `npm run deploy` |
+| *«Sin conexión con Firebase»* | El inicio de sesión anónimo no está activado | Haz el paso 5 (no hace falta volver a publicar; recarga la página) |
+| Multijugador: *«El multijugador necesita Firebase con Realtime Database»* | Falta `VITE_FIREBASE_DATABASE_URL` en `.env` | Revisa el archivo `.env` y repite `npm run deploy` |
 | `Error: Failed to get Firebase project … Please make sure the project exists` | El ID de `.firebaserc` no es el tuyo | Corrige el ID (paso 8.2). Lo ves en ⚙️ → Configuración del proyecto → *ID del proyecto* |
 | `Error: … database … not found` o `Realtime Database instance … does not exist` al publicar | No se ha creado la Realtime Database | Haz el paso 7 y repite `npm run deploy` |
 | `Error: … Cloud Firestore API has not been used` o *database (default) does not exist* | No se ha creado Firestore | Haz el paso 6 y repite `npm run deploy` |
 | `Error: Authentication Error` / `not logged in` | La terminal no tiene tu sesión de Firebase | `npx firebase login` (o `npx firebase login --reauth`) |
 | La clasificación pone *«No se pudo cargar la clasificación»* justo tras publicar | Los índices aún se están creando | Espera 5–10 minutos (Firestore → Índices) |
 | En la consola del navegador: `Missing or insufficient permissions` | Las reglas no se han subido | `npx firebase deploy --only firestore,database` |
-| He cambiado `.env.local` y no se nota | Las claves se meten en el juego **al construirlo** | Repite `npm run deploy` |
+| He cambiado `.env` o `.env.local` y no se nota | Las claves se meten en el juego **al construirlo** | Repite `npm run deploy` |
 | El móvil sigue mostrando la versión antigua | La app guardada en el móvil aún no se ha actualizado | Cierra y abre la app y pulsa **Actualizar** en el aviso; o recarga la página dos veces |
 
 ### Proteger el presupuesto cero

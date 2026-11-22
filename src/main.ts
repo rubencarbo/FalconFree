@@ -1929,7 +1929,7 @@ class Game {
     this.pwa.onInstallAvailable = refresh;
     this.pwa.onInstalled = () => {
       refresh();
-      this.hud.toast('FalconFree instalado', 1800);
+      this.hud.toast('FalconSky instalado', 1800);
     };
     this.pwa.onUpdateReady = () => show('update-banner', true);
     refresh();
