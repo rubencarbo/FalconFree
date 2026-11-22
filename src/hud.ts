@@ -188,8 +188,7 @@ export class Hud {
     $('hud-missiles').textContent = String(missiles);
     $('hud-flares').textContent = String(flares);
     $('btn-missile').dataset.count = String(missiles);
-    $('btn-flare').dataset.count = String(flares);
-    $('btn-flare').classList.toggle('active', flareWindow);
+    void flareWindow;
   }
 
   /** Aviso de misil entrante con su dirección en pantalla */
@@ -233,6 +232,43 @@ export class Hud {
     el.prepend(row);
     while (el.childElementCount > 4) el.lastElementChild?.remove();
     setTimeout(() => row.remove(), 5000);
+  }
+
+  /** Rótulo del modo (¡LA LLEVAS!, ¡ZONA TUYA!…) */
+  banner(text: string | null, kind: 'good' | 'bad' | 'warn' | 'info' = 'info') {
+    const el = $('mode-banner');
+    if (text === null) {
+      el.className = '';
+      return;
+    }
+    if (el.textContent !== text) el.textContent = text;
+    el.className = `show ${kind}`;
+  }
+
+  private comboShown = false;
+  /** Contador de combo de acrobacias */
+  combo(c: { last: string; mult: number; points: number; timeLeft: number } | null) {
+    const el = $('combo');
+    if (!c) {
+      if (this.comboShown) {
+        el.classList.remove('show');
+        this.comboShown = false;
+      }
+      return;
+    }
+    this.comboShown = true;
+    el.classList.add('show');
+    (el.querySelector('.cb-name') as HTMLElement).textContent = c.last;
+    (el.querySelector('.cb-mult') as HTMLElement).textContent = `×${c.mult}`;
+    (el.querySelector('.cb-pts') as HTMLElement).textContent = String(c.points);
+    (el.querySelector('.cb-bar i') as HTMLElement).style.transform = `scaleX(${c.timeLeft})`;
+    el.dataset.mult = String(Math.min(8, c.mult));
+  }
+
+  formation(n: number) {
+    const el = $('formation');
+    el.classList.toggle('show', n > 0);
+    if (n > 0) el.textContent = `EN FORMACIÓN ×${n + 1}`;
   }
 
   leash(on: boolean, dist: number) {

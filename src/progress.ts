@@ -101,6 +101,8 @@ export interface PaintDef {
   accent: number;
   cost?: number;
   achievement?: string;
+  /** nivel del pase de temporada que la desbloquea */
+  season?: number;
 }
 
 export const PAINTS: PaintDef[] = [
@@ -112,6 +114,10 @@ export const PAINTS: PaintDef[] = [
   { id: 'night', name: 'Nocturno', body: 0x1a1d24, accent: 0xff3b3b, achievement: 'as' },
   { id: 'neon', name: 'Neón', body: 0x2a1a40, accent: 0x5cff8a, achievement: 'rasante' },
   { id: 'gold', name: 'Oro', body: 0xc89a30, accent: 0xfff2b0, achievement: 'imparable' },
+  { id: 'aurora', name: 'Aurora', body: 0x1e3a5a, accent: 0x5cffc8, season: 5 },
+  { id: 'galaxy', name: 'Galaxia', body: 0x2a1640, accent: 0xff6af0, season: 10 },
+  { id: 'lava', name: 'Lava', body: 0x2a1410, accent: 0xff5a10, season: 20 },
+  { id: 'chrome', name: 'Cromo', body: 0xc8d0d8, accent: 0x40e0ff, season: 25 },
 ];
 
 export const UPGRADES: { id: UpgradeId; name: string; per: string; costs: number[] }[] = [
@@ -139,6 +145,14 @@ export interface Stats {
   maxSpeed: number;
   lowFlight: number;
   timeBonuses: number;
+  deliveries: number;
+  wavesBest: number;
+  kothWins: number;
+  tagFree: number;
+  formationTime: number;
+  stuntPoints: number;
+  bestCombo: number;
+  seaRings: number;
 }
 
 export interface Achievement {
@@ -169,6 +183,12 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'imparable', name: 'Imparable', description: '5 derribos seguidos sin caer.', reward: 400, done: (s) => s.bestStreak >= 5 },
   { id: 'victoria', name: 'Victoria', description: 'Gana una batalla.', reward: 200, done: (s) => s.battlesWon >= 1 },
   { id: 'escuadron', name: 'Escuadrón', description: 'Juega una partida multijugador.', reward: 100, done: (s) => s.mpGames >= 1 },
+  { id: 'mensajero', name: 'Mensajero', description: 'Entrega 10 paquetes.', reward: 200, done: (s) => s.deliveries >= 10 },
+  { id: 'superviviente', name: 'Superviviente', description: 'Llega a la oleada 10.', reward: 400, done: (s) => s.wavesBest >= 10 },
+  { id: 'rey', name: 'Rey del cielo', description: 'Gana una partida de Rey del cielo.', reward: 250, done: (s) => s.kothWins >= 1 },
+  { id: 'escurridizo', name: 'Escurridizo', description: 'Aguanta 180 s sin llevarla en Pilla-pilla.', reward: 200, done: (s) => s.tagFree >= 180 },
+  { id: 'acrobata', name: 'Acróbata', description: 'Haz un combo ×8.', reward: 300, done: (s) => s.bestCombo >= 8 },
+  { id: 'formacion', name: 'Patrulla', description: 'Vuela 120 s en formación con tu equipo.', reward: 300, done: (s) => s.formationTime >= 120 },
 ];
 
 export interface Profile {
@@ -181,12 +201,27 @@ export interface Profile {
   paints: string[];
   upgrades: Record<UpgradeId, number>;
   daily: Record<string, number>;
+  season: SeasonState;
+}
+
+export interface SeasonState {
+  /** año*12+mes */
+  id: number;
+  xp: number;
+  /** último nivel cuyo premio se ha entregado */
+  tier: number;
+  week: number;
+  /** valor de cada estadística al empezar la semana */
+  baseline: Partial<Record<keyof Stats, number>>;
+  /** misiones de la semana completadas */
+  done: string[];
 }
 
 function emptyStats(): Stats {
   return {
     rings: 0, drones: 0, kills: 0, deaths: 0, races: 0, battlesWon: 0, battles: 0, missileHits: 0, flaresDodged: 0,
     scrapes: 0, powerups: 0, ghostBeaten: 0, dailies: 0, mpGames: 0, bestStreak: 0, maxSpeed: 0, lowFlight: 0, timeBonuses: 0,
+    deliveries: 0, wavesBest: 0, kothWins: 0, tagFree: 0, formationTime: 0, stuntPoints: 0, bestCombo: 0, seaRings: 0,
   };
 }
 
@@ -201,6 +236,7 @@ function defaults(): Profile {
     paints: ['standard'],
     upgrades: { engine: 0, armor: 0, ammo: 0 },
     daily: {},
+    season: { id: 0, xp: 0, tier: 0, week: -1, baseline: {}, done: [] },
   };
 }
 
@@ -222,6 +258,7 @@ export class Progress {
         upgrades: { ...d.upgrades, ...(s.upgrades ?? {}) },
         achievements: { ...(s.achievements ?? {}) },
         daily: { ...(s.daily ?? {}) },
+        season: { ...d.season, ...(s.season ?? {}) },
         planes: Array.from(new Set(['falcon', ...(s.planes ?? []).map((x) => ((x as string) === 'colibri' ? 'phoenix' : x))])).filter((x) => PLANES.some((pl) => pl.id === x)) as PlaneId[],
         paints: Array.from(new Set(['standard', ...(s.paints ?? [])])),
       };
@@ -265,8 +302,12 @@ export class Progress {
     };
   }
 
+  /** Se llama con los créditos ganados (también dan XP de temporada) */
+  onEarn?: (amount: number) => void;
+
   credit(amount: number, reason: string) {
     if (amount <= 0) return;
+    this.onEarn?.(amount);
     this.p.credits += Math.round(amount);
     this.save();
     this.onCredits?.(Math.round(amount), reason);
@@ -286,7 +327,11 @@ export class Progress {
     }
   }
 
+  /** Se llama cada vez que cambian las estadísticas (misiones de temporada) */
+  onStats?: () => void;
+
   check() {
+    this.onStats?.();
     for (const a of ACHIEVEMENTS) {
       if (this.p.achievements[a.id] || !a.done(this.p.stats)) continue;
       this.p.achievements[a.id] = Date.now();

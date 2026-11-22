@@ -174,7 +174,7 @@ export class Fx {
     }
     // Número fijo de luces para no recompilar shaders
     for (let i = 0; i < 2; i++) {
-      const light = new THREE.PointLight(0xffa040, 0, 600, 1.4);
+      const light = new THREE.PointLight(0xffa040, 0, 350, 2);
       scene.add(light);
       this.lights.push({ light, t: 0, life: 0, peak: 0 });
     }
@@ -259,7 +259,7 @@ export class Fx {
   /** Rozamiento contra un edificio o el suelo */
   scrape(pos: THREE.Vector3, normal: THREE.Vector3) {
     this.sparks(pos, normal, 40, 90);
-    this.flash(pos, 2500, 0.25, 0xffd080);
+    this.flash(pos, 900, 0.25, 0xffd080);
     for (let i = 0; i < 6; i++) {
       this.smoke.spawn({
         x: pos.x + rnd(-2, 2),
@@ -342,7 +342,7 @@ export class Fx {
     sh.t = 0;
     sh.life = 0.7;
     sh.max = 90 * scale;
-    this.flash(pos, 120000 * scale, 0.9);
+    this.flash(pos, 25000 * scale, 0.8);
   }
 
   /** Humo/fuego que sale de un avión dañado (llamar cada frame) */
@@ -384,6 +384,41 @@ export class Fx {
         drag: 1,
       });
     }
+  }
+
+  /** Turbo: llamaradas y chispas detrás de cada tobera */
+  afterburner(nozzle: THREE.Vector3, back: THREE.Vector3, vel: THREE.Vector3) {
+    const n = this.high ? 3 : 2;
+    for (let i = 0; i < n; i++) {
+      const s = rnd(40, 110);
+      this.glow.spawn({
+        x: nozzle.x + back.x * rnd(2, 6),
+        y: nozzle.y + back.y * rnd(2, 6),
+        z: nozzle.z + back.z * rnd(2, 6),
+        vx: vel.x * 0.85 + back.x * s + rnd(-6, 6),
+        vy: vel.y * 0.85 + back.y * s + rnd(-6, 6),
+        vz: vel.z * 0.85 + back.z * s + rnd(-6, 6),
+        life: rnd(0.12, 0.3),
+        size0: rnd(1.4, 2.6),
+        size1: 0.3,
+        color: pick([0xffffff, 0xfff2b0, 0xffd040, 0xff9a20, 0x9fd0ff]),
+      });
+    }
+  }
+
+  /** Humo de colores de la formación (sale de la cola) */
+  formationSmoke(pos: THREE.Vector3, back: THREE.Vector3, color: number) {
+    this.smoke.spawn({
+      x: pos.x + back.x * 8 + rnd(-0.5, 0.5),
+      y: pos.y + back.y * 8 + rnd(-0.5, 0.5),
+      z: pos.z + back.z * 8 + rnd(-0.5, 0.5),
+      vy: rnd(-0.5, 0.5),
+      life: rnd(2.6, 3.6),
+      size0: 1.6,
+      size1: rnd(7, 10),
+      color,
+      drag: 1.2,
+    });
   }
 
   /** Bengala incandescente */

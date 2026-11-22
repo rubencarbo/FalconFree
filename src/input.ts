@@ -18,6 +18,7 @@ export class Input {
   onResetRoute?: () => void;
   private prevBoost = false;
   private padPrev: boolean[] = [];
+  private padsUsed = new Set<number>();
 
   constructor(
     private joyZone: HTMLElement,
@@ -27,14 +28,14 @@ export class Input {
     fireBtn: HTMLElement,
     canvas: HTMLElement,
     missileBtn: HTMLElement,
-    flareBtn: HTMLElement,
   ) {
     this.bindTap(missileBtn, () => this.onMissile?.());
-    this.bindTap(flareBtn, () => this.onFlare?.());
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     window.addEventListener('keydown', (e) => {
       if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
       if (e.repeat) return;
+      // Atajos del sistema (Cmd/Ctrl/Alt + tecla) no cuentan como controles
+      if (e.metaKey || e.altKey) return;
       this.keys.add(e.code);
       if (e.code === 'KeyC') this.onCamera?.();
       if (e.code === 'KeyP' || e.code === 'Escape') this.onPause?.();
@@ -43,8 +44,13 @@ export class Input {
       if (e.code === 'KeyR') this.onResetRoute?.();
       if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
     });
-    window.addEventListener('keyup', (e) => this.keys.delete(e.code));
+    window.addEventListener('keyup', (e) => {
+      this.keys.delete(e.code);
+      // En Mac, con Cmd pulsado no llegan los keyup del resto de teclas: limpiar todo
+      if (e.key === 'Meta' || e.key === 'Control' || e.key === 'Alt') this.keys.clear();
+    });
     window.addEventListener('blur', () => this.keys.clear());
+    document.addEventListener('visibilitychange', () => this.keys.clear());
 
     this.bindHold(boostBtn, (v) => (this.touchBoost = v));
     this.bindHold(fireBtn, (v) => (this.touchFire = v));
@@ -141,14 +147,21 @@ export class Input {
       /* API de mandos bloqueada (p. ej. en un iframe) */
     }
     for (const p of pads) {
-      if (!p) continue;
+      // Solo mandos con distribución estándar que el jugador ya ha usado:
+      // evita que otros dispositivos o gatillos con holgura activen el turbo solos
+      if (!p || p.mapping !== 'standard') continue;
+      const btn = (i: number) => !!p.buttons[i] && p.buttons[i].pressed && p.buttons[i].value > 0.5;
+      if (!this.padsUsed.has(p.index)) {
+        if ([0, 1, 2, 3, 9].some(btn) || Math.abs(p.axes[0] ?? 0) > 0.6 || Math.abs(p.axes[1] ?? 0) > 0.6) this.padsUsed.add(p.index);
+        else continue;
+      }
       const ax = p.axes[0] ?? 0;
       const ay = p.axes[1] ?? 0;
-      if (Math.abs(ax) > 0.12) x += ax;
-      if (Math.abs(ay) > 0.12) y -= ay;
-      boost ||= !!(p.buttons[0]?.pressed || p.buttons[7]?.pressed);
-      climb ||= !!p.buttons[1]?.pressed;
-      fire ||= !!(p.buttons[2]?.pressed || p.buttons[6]?.pressed);
+      if (Math.abs(ax) > 0.2) x += ax;
+      if (Math.abs(ay) > 0.2) y -= ay;
+      boost ||= btn(0) || btn(7);
+      climb ||= btn(1);
+      fire ||= btn(2) || btn(6);
       const rb = !!p.buttons[5]?.pressed;
       const lb = !!p.buttons[4]?.pressed;
       if (rb && !this.padPrev[5]) this.onMissile?.();

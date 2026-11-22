@@ -85,14 +85,40 @@ export class Drones {
     }
   }
 
-  setActive(v: boolean) {
-    for (const d of this.list) {
-      d.mesh.visible = v && d.alive;
-      if (!v) {
+  /** En modo oleadas los drones no reaparecen solos */
+  autoRespawn = true;
+
+  /** Activa n drones de golpe alrededor del jugador (modo oleadas) */
+  spawnWave(n: number, player: THREE.Vector3, forward: THREE.Vector3, hp = MAX_HP) {
+    this.active = true;
+    this.autoRespawn = false;
+    this.list.forEach((d, i) => {
+      if (i < n) {
+        this.place(d, player, forward);
+        d.hp = hp;
+      } else {
         d.alive = false;
-        d.respawn = 0.5 + Math.random();
+        d.mesh.visible = false;
       }
-    }
+    });
+  }
+
+  get aliveCount() {
+    return this.list.filter((d) => d.alive).length;
+  }
+
+  /** Cuántos drones mantiene el vuelo libre */
+  freeCount = 6;
+
+  setActive(v: boolean) {
+    this.autoRespawn = true;
+    this.list.forEach((d, i) => {
+      if (!v || i >= this.freeCount) {
+        d.alive = false;
+        d.mesh.visible = false;
+        d.respawn = 0.5 + Math.random() + i * 0.3;
+      } else d.mesh.visible = d.alive;
+    });
     this.active = v;
   }
   active = false;
@@ -137,6 +163,7 @@ export class Drones {
     if (!this.active) return;
     for (const d of this.list) {
       if (!d.alive) {
+        if (!this.autoRespawn || this.list.indexOf(d) >= this.freeCount) continue;
         d.respawn -= dt;
         if (d.respawn <= 0) this.place(d, player, forward);
         continue;

@@ -49,6 +49,9 @@
         <div id="toast"></div>
         <div id="warning">¡ASCIENDE!</div>
         <div id="missile-warning"><span class="mw-arrow"></span><b>MISIL</b><small>Bengalas: G / botón</small></div>
+        <div id="mode-banner"></div>
+        <div id="formation"></div>
+        <div id="combo"><span class="cb-name"></span><b class="cb-mult"></b><span class="cb-pts"></span><span class="cb-bar"><i></i></span></div>
         <div id="pilots"></div>
         <div id="leash"><span>¡Te alejas del escuadrón!</span><b></b><small>Sigue la flecha verde o te reagruparemos</small></div>
         <div id="offroute">
@@ -59,7 +62,6 @@
         <div id="joy-zone"><div id="joy-base"><div id="joy-knob"></div></div></div>
         <button id="btn-fire" class="round">Disparo</button>
         <button id="btn-missile" class="round">Misil</button>
-        <button id="btn-flare" class="round">Bengalas</button>
         <button id="btn-boost" class="round">Turbo</button>
         <div id="keys-hint">W/S/A/D vuelo · Espacio turbo · F/clic disparo · Q/clic dcho. misil · G bengalas · E subir · C vista · P pausa</div>
       </div>
@@ -96,7 +98,12 @@
             <button id="btn-daily" class="mode-btn daily"><b>Desafío diario</b><small id="daily-sub">Un circuito nuevo cada día</small></button>
             <button id="btn-battle" class="mode-btn battle"><b>Batalla</b><small>Contra bots: todos, equipos o cooperativo</small></button>
             <button id="btn-mp" class="mode-btn mp"><b>Multijugador</b><small>Invita con un código</small></button>
+            <button id="btn-koth" class="mode-btn koth"><b>Rey del cielo</b><small>Domina la zona dorada</small></button>
+            <button id="btn-delivery" class="mode-btn delivery"><b>Mensajero</b><small>Entrega paquetes contra reloj</small></button>
+            <button id="btn-waves" class="mode-btn waves"><b>Oleadas</b><small>Sobrevive y mejora tu avión</small></button>
+            <button id="btn-tag" class="mode-btn tag"><b>Pilla-pilla</b><small>¡Que no te pillen!</small></button>
           </div>
+          <button id="btn-season" class="season-btn"><span class="sb-name">Pase de temporada</span><span class="sb-tier" id="season-tier">Nivel 0</span><span class="sb-bar"><i id="season-bar"></i></span></button>
           <div class="row">
             <button id="btn-hangar" class="secondary">Hangar</button>
             <button id="btn-achievements" class="secondary">Logros</button>
@@ -138,11 +145,14 @@
               <option value="ffa">Todos contra todos</option>
               <option value="teams">Equipos: tú y bots aliados contra bots</option>
               <option value="coop">Tú contra la máquina</option>
+              <option value="koth">Rey del cielo</option>
+              <option value="tag">Pilla-pilla</option>
             </select>
           </label>
+          <p id="bp-help" class="muted left"></p>
           <label class="field slider"><span>Bots <b id="bp-bots-val">4</b></span><input id="bp-bots" type="range" min="1" max="7" step="1" value="4" /></label>
           <div class="two">
-            <label class="field"><span>Derribos para ganar</span>
+            <label class="field"><span id="bp-limit-label">Derribos para ganar</span>
               <select id="bp-blimit"><option value="5">5</option><option value="10" selected>10</option><option value="20">20</option></select>
             </label>
             <label class="field"><span>Tiempo</span>
@@ -174,6 +184,8 @@
                     <option value="ffa">Todos contra todos</option>
                     <option value="teams">Equipos: Naranja vs Azul</option>
                     <option value="coop">Todos contra la máquina</option>
+                    <option value="koth">Rey del cielo</option>
+                    <option value="tag">Pilla-pilla</option>
                   </select>
                 </label>
                 <label class="field slider"><span>Bots <b id="mp-bots-val">2</b></span><input id="mp-bots" type="range" min="0" max="6" step="1" value="2" /></label>
@@ -244,6 +256,8 @@
                 <option value="ffa">Todos contra todos</option>
                 <option value="teams">Equipos: Naranja vs Azul</option>
                 <option value="coop">Todos contra la máquina</option>
+                    <option value="koth">Rey del cielo</option>
+                    <option value="tag">Pilla-pilla</option>
               </select>
             </label>
             <label class="field slider"><span>Bots <b id="lobby-bots-val">2</b></span><input id="lobby-bots" type="range" min="0" max="6" step="1" value="2" /></label>
@@ -388,6 +402,39 @@
           <p id="br-wait" class="muted">El anfitrión decide la siguiente batalla.</p>
           <button id="btn-br-menu" class="secondary">Menú principal</button>
           <button id="btn-br-leave" class="secondary">Salir de la sala</button>
+        </div>
+      </div>
+
+      <div id="upgrades" class="overlay hidden">
+        <div class="panel">
+          <h2 id="up-title">¡Oleada superada!</h2>
+          <p class="muted left">Elige una mejora para la siguiente oleada.</p>
+          <div id="up-list" class="up-list"></div>
+        </div>
+      </div>
+
+      <div id="summary" class="overlay hidden">
+        <div class="panel">
+          <h2 id="sum-title">Fin</h2>
+          <div class="rr-time"><span id="sum-big">0</span> <small id="sum-unit"></small></div>
+          <p id="sum-credits" class="credits-line"></p>
+          <ul id="sum-rows" class="sum-rows"></ul>
+          <button id="btn-sum-retry" class="primary">Jugar otra vez</button>
+          <button id="btn-sum-replay" class="secondary">Ver repetición</button>
+          <button id="btn-sum-menu" class="secondary">Menú principal</button>
+        </div>
+      </div>
+
+      <div id="season" class="overlay hidden">
+        <div class="panel wide">
+          <div class="menu-head"><h2 id="season-name">Pase de temporada</h2><span id="season-xp" class="credits"></span></div>
+          <p class="muted left">Gratis. Sube de nivel jugando (cada crédito ganado da 1 XP) y completando las misiones de la semana. Los premios se entregan solos al subir de nivel.</p>
+          <div class="sb-bar big"><i id="season-bar2"></i></div>
+          <div class="lobby-head"><span>Misiones de esta semana</span><span id="season-week" class="muted"></span></div>
+          <ul id="season-missions" class="missions"></ul>
+          <div class="lobby-head"><span>Niveles y premios</span></div>
+          <ol id="season-tiers" class="tiers"></ol>
+          <button class="primary" data-close>Cerrar</button>
         </div>
       </div>
 

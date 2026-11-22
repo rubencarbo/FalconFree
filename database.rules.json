@@ -37,7 +37,7 @@
             ".validate": false
           },
           "bk": {
-            ".validate": "newData.val() === 'ffa' || newData.val() === 'teams' || newData.val() === 'coop'"
+            ".validate": "newData.val() === 'ffa' || newData.val() === 'teams' || newData.val() === 'coop' || newData.val() === 'koth' || newData.val() === 'tag'"
           },
           "bb": {
             ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 8"
@@ -122,6 +122,10 @@
             ".validate": "newData.hasChildren(['k','d']) && newData.child('k').isNumber() && newData.child('d').isNumber()"
           },
           ".write": "auth != null && data.parent().child('meta/host').val() === auth.uid && !newData.exists()"
+        },
+        "tagit": {
+          ".write": "auth != null && root.child('rooms/' + $code + '/players/' + auth.uid).exists()",
+          ".validate": "!newData.exists() || (newData.hasChildren(['id', 's', 'by']) && newData.child('id').isString() && newData.child('s').isNumber() && newData.child('by').val() === auth.uid)"
         }
       }
     },

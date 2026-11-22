@@ -50,6 +50,31 @@ Para no perderse en un mundo abierto, sin mover los hitos (sería injusto en la 
 - **Fuera de ruta**: si te alejas, aparece *Volver a la ruta* (tecla R): vuelves al último hito
   con 3 s de penalización.
 
+## Más modos
+
+- **Rey del cielo** (contra bots o en multijugador): una zona dorada se mueve cada minuto por
+  la ciudad. Sumas 1 punto por segundo si estás solo dentro; si hay más aviones, nadie suma.
+  Gana el primero en llegar a la meta de puntos o quien más tenga al acabar el tiempo.
+- **Mensajero urbano** (solo): recoge el paquete en la azotea verde y entrégalo en la naranja.
+  Cada entrega da +25 s; la propina sube si llegas rápido y volando bajo.
+- **Oleadas** (solo): drones y, desde la oleada 3, cazas enemigos. Entre oleadas eliges 1 de 3
+  mejoras (daño, cadencia, blindaje, autorreparación, vampiro, escudo pulsante…). Una sola vida.
+- **Pilla-pilla** (contra bots o en multijugador): sin disparos. Quien la lleva (rótulo rojo)
+  tiene que tocar a otro avión; sumas 1 punto por segundo sin llevarla.
+
+## Acrobacias, formación y pase de temporada
+
+- **Combos de acrobacias** en todos los modos: rasante, entre rascacielos, ¡por poco!, picado
+  in extremis, giro cerrado, aros (supersónico a más de 1200 km/h), derribos, esquivar misiles…
+  Encadenarlas en menos de 4 s sube el multiplicador (hasta ×8). Un choque pierde el combo.
+- **Vuelo en formación**: en equipo, vuela cerca de un compañero (20-120 m), con el mismo rumbo
+  y velocidad: tu avión suelta humo de tu color, sumas créditos y puntos de estilo.
+- **Pase de temporada gratuito**: una temporada al mes con 30 niveles (créditos, 4 pinturas
+  exclusivas y el Cometa en el nivel 30). Se sube jugando (1 XP por crédito ganado) y con las
+  4 misiones de cada semana.
+- Las **bengalas** salen solas cuando un misil se acerca (y con la tecla G en ordenador).
+- Con **turbo**, las turbinas echan mucho más fuego.
+
 ## Aros
 
 | Aro | Premio |
@@ -128,7 +153,7 @@ En multijugador, los demás ven el modelo de avión que llevas.
 | Cabeceo / alabeo | Joystick | W/S · A/D (o flechas) | Stick izquierdo |
 | Disparo | Disparo | F, J o clic izquierdo | X / LT |
 | Misil | Misil | Q o clic derecho | RB |
-| Bengalas | Bengalas | G | LB |
+| Bengalas | automáticas | G | LB |
 | Turbo | Turbo | Espacio / Shift | A / RT |
 | Subir | — | E | B |
 | Volver a la ruta | botón en pantalla | R | — |

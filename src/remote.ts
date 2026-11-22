@@ -23,6 +23,8 @@ class RemotePlayer {
   hp = 100;
   alive = true;
   firing = false;
+  /** vuela en formación (humo de colores) */
+  smoke = false;
   private flight = new Flight();
   private shotTimer = 0;
   private wasAlive = true;
@@ -114,6 +116,7 @@ class RemotePlayer {
     this.firing = cur.f === 1;
     this.alive = cur.a === 1;
     this.target.flares = cur.fl === 1;
+    this.smoke = cur.sm === 1;
 
     this.target.pos.copy(f.pos);
     // Velocidad a partir del estado enviado (robusto ante saltos/reapariciones)

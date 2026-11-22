@@ -31,9 +31,15 @@ import { Missiles, MISSILE_DAMAGE, type MissileOwner } from './missiles';
 import { Progress, ACHIEVEMENTS, PLANES, PAINTS, UPGRADES, type PlaneId, type UpgradeId } from './progress';
 import { dailyChallenge, dayLabel, msToNextDaily } from './daily';
 import { Bot, makeBotSpecs, TEAM_COLORS, type Team } from './bots';
-import { Battle, BATTLE_LABELS, DEFAULT_BATTLE, type BattleConfig, type BattleKind, type BattleResult } from './battle';
+import { Battle, BATTLE_LABELS, DEFAULT_BATTLE, isPointsMode, type BattleConfig, type BattleKind, type BattleResult } from './battle';
 import { ReplayPlayer, ReplayRecorder } from './replay';
 import { Pwa, isStandalone } from './pwa';
+import { Stunts } from './stunts';
+import { Delivery } from './delivery';
+import { pickUpgrades, wavePlan, type UpgradeKey, type WaveUpgrade } from './waves';
+import { KothZone } from './zone';
+import { Season, SEASON_TIERS, XP_PER_TIER, seasonName, tierReward } from './season';
+import { hash2 } from './world/noise';
 import { Haptic, setHaptics } from './haptics';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -41,7 +47,7 @@ const show = (id: string, v: boolean) => $(id).classList.toggle('hidden', !v);
 const hex = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
 
 type Screen = 'menu' | 'playing' | 'crashed' | 'results' | 'lobby';
-type Mode = 'free' | 'race' | 'battle';
+type Mode = 'free' | 'race' | 'battle' | 'delivery' | 'waves';
 
 const isTouch = matchMedia('(hover: none), (pointer: coarse)').matches;
 
@@ -136,6 +142,26 @@ class Game {
   private missileBeep = 0;
   /** Anillos acumulados para el próximo misil (1 cada 5) */
   private ringsToMissile = 0;
+  stunts!: Stunts;
+  season: Season;
+  delivery: Delivery | null = null;
+  zone: KothZone | null = null;
+  private zoneSeed = 0;
+  // Oleadas
+  waveNo = 0;
+  private waveLevels: Partial<Record<UpgradeKey, number>> = {};
+  private waveChoosing = false;
+  private shieldPulseT = 0;
+  // Pilla-pilla
+  private tagSeq = 0;
+  private tagImmune = 0;
+  private lastTagger: string | null = null;
+  private lastTaggerUntil = 0;
+  private tagFreeAcc = 0;
+  // Formación
+  private inFormation = 0;
+  private formationAcc = 0;
+  private scoreSyncT = 0;
   /** Crear la sala como pública */
   private mpPublic = false;
   private unwatchPublic: (() => void) | null = null;
@@ -176,7 +202,6 @@ class Game {
       $('btn-fire'),
       canvas,
       $('btn-missile'),
-      $('btn-flare'),
     );
     this.applySettings();
     this.input.onCamera = () => this.cycleCamera();
@@ -192,6 +217,16 @@ class Game {
     this.input.onResetRoute = () => this.resetToRoute();
     this.hud.onLock = () => this.audio.lockOn();
 
+    this.season = new Season(this.progress, {
+      onTier: (tier, r) => {
+        this.hud.achievement(`Pase nivel ${tier}`, 0);
+        this.hud.toast(`Pase de temporada · nivel ${tier}: ${r.label}`, 2200);
+        this.audio.gate(true);
+      },
+      onMission: (m) => this.hud.toast(`Misión cumplida: ${m.text} · +${m.xp} XP`, 2200),
+    });
+    this.progress.onStats = () => this.season?.checkMissions();
+    this.progress.onEarn = (n) => this.season?.addXp(n);
     this.progress.onUnlock = (a) => {
       this.sessionCredits += a.reward;
       this.hud.achievement(a.name, a.reward);
@@ -254,7 +289,23 @@ class Game {
     this.fx = new Fx(this.scene);
     this.fx.high = this.settings.effects === 'high';
     this.guns = new Guns(this.scene, this.gen, this.fx);
-    this.drones = new Drones(this.scene, this.gen);
+    this.drones = new Drones(this.scene, this.gen, 14);
+    this.stunts = new Stunts(this.gen, {
+      onTrick: (name, pts, mult) => {
+        if (mult >= 2) this.audio.hitMarker();
+        void name;
+        void pts;
+      },
+      onBank: (pts, mult) => {
+        this.progress.add('stuntPoints', pts);
+        this.progress.max('bestCombo', mult);
+        this.earn(Math.floor(pts / 50));
+        if (pts >= 100) this.hud.toast(`Combo ×${mult} · +${pts} de estilo`, 1400);
+      },
+      onLost: (pts) => {
+        if (pts > 0) this.hud.toast(`Combo perdido (${pts})`, 1200);
+      },
+    });
     this.missiles = new Missiles(this.scene, this.gen, this.fx);
     this.replayer = new ReplayPlayer(this.scene, this.camera, this.fx, this.guns);
     this.replayer.onEnd = () => this.endReplay();
@@ -304,6 +355,19 @@ class Game {
     this.drones.dispose();
     this.missiles.dispose();
     this.weather.dispose();
+    this.endModes();
+  }
+
+  /** Limpia los modos especiales (mensajero, rey del cielo, oleadas) */
+  private endModes() {
+    this.delivery?.dispose();
+    this.delivery = null;
+    this.zone?.dispose();
+    this.zone = null;
+    this.waveChoosing = false;
+    show('upgrades', false);
+    this.hud.banner(null);
+    this.hud.combo(null);
   }
 
   /** Aplica avión, pintura y mejoras elegidos en el hangar */
@@ -378,6 +442,14 @@ class Game {
     this.weather.randomize(this.settings.weather, this.stage.night);
     if (this.weather.kind !== 'clear') setTimeout(() => this.hud.toast(WEATHER_LABELS[this.weather.kind], 1500), 1300);
     if (this.room) this.progress.add('mpGames');
+    this.endModes();
+    this.stunts.reset();
+    this.waveNo = 0;
+    this.waveLevels = {};
+    this.inFormation = 0;
+    this.tagSeq = 0;
+    this.season.refresh();
+    this.applyLoadout();
   }
 
   /** Vuelo libre en solitario */
@@ -444,6 +516,171 @@ class Game {
     this.hud.toast('¡Vuelo en equipo!');
   }
 
+  /** Mensajero urbano */
+  startDelivery() {
+    this.audio.init();
+    this.mode = 'delivery';
+    this.resetSession();
+    this.drones.setActive(false);
+    this.spawnAt(new THREE.Vector3(0, this.safeAltitude(0, 0), 0), Math.random() * Math.PI * 2);
+    this.rings.respawnAll(this.chunks.loaded());
+    this.powerups.setEnabled(true, this.chunks.loaded());
+    this.delivery = new Delivery(this.scene, this.gen);
+    this.delivery.start(this.flight.pos);
+    this.setScreen('playing');
+    this.hud.toast('Recoge el paquete en la azotea verde', 2200);
+  }
+
+  /** Oleadas: sobrevive y mejora tu avión entre oleadas */
+  startWaves() {
+    this.audio.init();
+    this.mode = 'waves';
+    this.resetSession();
+    this.drones.setActive(false);
+    this.spawnAt(new THREE.Vector3(0, this.safeAltitude(0, 0), 0), Math.random() * Math.PI * 2);
+    this.rings.respawnAll(this.chunks.loaded());
+    this.powerups.setEnabled(true, this.chunks.loaded());
+    this.setScreen('playing');
+    this.nextWave();
+  }
+
+  private nextWave() {
+    this.waveNo++;
+    const plan = wavePlan(this.waveNo);
+    for (const bot of this.bots) bot.dispose();
+    this.bots = [];
+    const f = this.flight;
+    this.drones.spawnWave(plan.drones, f.pos, f.forward(), plan.droneHp);
+    const specs = makeBotSpecs(plan.bots, () => null);
+    for (const s of specs) {
+      const bot = new Bot(s, this.scene, this.gen, this.fx, plan.botSkill);
+      bot.spawn(f.pos.clone().setY(0), 1500);
+      this.bots.push(bot);
+    }
+    this.hud.countdown(`Oleada ${this.waveNo}`);
+    setTimeout(() => this.hud.countdown(null), 1400);
+    this.audio.countdown(true);
+  }
+
+  private updateWaves(dt: number) {
+    if (this.waveChoosing) return;
+    for (const bot of this.bots) {
+      if (!bot.alive) {
+        bot.update(dt, this.time, [], this.flight.pos, this.missiles, () => undefined);
+        continue;
+      }
+      const crashed = bot.update(dt, this.time, this.alive ? [this.myTarget] : [], this.flight.pos, this.missiles, (t, dmg) => this.botHit(bot.spec.id, t, dmg));
+      if (crashed) this.botCrash(bot.spec.id);
+    }
+    const left = this.drones.aliveCount + this.bots.filter((b) => b.alive).length;
+    this.hud.battleScore(`Oleada ${this.waveNo} · quedan ${left}`, `${this.kills}✕`);
+    if (left === 0 && this.alive) {
+      this.progress.max('wavesBest', this.waveNo);
+      this.earn(30 * this.waveNo);
+      this.showUpgrades();
+    }
+    // Mejoras con efecto continuo
+    const lv = this.waveLevels;
+    if (lv.regen && this.alive) this.hp = Math.min(this.maxHp, this.hp + 2 * lv.regen * dt);
+    if (lv.ammo) this.guns.reload(4 * lv.ammo * dt);
+    if (lv.shield) {
+      this.shieldPulseT += dt;
+      if (this.shieldPulseT >= 20) {
+        this.shieldPulseT = 0;
+        this.shield = Math.max(this.shield, 4);
+      }
+    }
+  }
+
+  private showUpgrades() {
+    this.waveChoosing = true;
+    this.input.reset();
+    const picks = pickUpgrades(this.waveLevels);
+    $('up-title').textContent = `¡Oleada ${this.waveNo} superada!`;
+    $('up-list').replaceChildren(
+      ...picks.map((u) => {
+        const b = document.createElement('button');
+        b.className = 'up-card';
+        const lvl = this.waveLevels[u.key] ?? 0;
+        b.innerHTML = `<b></b><span></span><small>Nivel ${lvl + 1}/${u.max}</small>`;
+        (b.querySelector('b') as HTMLElement).textContent = u.name;
+        (b.querySelector('span') as HTMLElement).textContent = u.description;
+        b.addEventListener('click', () => this.chooseUpgrade(u));
+        return b;
+      }),
+    );
+    show('upgrades', true);
+  }
+
+  private chooseUpgrade(u: WaveUpgrade) {
+    const lv = (this.waveLevels[u.key] ?? 0) + 1;
+    this.waveLevels[u.key] = lv;
+    switch (u.key) {
+      case 'armor':
+        this.maxHp = Math.round(this.maxHp * 1.25);
+        this.hp = this.maxHp;
+        break;
+      case 'missiles':
+        this.missiles.max += 2;
+        this.missiles.addMissiles(2);
+        break;
+      case 'speed':
+        this.flight.speedMul *= 1.08;
+        break;
+      case 'ammo':
+        this.guns.maxAmmo += 80;
+        this.guns.refill();
+        break;
+    }
+    this.applyWaveWeapon();
+    show('upgrades', false);
+    this.waveChoosing = false;
+    this.timer.update();
+    this.hud.toast(`${u.name} · nivel ${lv}`, 1400);
+    this.nextWave();
+  }
+
+  /** Arma con las mejoras de oleadas (cadencia y puntería) */
+  private applyWaveWeapon() {
+    const base = this.progress.plane.weapon;
+    const lv = this.waveLevels;
+    this.guns.setWeapon({
+      ...base,
+      fireRate: base.fireRate * Math.pow(1.2, lv.rate ?? 0),
+      cone: base.cone + 6 * (lv.aim ?? 0),
+      lockRange: base.lockRange + 300 * (lv.aim ?? 0),
+    });
+  }
+
+  /** Resumen final de Mensajero u Oleadas */
+  private finishSummary() {
+    this.screen = 'results';
+    const d = this.delivery;
+    if (this.mode === 'delivery' && d) {
+      const key = 'best.delivery';
+      const prev = Number(store.get(key) ?? 0);
+      if (d.score > prev) store.set(key, String(d.score));
+      $('sum-title').textContent = d.over ? '¡Se acabó el tiempo!' : 'Fin del reparto';
+      $('sum-big').textContent = `${d.score}`;
+      $('sum-unit').textContent = 'puntos';
+      $('sum-rows').innerHTML = `<li><span>Entregas</span><b>${d.delivered}</b></li><li><span>Récord</span><b>${Math.max(prev, d.score)}</b></li><li><span>Estilo</span><b>${this.stunts.total}</b></li>`;
+    } else {
+      const key = 'best.waves';
+      const prev = Number(store.get(key) ?? 0);
+      const reached = Math.max(0, this.waveNo - (this.alive ? 0 : 1));
+      if (reached > prev) store.set(key, String(reached));
+      $('sum-title').textContent = 'Has caído';
+      $('sum-big').textContent = `${reached}`;
+      $('sum-unit').textContent = reached === 1 ? 'oleada superada' : 'oleadas superadas';
+      $('sum-rows').innerHTML = `<li><span>Derribos</span><b>${this.kills}</b></li><li><span>Récord</span><b>${Math.max(prev, reached)} oleadas</b></li><li><span>Estilo</span><b>${this.stunts.total}</b></li>`;
+    }
+    $('sum-credits').textContent = `+${this.sessionCredits} créditos`;
+    show('btn-sum-replay', this.recorder.hasContent);
+    setTimeout(() => {
+      if (this.screen === 'results' && !this.replaying) this.setScreen('results');
+    }, 1300);
+  }
+
   /** Batalla (solo contra bots o multijugador) */
   startBattle(config: BattleConfig, startAt?: number) {
     this.audio.init();
@@ -459,7 +696,7 @@ class Game {
     this.battle = b;
     const room = this.room;
     const humans: { id: string; name: string; team: Team | null; color: number }[] = [];
-    const humanTeam = (t?: Team): Team | null => (config.kind === 'ffa' ? null : config.kind === 'coop' ? 'A' : (t ?? 'A'));
+    const humanTeam = (t?: Team): Team | null => (config.kind === 'coop' ? 'A' : config.kind === 'teams' ? (t ?? 'A') : null);
     if (room) {
       for (const [uid, p] of room.players) humans.push({ id: uid, name: uid === room.uid ? this.pilotName() : p.name, team: humanTeam(p.team), color: p.color });
     } else {
@@ -470,7 +707,7 @@ class Game {
     let a = humans.filter((h) => h.team === 'A').length;
     let bb = humans.filter((h) => h.team === 'B').length;
     const specs = makeBotSpecs(config.bots, () => {
-      if (config.kind === 'ffa') return null;
+      if (config.kind !== 'coop' && config.kind !== 'teams') return null;
       if (config.kind === 'coop') return 'B';
       if (a <= bb) {
         a++;
@@ -489,10 +726,19 @@ class Game {
       }
     }
     this.goAt = startAt ?? this.now();
+    // Semilla común a todos los jugadores (zona del Rey del cielo, quién la lleva al empezar)
+    this.zoneSeed = room ? [...room.code].reduce((a, c) => a * 31 + c.charCodeAt(0), 7) % 100000 + (room.meta?.round ?? 0) : Math.floor(Math.random() * 100000);
+    if (config.kind === 'koth') this.zone = new KothZone(this.scene, this.gen);
+    if (config.kind === 'tag') {
+      const ids = [...b.fighters.keys()].sort();
+      b.it = ids[Math.floor(hash2(this.zoneSeed, 1, 3) * ids.length)] ?? null;
+      this.tagImmune = 3;
+    }
     const pos = this.arenaSpawn();
     this.spawnAt(pos, Math.atan2(pos.x, pos.z));
     this.setScreen('playing');
     this.hud.toast(BATTLE_LABELS[config.kind], 1800);
+    if (config.kind === 'tag') setTimeout(() => this.hud.toast(b.it === this.myId ? '¡La llevas tú! Toca a otro avión' : `La lleva ${b.fighters.get(b.it ?? '')?.name ?? '?'}: ¡huye!`, 2200), 1900);
     this.syncMyScore();
   }
 
@@ -523,6 +769,7 @@ class Game {
     show('crash', false);
     show('race-results', s === 'results' && this.mode === 'race');
     show('battle-results', s === 'results' && this.mode === 'battle');
+    show('summary', s === 'results' && (this.mode === 'delivery' || this.mode === 'waves'));
     show('lobby', s === 'lobby');
     show('pause', false);
     this.paused = false;
@@ -542,6 +789,7 @@ class Game {
       this.ghost?.dispose();
       this.ghost = null;
       this.endBattle();
+      this.endModes();
       this.flight.frozen = false;
       this.weather.set('clear');
       if (!this.rings.enabled) {
@@ -641,7 +889,10 @@ class Game {
     }
     this.sendNetState(true);
 
-    if (this.mode === 'free' && !this.room) {
+    this.stunts.crash();
+    if (this.mode === 'waves') {
+      this.finishSummary();
+    } else if (this.mode === 'free' && !this.room) {
       this.screen = 'crashed';
       this.crashTimer = 0;
       this.fillCrashPanel();
@@ -689,6 +940,7 @@ class Game {
       f.pos.y = (box ? box.h : 0) + 4;
     }
     f.stun = 0.9;
+    this.stunts.crash();
     this.fx.scrape(f.pos, normal);
     this.recorder.event('scrape', f.pos);
     this.recorder.highlight('Por los pelos');
@@ -777,6 +1029,8 @@ class Game {
   // ================================================================ Combate
   /** Lista de objetivos enemigos para mis armas */
   private enemyTargets(): Target[] {
+    if (this.mode === 'waves') return [...this.drones.list, ...this.bots.map((b) => b.target)];
+    if (this.battle?.config.kind === 'tag') return [];
     if (this.battle) {
       const b = this.battle;
       const list: Target[] = [...this.remotes.targets(), ...this.bots.map((x) => x.target)];
@@ -829,6 +1083,8 @@ class Game {
         this.guns.reload(15);
         this.progress.add('drones');
         this.earn(15);
+        this.stunts.trick('Dron derribado', 80);
+        if (this.waveLevels.vampire) this.hp = Math.min(this.maxHp, this.hp + 15 * this.waveLevels.vampire);
         this.hud.toast(`¡Dron derribado! · ${this.kills}`);
       }
       return;
@@ -856,7 +1112,10 @@ class Game {
     this.recorder.event('explosion', bot.flight.pos, 1);
     this.audio.explosion();
     const b = this.battle;
-    if (!b) return;
+    if (!b) {
+      if (shooter === this.myId) this.onMyKill(bot.spec.name);
+      return;
+    }
     b.kill(shooter, bot.spec.id);
     const sName = b.fighters.get(shooter)?.name ?? '?';
     this.hud.killfeed(`${sName} ✕ ${bot.spec.name}`, shooter === this.myId);
@@ -876,6 +1135,8 @@ class Game {
 
   private onMyKill(victim: string) {
     this.kills++;
+    this.stunts.trick('Derribo', 150);
+    if (this.waveLevels.vampire) this.hp = Math.min(this.maxHp, this.hp + 15 * this.waveLevels.vampire);
     this.audio.ring();
     this.hud.hitMarker(true);
     this.hud.toast(`¡Has derribado a ${victim}!`, 1800);
@@ -889,14 +1150,14 @@ class Game {
   private syncMyScore() {
     if (!this.room || !this.battle) return;
     const me = this.battle.me;
-    if (me) this.room.setScore(this.myId, me.kills, me.deaths);
+    if (me) this.room.setScore(this.myId, this.battle.syncValue(this.myId), me.deaths);
   }
 
   private syncBotScores() {
     if (!this.room?.isHost || !this.battle) return;
     for (const bot of this.bots) {
       const f = this.battle.fighters.get(bot.spec.id);
-      if (f) this.room.setScore(bot.spec.id, f.kills, f.deaths);
+      if (f) this.room.setScore(bot.spec.id, this.battle.syncValue(bot.spec.id), f.deaths);
     }
   }
 
@@ -941,6 +1202,7 @@ class Game {
       onDecoyed: (m: { owner: MissileOwner; target: Target | null }) => {
         if (m.target?.id === this.myId && this.missiles.myFlareWindow > 0) {
           this.progress.add('flaresDodged');
+          this.stunts.trick('Esquiva', 200);
           this.hud.toast('¡Misil esquivado!', 1200);
         }
       },
@@ -1056,6 +1318,7 @@ class Game {
       hp: (this.hp / this.maxHp) * 100,
       a: this.alive && playing ? 1 : 0,
       fl: this.missiles.myFlareWindow > 0 ? 1 : 0,
+      sm: this.inFormation > 0 ? 1 : 0,
     });
     if (this.room.isHost && this.bots.length) {
       this.room.sendBots(
@@ -1097,7 +1360,7 @@ class Game {
       return;
     }
 
-    if (this.screen === 'playing' && !(this.paused && !this.room)) this.updatePlaying(dt);
+    if (this.screen === 'playing' && !(this.paused && !this.room) && !this.waveChoosing) this.updatePlaying(dt);
     else if (this.screen === 'menu' || this.screen === 'lobby') this.updateMenu(dt);
     else if (this.screen === 'crashed') {
       this.crashTimer += dt;
@@ -1113,11 +1376,12 @@ class Game {
         if (on && !this.remoteFlares.has(p.uid)) this.missiles.cosmeticFlares(p.target.pos, p.target.vel);
         if (on) this.remoteFlares.add(p.uid);
         else this.remoteFlares.delete(p.uid);
+        if (p.smoke && p.alive && Math.random() < 0.7) this.fx.formationSmoke(p.target.pos, p.target.vel.clone().normalize().negate(), p.info.color);
       }
       if (this.screen === 'lobby' || this.screen === 'results') this.sendNetState();
     }
 
-    const frozen = this.paused && !this.room;
+    const frozen = (this.paused && !this.room) || this.waveChoosing;
     if (!frozen) {
       this.fx.update(dt);
       this.drones.update(dt, this.flight.pos, this.flight.forward(), this.time);
@@ -1166,7 +1430,8 @@ class Game {
     this.shield = Math.max(0, this.shield - dt);
     this.doubleDamage = Math.max(0, this.doubleDamage - dt);
     this.turbo = Math.max(0, this.turbo - dt);
-    this.guns.damageMul = this.doubleDamage > 0 ? 2 : 1;
+    this.guns.damageMul = (this.doubleDamage > 0 ? 2 : 1) * (1 + 0.25 * (this.waveLevels.damage ?? 0));
+    this.tagImmune = Math.max(0, this.tagImmune - dt);
     const input = this.paused ? { x: 0, y: 0, boost: false, climb: false, fire: false } : this.input.read();
     this.lastInput = input;
     this.myTarget.id = this.myId;
@@ -1194,8 +1459,31 @@ class Game {
       }
     }
 
-    // Batalla
+    // Batalla y modos especiales
     if (this.battle) this.updateBattle(dt);
+    if (this.mode === 'waves') this.updateWaves(dt);
+    if (this.delivery && this.alive) {
+      const ev = this.delivery.update(dt, f.pos, this.jet.group.quaternion, this.time);
+      if (ev?.type === 'pickup') {
+        this.audio.reload();
+        Haptic.pickup();
+        this.hud.toast('Paquete recogido · llévalo a la azotea naranja', 1800);
+      } else if (ev?.type === 'deliver') {
+        this.audio.gate(true);
+        Haptic.gate();
+        this.progress.add('deliveries');
+        this.earn(Math.round((ev.reward ?? 0) / 10));
+        this.stunts.trick(ev.label ?? 'Entrega', 120);
+        this.hud.toast(`${ev.label} · +${ev.reward}${ev.tip ? ` (propina ${ev.tip})` : ''} · +25 s`, 2000);
+      } else if (ev?.type === 'timeout') {
+        this.audio.explosion();
+        this.finishSummary();
+      }
+    }
+    if (this.delivery && !this.delivery.over) {
+      const t = Math.max(0, this.delivery.timeLeft);
+      this.hud.battleScore(`${this.delivery.state === 'pickup' ? 'Recoge el paquete' : 'Entrega el paquete'} · ${this.delivery.delivered} entregas · ${this.delivery.score} pts`, `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`);
+    }
 
     // Recompensas y misiles (también muerto, para que sigan su curso)
     const pw = this.powerups.update(dt, this.time, this.alive ? f.pos : null, () => this.chunks.loaded());
@@ -1206,7 +1494,7 @@ class Game {
     this.recorder.tick(dt, () => this.sampleActors());
 
     if (!this.alive) {
-      if (this.mode === 'race' || this.mode === 'battle' || this.room) {
+      if (this.mode === 'race' || this.mode === 'battle' || this.mode === 'delivery' || this.room) {
         this.respawnTimer -= dt;
         if (this.respawnTimer <= 0) this.respawn();
       }
@@ -1241,9 +1529,12 @@ class Game {
       this.ghost.update(0, this.time);
     }
 
-    this.checkPlayerCollisions();
+    if (this.battle?.config.kind !== 'tag') this.checkPlayerCollisions();
     this.updateLeash(dt);
-    this.guns.update(dt, this.gunContext(!!input.fire && !f.frozen && !this.paused));
+    this.updateFormation(dt);
+    if (!this.race || this.race.started) this.stunts.update(dt, f);
+    const canFire = this.battle?.config.kind !== 'tag';
+    this.guns.update(dt, this.gunContext(canFire && !!input.fire && !f.frozen && !this.paused));
 
     // Aviso de proximidad al suelo
     const ground = this.gen.maxHeightNear(f.pos.x, f.pos.z, 60);
@@ -1276,6 +1567,11 @@ class Game {
         this.audio.warning();
         Haptic.missileWarning();
       }
+      // Bengalas automáticas cuando el misil está cerca
+      if (to.length() < 450 && this.missiles.myFlareWindow <= 0 && this.missiles.flares > 0) {
+        this.fireFlares();
+        this.hud.toast('Bengalas automáticas', 900);
+      }
     } else this.hud.missileWarning(false);
 
     // Fuera de ruta (carrera)
@@ -1290,6 +1586,11 @@ class Game {
     }
 
     this.audio.engine(THREE.MathUtils.clamp(f.speedKmh / BOOST_KMH, 0, 1), f.thrust, !f.frozen);
+    // Turbo: chorro de fuego y chispas saliendo de las turbinas
+    if ((input.boost || f.burst > 0) && !f.frozen) {
+      const back = f.forward().negate();
+      for (const n of this.jet.nozzles()) this.fx.afterburner(n, back, this.myTarget.vel);
+    }
     const q = this.jet.group.quaternion;
     const tips = this.jet.wingTips.map((t) => t.clone().applyQuaternion(q).add(this.jet.group.position));
     this.jet.update(f, this.time);
@@ -1313,15 +1614,153 @@ class Game {
       if (b.enemies(bot.spec.id, this.myId) && this.alive) enemies.push(this.myTarget);
       for (const t of this.remotes.targets()) if (b.enemies(bot.spec.id, t.id)) enemies.push(t);
       for (const o of this.bots) if (o !== bot && o.alive && b.enemies(bot.spec.id, o.spec.id)) enemies.push(o.target);
-      const crashed = bot.update(dt, this.time, enemies, ARENA, this.missiles, (t, dmg) => this.botHit(bot.spec.id, t, dmg));
+      const opts = this.botModeOpts(bot.spec.id, enemies);
+      const crashed = bot.update(dt, this.time, opts.targets, ARENA, this.missiles, (t, dmg) => this.botHit(bot.spec.id, t, dmg), opts);
       if (crashed) this.botCrash(bot.spec.id);
     }
     if (this.room) for (const [id, sc] of this.room.scores) if (id !== this.myId) b.setScore(id, sc.k, sc.d);
+    if (b.config.kind === 'koth') this.updateKoth(dt);
+    if (b.config.kind === 'tag') this.updateTag(dt);
+    this.scoreSyncT -= dt;
+    if (this.scoreSyncT <= 0 && b.pointsMode) {
+      this.scoreSyncT = 1;
+      this.syncMyScore();
+      this.syncBotScores();
+    }
     const mins = Math.floor(b.timeLeft / 60);
     const secs = Math.floor(b.timeLeft % 60);
     this.hud.battleScore(b.scoreLine(), `${mins}:${String(secs).padStart(2, '0')}`);
     const res = b.check();
     if (res) this.onBattleFinished(res);
+  }
+
+  /** Objetivos y comportamiento de un bot según el modo de batalla */
+  private botModeOpts(id: string, enemies: Target[]): { targets: Target[]; goal?: THREE.Vector3; flee?: THREE.Vector3; noFire?: boolean } {
+    const b = this.battle!;
+    if (b.config.kind === 'koth' && this.zone) return { targets: enemies, goal: this.zone.center };
+    if (b.config.kind === 'tag') {
+      const all = this.allPlanes().filter((p) => p.id !== id && p.alive);
+      if (b.it === id) return { targets: all.filter((p) => p.id !== this.lastTagger || this.time >= this.lastTaggerUntil), noFire: true };
+      const it = all.find((p) => p.id === b.it);
+      return { targets: [], flee: it?.pos, noFire: true };
+    }
+    return { targets: enemies };
+  }
+
+  /** Todos los aviones de la partida (yo, remotos y bots locales) */
+  private allPlanes(): Target[] {
+    const me = this.alive ? [this.myTarget] : [];
+    return [...me, ...this.remotes.targets(), ...this.bots.map((x) => x.target)];
+  }
+
+  /** Rey del cielo: puntos por estar solo dentro de la zona */
+  private updateKoth(dt: number) {
+    const b = this.battle!;
+    const z = this.zone!;
+    z.update(dt, Math.max(0, b.elapsed), this.zoneSeed, this.time);
+    const inside = this.allPlanes().filter((p) => p.alive && z.contains(p.pos));
+    const meIn = inside.some((p) => p.id === this.myId);
+    if (inside.length === 1) {
+      const owner = inside[0].id;
+      // cada uno suma lo suyo; el anfitrión (o el juego en solitario) suma a sus bots
+      if (owner === this.myId) b.addPoints(this.myId, dt);
+      else if (this.bots.some((x) => x.spec.id === owner)) b.addPoints(owner, dt);
+      z.status = owner === this.myId ? 'mine' : 'enemy';
+    } else z.status = inside.length > 1 ? 'contested' : 'free';
+    const t = Math.ceil(z.timeToMove(Math.max(0, b.elapsed)));
+    this.hud.banner(
+      meIn ? (inside.length > 1 ? `ZONA DISPUTADA · se mueve en ${t} s` : `¡ZONA TUYA! +1/s · se mueve en ${t} s`) : `Ve a la zona dorada · se mueve en ${t} s`,
+      meIn && inside.length === 1 ? 'good' : inside.length > 1 && meIn ? 'warn' : 'info',
+    );
+  }
+
+  /** Pilla-pilla: quien la lleva pasa el testigo al tocar a otro avión */
+  private updateTag(dt: number) {
+    const b = this.battle!;
+    const it = b.it;
+    // Puntos: segundos sin llevarla
+    if (this.alive && it !== this.myId) {
+      b.addPoints(this.myId, dt);
+      this.tagFreeAcc += dt;
+      if (this.tagFreeAcc >= 1) {
+        this.tagFreeAcc -= 1;
+        this.progress.add('tagFree', 1);
+      }
+    }
+    for (const bot of this.bots) if (bot.alive && bot.spec.id !== it) b.addPoints(bot.spec.id, dt);
+    // ¿Quién toca a quién? Solo decide quien controla al que la lleva (yo, o el anfitrión con sus bots)
+    const controlsIt = it === this.myId || (it !== null && this.bots.some((x) => x.spec.id === it));
+    if (controlsIt && this.tagImmune <= 0) {
+      const holder = this.allPlanes().find((p) => p.id === it);
+      if (holder) {
+        for (const p of this.allPlanes()) {
+          if (p.id === it || !p.alive || (p.id === this.lastTagger && this.time < this.lastTaggerUntil)) continue;
+          if (p.pos.distanceTo(holder.pos) < 24) {
+            this.passTag(p.id, it!);
+            break;
+          }
+        }
+      }
+    }
+    this.flight.speedMul = this.progress.modifiers.speed * (it === this.myId ? 1.1 : 1);
+    const holderName = b.fighters.get(it ?? '')?.name ?? '?';
+    this.hud.banner(it === this.myId ? '¡LA LLEVAS! Toca a otro avión' : `La lleva ${holderName} · ¡huye!`, it === this.myId ? 'bad' : 'info');
+  }
+
+  private passTag(to: string, from: string) {
+    const b = this.battle!;
+    b.it = to;
+    this.lastTagger = from;
+    this.lastTaggerUntil = this.time + 6;
+    this.tagImmune = 2.5;
+    this.tagSeq++;
+    this.room?.setTagIt(to, this.tagSeq);
+    this.onTagChanged(to, from);
+  }
+
+  private onTagChanged(to: string, from: string | null) {
+    const b = this.battle;
+    if (!b) return;
+    const name = b.fighters.get(to)?.name ?? '?';
+    this.audio.gate(to !== this.myId);
+    Haptic.bump();
+    if (to === this.myId) this.hud.toast(`¡Te ha pillado ${b.fighters.get(from ?? '')?.name ?? 'alguien'}!`, 1600);
+    else this.hud.toast(`¡La lleva ${name}!`, 1200);
+    this.fx.sparks(this.allPlanes().find((p) => p.id === to)?.pos ?? this.flight.pos, null, 30, 60);
+  }
+
+  /** Vuelo en formación: cerca de un compañero, mismo rumbo y velocidad → humo de colores */
+  private updateFormation(dt: number) {
+    this.inFormation = 0;
+    const coop = this.room && (this.mode === 'free' || (this.battle && this.battle.config.kind !== 'ffa' && this.battle.config.kind !== 'koth' && this.battle.config.kind !== 'tag'));
+    if (!coop || !this.alive) {
+      this.hud.formation(0);
+      return;
+    }
+    const f = this.flight;
+    const fwd = f.forward();
+    for (const p of this.remotes.map.values()) {
+      if (!p.alive || !p.buffer.length || p.uid.startsWith('bot')) continue;
+      if (this.battle && this.battle.enemies(this.myId, p.uid)) continue;
+      const d = p.target.pos.distanceTo(f.pos);
+      if (d < 18 || d > 120) continue;
+      const pf = p.target.vel.clone().normalize();
+      if (pf.dot(fwd) < 0.9) continue;
+      const ratio = p.target.vel.length() / Math.max(1, f.speed);
+      if (ratio < 0.75 || ratio > 1.33) continue;
+      this.inFormation++;
+    }
+    this.hud.formation(this.inFormation);
+    if (!this.inFormation) return;
+    const color = this.room?.myColor ?? 0xffffff;
+    if (Math.random() < (this.settings.effects === 'high' ? 0.9 : 0.5)) this.fx.formationSmoke(f.pos, fwd.clone().negate(), color);
+    this.formationAcc += dt;
+    if (this.formationAcc >= 1) {
+      this.formationAcc -= 1;
+      this.progress.add('formationTime', 1);
+      this.earn(2 * this.inFormation);
+      this.stunts.trick('Formación', 40 * this.inFormation);
+    }
   }
 
   private sampleActors() {
@@ -1382,6 +1821,8 @@ class Game {
       }
       if (g.kind !== 'normal') msgs.push(info.label);
       if (g.kind === 'gold' || g.kind === 'sea') this.fx.sparks(this.flight.pos, null, 40, 70);
+      if (g.kind === 'sea') this.progress.add('seaRings');
+      this.stunts.trick(this.flight.speedKmh > 1200 ? 'Aro supersónico' : g.kind === 'sea' ? 'Aro marino' : 'Aro', this.flight.speedKmh > 1200 ? 120 : 50);
     }
     this.audio.ring();
     if (this.room) {
@@ -1624,6 +2065,51 @@ class Game {
       }
     }
 
+    // Objetivos de los modos especiales (marcador, flecha y radar)
+    if (this.delivery && !this.delivery.over) {
+      const pick = this.delivery.state === 'pickup';
+      navTarget = this.delivery.target;
+      navGate = true;
+      navLabel = pick ? 'RECOGER' : 'ENTREGAR';
+      arrowTarget = navTarget;
+      arrowColor = pick ? 0x5cff8a : 0xffa040;
+      items.push({ pos: navTarget, kind: 'gate', color: pick ? '#5cff8a' : '#ffa040' });
+    }
+    if (this.zone) {
+      navTarget = this.zone.center;
+      navGate = true;
+      navLabel = 'ZONA';
+      if (!this.zone.contains(f.pos)) {
+        arrowTarget = this.zone.center;
+        arrowColor = 0xffd040;
+      }
+      items.push({ pos: this.zone.center, kind: 'gate', color: '#ffd040' });
+    }
+    if (this.battle?.config.kind === 'tag') {
+      const it = this.battle.it;
+      const holder = this.allPlanes().find((p) => p.id === it);
+      if (it === this.myId) {
+        let best: Target | null = null;
+        let bd = Infinity;
+        for (const p of this.allPlanes()) {
+          if (p.id === this.myId || !p.alive) continue;
+          const d = p.pos.distanceTo(f.pos);
+          if (d < bd) {
+            bd = d;
+            best = p;
+          }
+        }
+        if (best) {
+          arrowTarget = best.pos;
+          arrowColor = 0xff4040;
+        }
+      } else if (holder) {
+        navTarget = holder.pos;
+        navLabel = 'LA LLEVA';
+      }
+    }
+    if (this.mode === 'waves') scoreLabel = 'Derribos';
+
     const lock = this.alive && this.screen === 'playing' ? this.guns.lock : null;
     this.hud.update({
       flight: f,
@@ -1649,6 +2135,7 @@ class Game {
     if (this.turbo > 0) pws.push({ name: 'Turbo', color: POWER_INFO.turbo.css, left: this.turbo, total: POWER_INFO.turbo.duration });
     this.hud.setPowerups(pws);
     this.radar.draw(f.pos, f.yaw, items, route);
+    this.hud.combo(this.stunts.combo);
     // Etiquetas de los demás pilotos
     const tags = [];
     if (this.screen === 'playing' || this.screen === 'results') {
@@ -1656,7 +2143,8 @@ class Game {
       for (const t of others) {
         if (!t.alive) continue;
         const pi = this.pilotInfo(t.id);
-        const enemy = this.battle ? this.battle.enemies(this.myId, t.id) : false;
+        const tagMode = this.battle?.config.kind === 'tag';
+        const enemy = tagMode ? t.id === this.battle!.it : this.battle ? this.battle.enemies(this.myId, t.id) : false;
         tags.push({ id: t.id, name: pi.name, glyph: ICON_GLYPH[pi.icon], color: pi.teamColor, pos: t.pos, enemy });
       }
     }
@@ -1684,7 +2172,7 @@ class Game {
     if (!this.replayer.start(rec)) return;
     this.replaying = true;
     this.replayReturn = returnTo;
-    for (const id of ['crash', 'race-results', 'battle-results', 'pause']) show(id, false);
+    for (const id of ['crash', 'race-results', 'battle-results', 'pause', 'summary']) show(id, false);
     this.hud.show(false);
     this.jet.group.visible = false;
     this.arrow.update(this.flight.pos, 0, null, false);
@@ -1794,6 +2282,7 @@ class Game {
   private onBattleFinished(res: BattleResult) {
     this.screen = 'results';
     this.progress.add('battles');
+    if (res.iWon && this.battleConfig.kind === 'koth') this.progress.add('kothWins');
     if (res.iWon) {
       this.progress.add('battlesWon');
       this.earn(150);
@@ -1813,7 +2302,8 @@ class Game {
       ...res.rows.map((r, i) => {
         const li = document.createElement('li');
         if (r.id === this.myId) li.classList.add('me');
-        li.innerHTML = `<span class="pos">${i + 1}</span><span class="nm"></span><span class="speed">${r.deaths} caídas</span><b>${r.kills}</b>`;
+        const pts = isPointsMode(this.battleConfig.kind);
+        li.innerHTML = `<span class="pos">${i + 1}</span><span class="nm"></span><span class="speed">${pts ? 'puntos' : `${r.deaths} caídas`}</span><b>${pts ? Math.floor(r.points) : r.kills}</b>`;
         const nm = li.querySelector('.nm') as HTMLElement;
         nm.textContent = r.name + (r.isBot ? ' 🤖' : '');
         if (r.team) nm.style.color = hex(TEAM_COLORS[r.team]);
@@ -1941,6 +2431,17 @@ class Game {
       }
     };
     room.onMeta = (m) => this.onRoomMeta(m);
+    room.onTagIt = (id, seq) => {
+      const b = this.battle;
+      if (!b || b.config.kind !== 'tag' || id === b.it) return;
+      const prev = b.it;
+      b.it = id;
+      this.tagSeq = Math.max(this.tagSeq, seq);
+      this.lastTagger = prev;
+      this.lastTaggerUntil = this.time + 6;
+      this.tagImmune = 2.5;
+      this.onTagChanged(id, prev);
+    };
     room.onState = (uid, s) => this.remotes.state(uid, s);
     room.onEvent = (e) => this.onNetEvent(e);
     room.onResults = () => {
@@ -2236,6 +2737,10 @@ class Game {
     $('menu-credits').textContent = `${this.progress.p.credits} créditos`;
     const done = Object.keys(this.progress.p.achievements).length;
     $('btn-achievements').textContent = `Logros ${done}/${ACHIEVEMENTS.length}`;
+    this.season.refresh();
+    const tier = this.season.tier;
+    $('season-tier').textContent = tier >= SEASON_TIERS ? 'Completo' : `Nivel ${tier}/${SEASON_TIERS}`;
+    $('season-bar').style.transform = `scaleX(${tier >= SEASON_TIERS ? 1 : (this.season.state.xp % XP_PER_TIER) / XP_PER_TIER})`;
   }
 
   private setupUi() {
@@ -2260,7 +2765,21 @@ class Game {
     $('btn-start').addEventListener('click', () => this.startFree());
     $('btn-race').addEventListener('click', () => this.openCoursePicker());
     $('btn-daily').addEventListener('click', () => this.startDaily());
-    $('btn-battle').addEventListener('click', () => show('battle-picker', true));
+    const openPicker = (kind: BattleKind) => {
+      $<HTMLSelectElement>('bp-bkind').value = kind;
+      this.updateBattlePicker();
+      show('battle-picker', true);
+    };
+    $('btn-battle').addEventListener('click', () => openPicker('ffa'));
+    $('btn-koth').addEventListener('click', () => openPicker('koth'));
+    $('btn-tag').addEventListener('click', () => openPicker('tag'));
+    $('bp-bkind').addEventListener('change', () => this.updateBattlePicker());
+    $('btn-delivery').addEventListener('click', () => this.startDelivery());
+    $('btn-waves').addEventListener('click', () => this.startWaves());
+    $('btn-season').addEventListener('click', () => this.openSeason());
+    $('btn-sum-retry').addEventListener('click', () => (this.mode === 'delivery' ? this.startDelivery() : this.startWaves()));
+    $('btn-sum-menu').addEventListener('click', () => this.setScreen('menu'));
+    $('btn-sum-replay').addEventListener('click', () => this.startReplay('summary'));
     $('btn-battle-go').addEventListener('click', () => {
       show('battle-picker', false);
       this.startBattle(this.readBattleForm('bp'));
@@ -2308,6 +2827,8 @@ class Game {
     $('btn-restart').addEventListener('click', () => {
       if (this.mode === 'race') this.isDaily ? this.startDaily() : this.startRace(this.courseDef);
       else if (this.mode === 'battle') this.startBattle(this.battleConfig);
+      else if (this.mode === 'delivery') this.startDelivery();
+      else if (this.mode === 'waves') this.startWaves();
       else this.startFree();
     });
     $('btn-pause-replay').addEventListener('click', () => this.startReplay('pause'));
@@ -2460,6 +2981,58 @@ class Game {
     setTimeout(() => this.refreshMenu(), msToNextDaily() + 1000);
   }
 
+  private updateBattlePicker() {
+    const kind = $<HTMLSelectElement>('bp-bkind').value as BattleKind;
+    const help: Record<BattleKind, string> = {
+      ffa: 'Gana quien consiga antes los derribos indicados.',
+      teams: 'Tú y bots aliados (naranja) contra bots azules.',
+      coop: 'Tú solo contra todos los bots.',
+      koth: 'Quédate solo dentro de la zona dorada para sumar 1 punto por segundo. La zona cambia de sitio cada minuto.',
+      tag: 'Sin disparos. Quien «la lleva» tiene que tocar a otro avión para pasársela. Sumas 1 punto por cada segundo sin llevarla.',
+    };
+    $('bp-help').textContent = help[kind];
+    $('bp-limit-label').textContent = kind === 'koth' ? 'Puntos para ganar' : 'Derribos para ganar';
+    const sel = $<HTMLSelectElement>('bp-blimit');
+    for (const o of [...sel.options]) o.textContent = kind === 'koth' ? String(Number(o.value) * 10) : o.value;
+    sel.closest('label')!.classList.toggle('hidden', kind === 'tag');
+  }
+
+  private openSeason() {
+    const se = this.season;
+    se.refresh();
+    const st = se.state;
+    const tier = se.tier;
+    show('season', true);
+    $('season-name').textContent = seasonName(st.id);
+    $('season-xp').textContent = tier >= SEASON_TIERS ? 'Completo' : `Nivel ${tier} · ${st.xp % XP_PER_TIER}/${XP_PER_TIER} XP`;
+    $('season-bar2').style.transform = `scaleX(${tier >= SEASON_TIERS ? 1 : (st.xp % XP_PER_TIER) / XP_PER_TIER})`;
+    const ms = new Date();
+    const dayIdx = (ms.getUTCDay() + 6) % 7;
+    $('season-week').textContent = `Cambian en ${7 - dayIdx} ${7 - dayIdx === 1 ? 'día' : 'días'}`;
+    $('season-missions').replaceChildren(
+      ...se.missions.map((m) => {
+        const li = document.createElement('li');
+        const done = st.done.includes(m.id);
+        const p = se.progressOf(m);
+        li.className = done ? 'done' : '';
+        li.innerHTML = `<span></span><em>+${m.xp} XP</em><span class="sb-bar"><i style="transform:scaleX(${p / m.target})"></i></span><small>${done ? 'Completada' : `${Math.floor(p)}/${m.target}`}</small>`;
+        (li.firstChild as HTMLElement).textContent = m.text;
+        return li;
+      }),
+    );
+    $('season-tiers').replaceChildren(
+      ...Array.from({ length: SEASON_TIERS }, (_, i) => {
+        const t = i + 1;
+        const r = tierReward(t);
+        const li = document.createElement('li');
+        li.className = `${t <= st.tier ? 'got' : ''}${r.paint || r.plane ? ' big' : ''}`;
+        li.innerHTML = `<b>Nivel ${t}</b><span></span>`;
+        (li.querySelector('span') as HTMLElement).textContent = r.label;
+        return li;
+      }),
+    );
+  }
+
   private openSettings() {
     this.renderSettings();
     show('settings', true);
@@ -2548,7 +3121,7 @@ class Game {
           el.innerHTML = `<span class="swatch2" style="--a:${hex(pt.body)};--b:${hex(pt.accent)}"></span><div class="hg-head"><b></b><small></small></div>`;
           (el.querySelector('b') as HTMLElement).textContent = pt.name;
           const ach = pt.achievement ? ACHIEVEMENTS.find((a) => a.id === pt.achievement) : null;
-          (el.querySelector('small') as HTMLElement).textContent = owned ? 'Disponible' : ach ? `Logro: ${ach.name}` : `${pt.cost} créditos`;
+          (el.querySelector('small') as HTMLElement).textContent = owned ? 'Disponible' : ach ? `Logro: ${ach.name}` : pt.season ? `Pase de temporada · nivel ${pt.season}` : `${pt.cost} créditos`;
           const btn = document.createElement('button');
           btn.className = sel ? 'secondary' : 'secondary strong';
           btn.textContent = sel ? 'En uso' : owned ? 'Usar' : pt.cost !== undefined ? 'Comprar' : 'Bloqueado';

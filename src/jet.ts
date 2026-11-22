@@ -107,6 +107,10 @@ export class Flight {
     if (this.speed < target) this.speed = Math.min(target, this.speed + accel * dt);
     else this.speed = Math.max(target, this.speed - 35 * dt);
     this.speed -= Math.sin(this.pitch) * 9.81 * 1.6 * dt;
+    // Sin turbo, un picado no pasa de ~1000 km/h (antes llegaba casi a la velocidad máxima
+    // y parecía que el turbo se activaba solo)
+    const diveCap = (1000 / KMH) * this.speedMul;
+    if (!input.boost && this.burst <= 0 && this.pitch < -0.05 && this.speed > diveCap) this.speed = Math.max(diveCap, this.speed - 120 * dt);
     this.speed = THREE.MathUtils.clamp(this.speed, MIN_KMH / KMH, (MAX_KMH / KMH) * Math.max(1, this.speedMul));
     this.thrust += ((input.boost || this.burst > 0 ? 1 : 0.55) - this.thrust) * Math.min(1, dt * 3);
 
@@ -404,14 +408,33 @@ export class JetModel {
     this.flame(0, 0, 8.4, 1.6, VARIANT_GLOW.comet!.flame);
   }
 
+  /** Posición en el mundo de cada tobera (para los efectos del turbo) */
+  nozzles(): THREE.Vector3[] {
+    this.group.updateMatrixWorld();
+    return this.flames.map((f) => f.getWorldPosition(new THREE.Vector3()));
+  }
+
   update(flight: Flight, time: number) {
     this.group.position.copy(flight.pos);
     flight.quaternion(this.group.quaternion);
     const t = flight.thrust;
+    // 0 en crucero, 1 con el turbo a tope: llamas mucho más largas, anchas y brillantes
+    const boost = THREE.MathUtils.clamp((t - 0.6) / 0.4, 0, 1);
     for (let i = 0; i < this.flames.length; i++) {
-      const flicker = 0.85 + Math.sin(time * 60 + i * 2.1) * 0.08 + Math.random() * 0.1;
-      const len = (0.35 + t * 1.3) * flicker;
-      this.flames[i].scale.set(0.8 + t * 0.4, 0.8 + t * 0.4, len);
+      const flicker = 0.85 + Math.sin(time * 60 + i * 2.1) * 0.08 + Math.random() * (0.1 + boost * 0.25);
+      const len = (0.35 + t * 1.3) * (1 + boost * 1.8) * flicker;
+      const wid = (0.8 + t * 0.4) * (1 + boost * 0.45);
+      const fl = this.flames[i];
+      fl.scale.set(wid, wid, len);
+      const outer = fl.material as THREE.MeshBasicMaterial;
+      outer.opacity = 0.85 + boost * 0.15;
+      const core = fl.children[0] as THREE.Mesh | undefined;
+      if (core) {
+        // Núcleo azul-blanco con anillos de choque al ir a tope
+        const cm = core.material as THREE.MeshBasicMaterial;
+        cm.color.setRGB(1 + boost * 0.6, 0.94 + boost * 0.5, 0.82 + boost * 1.6);
+        core.scale.set(1, 1, 1 + boost * 0.4 + (boost > 0.5 ? Math.sin(time * 90 + i) * 0.15 : 0));
+      }
     }
   }
 }

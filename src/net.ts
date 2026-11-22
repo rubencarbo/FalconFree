@@ -95,6 +95,8 @@ export interface NetState {
   t: number;
   /** bengalas activas */
   fl?: 0 | 1;
+  /** humo de formación */
+  sm?: 0 | 1;
 }
 
 export type NetEventType = 'hit' | 'bump' | 'crash' | 'kill' | 'bhit' | 'mlaunch';
@@ -145,6 +147,8 @@ export class Room {
   bots = new Map<string, BotNet>();
   scores = new Map<string, { k: number; d: number }>();
   onBots?: () => void;
+  /** Pilla-pilla: quién la lleva */
+  onTagIt?: (id: string, seq: number) => void;
   onScores?: () => void;
 
   onMeta?: (m: RoomMeta) => void;
@@ -319,6 +323,10 @@ export class Room {
         for (const [k, b] of Object.entries(v)) this.bots.set(k, b);
         this.onBots?.();
       }),
+      onValue(ref(db, `rooms/${this.code}/tagit`), (s) => {
+        const v = s.val() as { id: string; s: number } | null;
+        if (v) this.onTagIt?.(v.id, v.s);
+      }),
       onValue(ref(db, `rooms/${this.code}/score`), (s) => {
         this.scores.clear();
         const v = (s.val() ?? {}) as Record<string, { k: number; d: number }>;
@@ -403,6 +411,12 @@ export class Room {
     await remove(ref(firebase.database()!, `rooms/${this.code}/bots`)).catch(() => undefined);
   }
 
+  /** Pilla-pilla: pasa a llevarla otro (quien toca escribe) */
+  setTagIt(id: string, seq: number) {
+    if (this.closed) return;
+    set(ref(firebase.database()!, `rooms/${this.code}/tagit`), { id, s: seq, by: this.uid }).catch(() => undefined);
+  }
+
   setScore(id: string, k: number, d: number) {
     if (this.closed) return;
     set(ref(firebase.database()!, `rooms/${this.code}/score/${id}`), { k, d }).catch(() => undefined);
@@ -441,6 +455,7 @@ export class Room {
       hp: Math.round(s.hp),
       a: s.a,
       fl: s.fl ?? 0,
+      sm: s.sm ?? 0,
       t: Math.round(this.serverNow()),
     }).catch(() => undefined);
   }
@@ -464,6 +479,7 @@ export class Room {
     await remove(ref(db, `rooms/${this.code}/results`));
     await remove(ref(db, `rooms/${this.code}/rings`)).catch(() => undefined);
     await remove(ref(db, `rooms/${this.code}/score`)).catch(() => undefined);
+    await remove(ref(db, `rooms/${this.code}/tagit`)).catch(() => undefined);
     await this.setMeta({ state: 'countdown', startAt: Math.round(this.serverNow() + 5000), round: this.meta.round + 1 });
   }
 

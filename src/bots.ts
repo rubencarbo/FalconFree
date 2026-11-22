@@ -87,6 +87,7 @@ export class Bot {
     arena: THREE.Vector3,
     missiles: Missiles,
     onHit: (t: Target, dmg: number) => void,
+    opts: { goal?: THREE.Vector3; flee?: THREE.Vector3; noFire?: boolean } = {},
   ): boolean {
     if (!this.alive) {
       this.guns.update(dt, { firing: false, pos: this.flight.pos, quat: this.jet.group.quaternion, vel: this.target.vel, targets: [], aimAssist: true, onHit: () => undefined });
@@ -121,6 +122,19 @@ export class Bot {
       const a = time * 0.15 + this.spec.id.length;
       goal = arena.clone().add(new THREE.Vector3(Math.cos(a) * 900, 450, Math.sin(a) * 900));
     }
+    // Objetivo del modo (zona del Rey del cielo): ir a ella salvo combate cercano
+    if (opts.goal && (!this.aimAt || dist > 650)) {
+      const a = time * 0.35 + this.spec.id.length * 1.7;
+      goal = opts.goal.clone().add(new THREE.Vector3(Math.cos(a) * 70, 0, Math.sin(a) * 70));
+    }
+    // Pilla-pilla: huir de quien la lleva
+    if (opts.flee) {
+      const away = f.pos.clone().sub(opts.flee).setY(0);
+      if (away.lengthSq() < 1) away.set(1, 0, 0);
+      goal = f.pos.clone().addScaledVector(away.normalize(), 900).setY(Math.max(300, f.pos.y));
+      // no salir de la arena
+      if (goal.distanceTo(arena) > 2200) goal.lerp(arena.clone().setY(400), 0.6);
+    }
     if (f.pos.distanceTo(arena) > 3200) goal = arena.clone().setY(450);
 
     // Evitar el suelo y los edificios
@@ -147,7 +161,7 @@ export class Bot {
 
     // Disparo en ráfagas cuando apunta bien
     let firing = false;
-    if (this.aimAt && dist < 950) {
+    if (this.aimAt && dist < 950 && !opts.noFire) {
       const ang = fwd.angleTo(this.aimAt.pos.clone().sub(f.pos));
       if (ang < THREE.MathUtils.degToRad(9)) {
         this.burst += dt;
@@ -161,7 +175,7 @@ export class Bot {
     }
     this.firing = firing;
     this.missileTimer -= dt;
-    if (this.aimAt && this.lockTime > 1.5 && this.missileTimer <= 0 && dist < 1500) {
+    if (this.aimAt && !opts.noFire && this.lockTime > 1.5 && this.missileTimer <= 0 && dist < 1500) {
       this.missileTimer = 14 + Math.random() * 12;
       missiles.launch(f.pos, this.jet.group.quaternion, this.target.vel, this.aimAt, 'bot', this.spec.id);
     }
