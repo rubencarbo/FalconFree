@@ -47,6 +47,12 @@
           },
           "bt": {
             ".validate": "newData.isNumber() && newData.val() >= 30 && newData.val() <= 1800"
+          },
+          "pub": {
+            ".validate": "newData.isBoolean()"
+          },
+          "hn": {
+            ".validate": "newData.isString() && newData.val().length <= 16"
           }
         },
         "players": {
@@ -70,6 +76,9 @@
             },
             "icon": {
               ".validate": "newData.val() === 'x' || newData.val() === 'o' || newData.val() === 'square' || newData.val() === 'star' || newData.val() === 'triangle' || newData.val() === 'arrow' || newData.val() === 'diamond' || newData.val() === 'plus'"
+            },
+            "plane": {
+              ".validate": "newData.isString() && newData.val().length <= 12"
             }
           }
         },
@@ -114,6 +123,13 @@
           },
           ".write": "auth != null && data.parent().child('meta/host').val() === auth.uid && !newData.exists()"
         }
+      }
+    },
+    "lobbies": {
+      ".read": "auth != null",
+      "$code": {
+        ".write": "auth != null && root.child('rooms/' + $code + '/meta/host').val() === auth.uid",
+        ".validate": "newData.hasChildren(['host', 'mode', 'stage', 'n', 'state', 't']) && newData.child('host').isString() && newData.child('host').val().length <= 16 && newData.child('n').isNumber()"
       }
     }
   }

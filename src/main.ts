@@ -19,7 +19,7 @@ import { Input } from './input';
 import { Hud } from './hud';
 import { GameAudio } from './audio';
 import { firebase } from './firebase';
-import { Room, NetError, formatCode, normalizeCode, MAX_PLAYERS, PLAYER_COLORS, type NetEvent, type RoomMeta, type RoomMode } from './net';
+import { Room, NetError, formatCode, normalizeCode, MAX_PLAYERS, PLAYER_COLORS, type NetEvent, type PublicRoom, type RoomMeta, type RoomMode } from './net';
 import { RemotePlayers, bodyTint } from './remote';
 import { loadSettings, saveSettings, store, type Settings } from './settings';
 import { applyControlLayout, ControlsEditor } from './controls';
@@ -136,6 +136,9 @@ class Game {
   private missileBeep = 0;
   /** Anillos acumulados para el próximo misil (1 cada 5) */
   private ringsToMissile = 0;
+  /** Crear la sala como pública */
+  private mpPublic = false;
+  private unwatchPublic: (() => void) | null = null;
   private leashT = 0;
   private leashTarget: THREE.Vector3 | null = null;
 
@@ -321,7 +324,11 @@ class Game {
     if (this.guns) {
       this.guns.maxAmmo = MAX_AMMO + mods.ammoBonus;
       this.guns.ammo = Math.min(this.guns.ammo, this.guns.maxAmmo);
+      this.guns.setWeapon(pr.plane.weapon);
     }
+    if (this.missiles) this.missiles.max = pr.plane.weapon.missiles;
+    // Que los demás vean mi modelo de avión
+    if (this.room && mp && mp.plane !== pr.p.plane) void this.room.setProfile({ plane: pr.p.plane });
   }
 
   private safeAltitude(x: number, z: number) {
@@ -1876,7 +1883,7 @@ class Game {
     const bc = this.readBattleForm('mp');
     this.setMpBusy(true);
     try {
-      const room = await Room.create(this.pilotName(), mode, this.stage.id, course, { kind: bc.kind, bots: bc.bots, kill: bc.killLimit, time: bc.timeLimit });
+      const room = await Room.create(this.pilotName(), mode, this.stage.id, course, { kind: bc.kind, bots: bc.bots, kill: bc.killLimit, time: bc.timeLimit }, this.mpPublic);
       this.attachRoom(room);
     } catch (e) {
       this.mpError(e);
@@ -1912,6 +1919,7 @@ class Game {
     this.room = room;
     $('mp-error').textContent = '';
     show('mp-panel', false);
+    this.stopPublicList();
     this.myRound = room.meta?.round ?? 0;
     const resync = () => this.remotes.sync(room.players, room.uid, room.isHost ? undefined : room.bots);
     let myColor = -1;
@@ -1952,6 +1960,88 @@ class Game {
     this.setScreen('lobby');
     this.renderLobby();
     if (room.meta && room.meta.mode === 'free' && room.meta.state !== 'lobby') this.onRoomMeta(room.meta);
+  }
+
+  /** Mensaje de invitación con enlace directo a la sala */
+  private inviteText() {
+    const code = this.room ? formatCode(this.room.code) : '';
+    const url = `${location.origin}/?sala=${this.room?.code ?? ''}`;
+    return `¡Únete a mi partida de FalconSky! ✈️\nCódigo: ${code}\n${url}`;
+  }
+
+  private renderVisibility(el: HTMLElement, pub: boolean) {
+    el.setAttribute('aria-pressed', String(pub));
+    (el.querySelector('.vis-icon') as HTMLElement).textContent = pub ? '🌍' : '🔑';
+    (el.querySelector('b') as HTMLElement).textContent = pub ? 'Pública' : 'Privada';
+    (el.querySelector('small') as HTMLElement).textContent = pub ? 'Aparece en la lista de partidas públicas' : 'Solo se entra con el código';
+  }
+
+  private openMpPanel(code?: string) {
+    show('mp-panel', true);
+    if (code) $<HTMLInputElement>('mp-code').value = formatCode(code);
+    if (!firebase.multiplayer) {
+      $('mp-error').textContent = 'El multijugador necesita Firebase con Realtime Database (ver README). En esta versión de prueba no está disponible.';
+      this.renderPublic(null);
+      return;
+    }
+    $('mp-error').textContent = '';
+    this.renderPublic([]);
+    if (!this.unwatchPublic) {
+      Room.watchPublic((list) => this.renderPublic(list))
+        .then((u) => {
+          if ($('mp-panel').classList.contains('hidden')) u();
+          else this.unwatchPublic = u;
+        })
+        .catch((e) => this.mpError(e));
+    }
+  }
+
+  private stopPublicList() {
+    this.unwatchPublic?.();
+    this.unwatchPublic = null;
+  }
+
+  private renderPublic(list: PublicRoom[] | null) {
+    const ul = $('mp-public');
+    const empty = (t: string) => {
+      const li = document.createElement('li');
+      li.className = 'empty';
+      li.textContent = t;
+      return li;
+    };
+    if (list === null) {
+      ul.replaceChildren(empty('No disponible en esta versión.'));
+      return;
+    }
+    if (!list.length) {
+      ul.replaceChildren(empty('No hay partidas públicas ahora mismo. ¡Crea una y aparecerá aquí!'));
+      return;
+    }
+    const modeLabel = (r: PublicRoom) =>
+      r.mode === 'race' ? 'Carrera' : r.mode === 'battle' ? `Batalla · ${r.bk === 'teams' ? 'equipos' : r.bk === 'coop' ? 'contra la máquina' : 'todos contra todos'}` : 'Vuelo en equipo';
+    ul.replaceChildren(
+      ...list.map((r) => {
+        const li = document.createElement('li');
+        const info = document.createElement('div');
+        info.className = 'pr-info';
+        const b = document.createElement('b');
+        b.textContent = `Partida de ${r.host}`;
+        const sm = document.createElement('small');
+        const running = r.state !== 'lobby';
+        sm.textContent = `${modeLabel(r)} · ${getStage(r.stage).name} · ${r.n}/${MAX_PLAYERS} pilotos${running ? ' · en curso' : ''}`;
+        info.append(b, sm);
+        const btn = document.createElement('button');
+        btn.className = 'primary small';
+        btn.textContent = 'Unirse';
+        btn.disabled = running && r.mode === 'race';
+        btn.addEventListener('click', () => {
+          $<HTMLInputElement>('mp-code').value = formatCode(r.code);
+          void this.joinRoom();
+        });
+        li.append(info, btn);
+        return li;
+      }),
+    );
   }
 
   private detachRoom() {
@@ -2028,6 +2118,9 @@ class Game {
         }),
     );
     $('lobby-count').textContent = `${room.players.size}/${MAX_PLAYERS}`;
+    const vis = $<HTMLButtonElement>('lobby-visibility');
+    this.renderVisibility(vis, !!m.pub);
+    vis.disabled = !room.isHost;
     // Mi piloto: nombre, color e icono (sin repetir los de otros)
     const mine = room.players.get(room.uid);
     const nameIn = $<HTMLInputElement>('lobby-name');
@@ -2120,9 +2213,17 @@ class Game {
 
   /** Accesos directos de la app instalada (?mode=free|daily) */
   private handleLaunchParams() {
-    const mode = new URLSearchParams(location.search).get('mode');
-    if (!mode) return;
+    const params = new URLSearchParams(location.search);
+    const sala = normalizeCode(params.get('sala') ?? '');
+    const mode = params.get('mode');
+    if (!mode && !sala) return;
     history.replaceState(null, '', location.pathname);
+    // Enlace de invitación: abrir la sala directamente
+    if (sala.length === 6) {
+      this.openMpPanel(sala);
+      if (firebase.multiplayer) void this.joinRoom();
+      return;
+    }
     // El sonido necesita un gesto: se activa en el primer toque
     if (mode === 'free') this.startFree();
     else if (mode === 'daily') this.startDaily();
@@ -2164,11 +2265,35 @@ class Game {
       show('battle-picker', false);
       this.startBattle(this.readBattleForm('bp'));
     });
-    $('btn-mp').addEventListener('click', () => {
-      show('mp-panel', true);
-      $('mp-error').textContent = firebase.multiplayer
-        ? ''
-        : 'El multijugador necesita Firebase con Realtime Database (ver README). En esta versión de prueba no está disponible.';
+    $('btn-mp').addEventListener('click', () => this.openMpPanel());
+    $('mp-visibility').addEventListener('click', () => {
+      this.mpPublic = !this.mpPublic;
+      this.renderVisibility($('mp-visibility'), this.mpPublic);
+    });
+    this.renderVisibility($('mp-visibility'), this.mpPublic);
+    $('lobby-visibility').addEventListener('click', () => {
+      if (this.room?.isHost) void this.room.setPublic(!this.room.meta?.pub);
+    });
+    $('btn-share-wa').addEventListener('click', () => {
+      if (!this.room) return;
+      window.open(`https://wa.me/?text=${encodeURIComponent(this.inviteText())}`, '_blank', 'noopener');
+    });
+    $('btn-share').addEventListener('click', async () => {
+      if (!this.room) return;
+      const text = this.inviteText();
+      const nav = navigator as Navigator & { share?: (d: { title?: string; text?: string; url?: string }) => Promise<void> };
+      if (nav.share) {
+        try {
+          await nav.share({ title: 'FalconSky', text });
+          return;
+        } catch {
+          /* cancelado */
+        }
+      }
+      navigator.clipboard?.writeText(text).then(
+        () => this.hud.toast('Invitación copiada: pégala en WhatsApp', 1600),
+        () => selectText($('lobby-code')),
+      );
     });
     for (const prefix of ['bp', 'mp', 'lobby']) {
       const r = $<HTMLInputElement>(`${prefix}-bots`);
@@ -2315,6 +2440,7 @@ class Game {
       b.addEventListener('click', () => {
         const ov = b.closest('.overlay')!;
         ov.classList.add('hidden');
+        if (ov.id === 'mp-panel') this.stopPublicList();
         if (this.screen === 'playing' && ov.id !== 'pause' && this.paused) show('pause', true);
         if (this.screen === 'menu') this.refreshMenu();
       }),
@@ -2371,28 +2497,46 @@ class Game {
       this.refreshMenu();
     };
     if (tab === 'planes') {
+      const section = (title: string, sub: string) => {
+        const h = document.createElement('div');
+        h.className = 'hg-section';
+        h.innerHTML = `<b></b><small></small>`;
+        (h.querySelector('b') as HTMLElement).textContent = title;
+        (h.querySelector('small') as HTMLElement).textContent = sub;
+        return h;
+      };
+      const item = (pl: (typeof PLANES)[number]) => {
+        const owned = pr.p.planes.includes(pl.id);
+        const sel = pr.p.plane === pl.id;
+        const el = document.createElement('div');
+        el.className = `hg-item${sel ? ' selected' : ''}${pl.tier === 'advanced' ? ' advanced' : ''}`;
+        el.innerHTML = `<div class="hg-head"><b></b><small></small></div><div class="plane-stats">${bar('Velocidad', pl.speed)}${bar('Agilidad', pl.agility)}${bar('Blindaje', pl.armor)}</div><div class="weapon"><span class="wn"></span><span class="wd"></span></div>`;
+        (el.querySelector('b') as HTMLElement).textContent = pl.name;
+        (el.querySelector('small') as HTMLElement).textContent = pl.description;
+        (el.querySelector('.wn') as HTMLElement).textContent = pl.weapon.name;
+        const missiles = pl.weapon.missiles > 4 ? ` · ${pl.weapon.missiles} misiles` : '';
+        (el.querySelector('.wd') as HTMLElement).textContent = `${pl.weapon.description}${missiles}`;
+        const btn = document.createElement('button');
+        btn.className = sel ? 'secondary' : owned ? 'secondary strong' : 'primary small';
+        btn.textContent = sel ? 'En uso' : owned ? 'Usar' : `Canjear · ${pl.cost}`;
+        btn.disabled = sel || (!owned && pr.p.credits < pl.cost);
+        if (!owned && pl.achievement) {
+          const a = ACHIEVEMENTS.find((x) => x.id === pl.achievement);
+          if (a) (el.querySelector('small') as HTMLElement).textContent += ` También con el logro «${a.name}».`;
+        }
+        btn.addEventListener('click', () => {
+          if (owned) pr.select('plane', pl.id as PlaneId);
+          else if (!pr.buyPlane(pl.id)) return;
+          refresh();
+        });
+        el.append(btn);
+        return el;
+      };
       list.replaceChildren(
-        ...PLANES.map((pl) => {
-          const owned = pr.p.planes.includes(pl.id);
-          const sel = pr.p.plane === pl.id;
-          const el = document.createElement('div');
-          el.className = `hg-item${sel ? ' selected' : ''}`;
-          el.innerHTML = `<div class="hg-head"><b></b><small></small></div><div class="plane-stats">${bar('Velocidad', pl.speed)}${bar('Agilidad', pl.agility)}${bar('Blindaje', pl.armor)}</div>`;
-          (el.querySelector('b') as HTMLElement).textContent = pl.name;
-          (el.querySelector('small') as HTMLElement).textContent = pl.description;
-          const btn = document.createElement('button');
-          btn.className = sel ? 'secondary' : owned ? 'secondary strong' : 'primary small';
-          btn.textContent = sel ? 'En uso' : owned ? 'Usar' : `Comprar · ${pl.cost}`;
-          btn.disabled = sel || (!owned && pr.p.credits < pl.cost);
-          if (!owned && pl.achievement) btn.title = `También con el logro «${ACHIEVEMENTS.find((a) => a.id === pl.achievement)?.name}»`;
-          btn.addEventListener('click', () => {
-            if (owned) pr.select('plane', pl.id as PlaneId);
-            else if (!pr.buyPlane(pl.id)) return;
-            refresh();
-          });
-          el.append(btn);
-          return el;
-        }),
+        section('Básicos', 'Diseños sencillos con cañones dobles.'),
+        ...PLANES.filter((p) => p.tier === 'basic').map(item),
+        section('Avanzados', 'Diseños evolucionados con armas mejores. Se canjean con créditos.'),
+        ...PLANES.filter((p) => p.tier === 'advanced').map(item),
       );
     } else if (tab === 'paints') {
       list.replaceChildren(

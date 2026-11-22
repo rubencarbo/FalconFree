@@ -64,6 +64,31 @@ Para no perderse en un mundo abierto, sin mover los hitos (sería injusto en la 
 
 Cada 5 anillos recogidos se gana además 1 misil.
 
+## Invitar y partidas públicas
+
+- En la sala: **Copiar código**, **WhatsApp** (abre WhatsApp con el mensaje y el enlace) y
+  **Compartir…** (menú de compartir del móvil). El enlace `https://<tu-web>/?sala=CÓDIGO`
+  abre el juego y entra directamente en la sala.
+- Al crear la partida, el botón de la **llave** elige: **🔑 Privada** (solo con código) o
+  **🌍 Pública** (aparece en *Multijugador → Partidas públicas* con el nombre de quien la
+  creó, el modo, el escenario y los pilotos). El anfitrión puede cambiarlo desde la sala.
+
+## Aviones
+
+| Avión | Tipo | Arma | Precio |
+| --- | --- | --- | --- |
+| Halcón | Básico | Cañones dobles | Gratis |
+| Gorrión | Básico | Cañones dobles | 250 |
+| Raptor | Básico | Cañones dobles | 800 |
+| Tifón | Básico | Cañones dobles | 1200 |
+| Espectro | Avanzado | Cañón láser (más daño y alcance) | 3000 o logro *Imparable* |
+| Fénix | Avanzado | Ametralladoras cuádruples | 3500 |
+| Mantis | Avanzado | Lanzamisiles múltiple (6 misiles) | 4000 o logro *Disciplina* |
+| Tormenta | Avanzado | Cañón triple en abanico | 4500 |
+| Cometa | Avanzado | Cañón de riel (largo alcance) | 5000 |
+
+En multijugador, los demás ven el modelo de avión que llevas.
+
 ## Multijugador: identidad y escuadrón
 
 - En la sala cada piloto elige **nombre, color e icono** (✕ ● ■ ★ ▲ ➤ ◆ ✚). Los que ya
@@ -194,10 +219,12 @@ Firestore:
 Realtime Database (`rooms/{CODE}`):
 
 - `meta` → anfitrión, modo, escenario, circuito, estado, hora de salida, ronda
-- `players/{uid}` → nombre, color · `pos/{uid}` → posición y estado (10 Hz)
+- `players/{uid}` → nombre, color, icono, avión · `pos/{uid}` → posición y estado (10 Hz)
 - `events/{id}` → impactos, choques y derribos dirigidos a un jugador
 - `results/{uid}` → tiempo de carrera · `rings/{id}` → anillos recogidos por el equipo
 - `bots/{botId}` → estado de los bots (solo escribe el anfitrión) · `score/{id}` → derribos y caídas
+
+Y `lobbies/{CODE}`: ficha de las partidas públicas (solo la escribe el anfitrión).
 
 Las reglas (`firestore.rules`, `database.rules.json`) solo permiten a cada jugador escribir
 sus propios datos, validan los campos, y en las clasificaciones solo aceptan **mejoras**.

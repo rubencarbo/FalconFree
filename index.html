@@ -182,6 +182,9 @@
                   <label class="field"><span>Tiempo</span><select id="mp-btime"><option value="180">3 min</option><option value="300" selected>5 min</option><option value="600">10 min</option></select></label>
                 </div>
               </div>
+              <button id="mp-visibility" class="visibility" aria-pressed="false" type="button">
+                <span class="vis-icon">🔑</span><span class="vis-text"><b>Privada</b><small>Solo se entra con el código</small></span>
+              </button>
               <button id="btn-mp-create" class="primary">Crear y obtener código</button>
             </section>
             <section class="mp-box">
@@ -192,6 +195,10 @@
               <button id="btn-mp-join" class="secondary strong">Unirse</button>
             </section>
           </div>
+          <section class="mp-box public-box">
+            <h3>Partidas públicas</h3>
+            <ul id="mp-public" class="public-list"></ul>
+          </section>
           <p id="mp-error" class="error"></p>
           <button class="secondary" data-close>Volver</button>
         </div>
@@ -203,7 +210,14 @@
           <div class="code-box">
             <span class="muted">Código para invitar</span>
             <b id="lobby-code">---</b>
-            <button id="btn-copy-code" class="secondary">Copiar código</button>
+            <div class="share-row">
+              <button id="btn-copy-code" class="secondary">Copiar código</button>
+              <button id="btn-share-wa" class="whatsapp">WhatsApp</button>
+              <button id="btn-share" class="secondary">Compartir…</button>
+            </div>
+            <button id="lobby-visibility" class="visibility small" aria-pressed="false" type="button">
+              <span class="vis-icon">🔑</span><span class="vis-text"><b>Privada</b><small>Solo se entra con el código</small></span>
+            </button>
           </div>
           <div class="profile">
             <label class="field"><span>Tu nombre</span><input id="lobby-name" maxlength="16" autocomplete="off" /></label>

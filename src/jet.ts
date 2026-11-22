@@ -121,40 +121,110 @@ export class Flight {
 }
 const _v = new THREE.Vector3();
 
+export type PlaneVariant = 'falcon' | 'sparrow' | 'raptor' | 'typhoon' | 'specter' | 'phoenix' | 'mantis' | 'storm' | 'comet';
+
+/** Color de las llamas y de las luces de cada avión */
+const VARIANT_GLOW: Partial<Record<PlaneVariant, { flame: number; glow: [number, number, number] }>> = {
+  specter: { flame: 0x40e0ff, glow: [0.4, 2.2, 3.2] },
+  phoenix: { flame: 0xff4a10, glow: [3.2, 1.2, 0.3] },
+  mantis: { flame: 0xc070ff, glow: [2.2, 0.8, 3.2] },
+  storm: { flame: 0xffc040, glow: [2.6, 2.4, 0.6] },
+  comet: { flame: 0x6a8aff, glow: [0.8, 1.4, 3.6] },
+};
+
+type AddFn = (w: number, h: number, d: number, x: number, y: number, z: number, m: THREE.Material) => THREE.Mesh;
+
+interface Mats {
+  body: THREE.Material;
+  dark: THREE.Material;
+  wing: THREE.Material;
+  glass: THREE.Material;
+  accent: THREE.Material;
+  glow: THREE.Material;
+  white: THREE.Material;
+  red: THREE.Material;
+  green: THREE.Material;
+}
+
 /** Caza vóxel construido con cajas. Mira hacia -Z. */
 export class JetModel {
   group = new THREE.Group();
   private flames: THREE.Mesh[] = [];
-  readonly wingTips = [new THREE.Vector3(-7.2, 0.1, 3.6), new THREE.Vector3(7.2, 0.1, 3.6)];
+  wingTips = [new THREE.Vector3(-7.2, 0.1, 3.6), new THREE.Vector3(7.2, 0.1, 3.6)];
 
-  constructor(accentColor = 0xff7a1a, bodyColor = 0x40454e, variant: 'falcon' | 'raptor' | 'typhoon' | 'colibri' = 'falcon') {
-    const body = new THREE.MeshLambertMaterial({ color: bodyColor });
-    const dark = new THREE.MeshLambertMaterial({ color: 0x2a2d33 });
-    const wingMat = new THREE.MeshLambertMaterial({ color: 0x4d535d });
-    const glass = new THREE.MeshLambertMaterial({ color: 0x66c8ff, emissive: 0x113355 });
-    const red = new THREE.MeshBasicMaterial({ color: 0xff3030 });
-    const green = new THREE.MeshBasicMaterial({ color: 0x30ff60 });
-    const accent = new THREE.MeshLambertMaterial({ color: accentColor });
-
-    const add = (w: number, h: number, d: number, x: number, y: number, z: number, m: THREE.Material) => {
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
+  constructor(accentColor = 0xff7a1a, bodyColor = 0x40454e, variant: PlaneVariant = 'falcon') {
+    const g = VARIANT_GLOW[variant];
+    const m: Mats = {
+      body: new THREE.MeshLambertMaterial({ color: bodyColor }),
+      dark: new THREE.MeshLambertMaterial({ color: 0x2a2d33 }),
+      wing: new THREE.MeshLambertMaterial({ color: new THREE.Color(bodyColor).lerp(new THREE.Color(0x8a9098), 0.3) }),
+      glass: new THREE.MeshLambertMaterial({ color: 0x66c8ff, emissive: 0x113355 }),
+      accent: new THREE.MeshLambertMaterial({ color: accentColor }),
+      glow: new THREE.MeshBasicMaterial({ color: g ? new THREE.Color(...g.glow) : new THREE.Color(accentColor) }),
+      white: new THREE.MeshLambertMaterial({ color: 0xe8e8e8 }),
+      red: new THREE.MeshBasicMaterial({ color: 0xff3030 }),
+      green: new THREE.MeshBasicMaterial({ color: 0x30ff60 }),
+    };
+    const add: AddFn = (w, h, d, x, y, z, mat) => {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
       mesh.position.set(x, y, z);
       this.group.add(mesh);
       return mesh;
     };
+    switch (variant) {
+      case 'sparrow':
+        this.buildSparrow(add, m);
+        break;
+      case 'specter':
+        this.buildSpecter(add, m);
+        break;
+      case 'phoenix':
+        this.buildPhoenix(add, m);
+        break;
+      case 'mantis':
+        this.buildMantis(add, m);
+        break;
+      case 'storm':
+        this.buildStorm(add, m);
+        break;
+      case 'comet':
+        this.buildComet(add, m);
+        break;
+      default:
+        this.buildFalcon(add, m, variant);
+    }
+    // Luces de navegación en las puntas de las alas
+    const [l, r] = this.wingTips;
+    add(0.4, 0.4, 0.4, l.x - 0.1, l.y - 0.2, l.z - 0.2, m.red);
+    add(0.4, 0.4, 0.4, r.x + 0.1, r.y - 0.2, r.z - 0.2, m.green);
+  }
 
-    // Fuselaje
-    add(2.4, 2, 11, 0, 0, 0.5, body);
-    add(1.8, 1.6, 3, 0, 0, -6.5, body);
-    add(1.1, 1.1, 2, 0, -0.1, -9, body);
-    add(0.6, 0.6, 1.2, 0, -0.1, -10.5, dark);
-    // Cabina
-    add(1.3, 0.9, 3.2, 0, 1.3, -4.4, glass);
-    add(1.4, 0.7, 2, 0, 1.15, -2.2, body);
-    // Tomas de aire
-    add(0.9, 1.4, 3, -1.6, -0.2, -1.5, dark);
-    add(0.9, 1.4, 3, 1.6, -0.2, -1.5, dark);
-    // Alas en delta escalonada
+  private flame(x: number, y: number, z: number, size = 1, color = 0xff6a10) {
+    const flameGeo = new THREE.ConeGeometry(0.55 * size, 4 * size, 6);
+    flameGeo.rotateX(Math.PI / 2);
+    flameGeo.translate(0, 0, 2 * size);
+    const coreGeo = new THREE.ConeGeometry(0.3 * size, 2.5 * size, 6);
+    coreGeo.rotateX(Math.PI / 2);
+    coreGeo.translate(0, 0, 1.25 * size);
+    const outer = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false });
+    const core = new THREE.MeshBasicMaterial({ color: 0xfff0d0, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
+    const f = new THREE.Mesh(flameGeo, outer);
+    f.position.set(x, y, z);
+    f.add(new THREE.Mesh(coreGeo, core));
+    this.group.add(f);
+    this.flames.push(f);
+  }
+
+  // ---------------------------------------------------------------- Básicos
+  private buildFalcon(add: AddFn, m: Mats, variant: PlaneVariant) {
+    add(2.4, 2, 11, 0, 0, 0.5, m.body);
+    add(1.8, 1.6, 3, 0, 0, -6.5, m.body);
+    add(1.1, 1.1, 2, 0, -0.1, -9, m.body);
+    add(0.6, 0.6, 1.2, 0, -0.1, -10.5, m.dark);
+    add(1.3, 0.9, 3.2, 0, 1.3, -4.4, m.glass);
+    add(1.4, 0.7, 2, 0, 1.15, -2.2, m.body);
+    add(0.9, 1.4, 3, -1.6, -0.2, -1.5, m.dark);
+    add(0.9, 1.4, 3, 1.6, -0.2, -1.5, m.dark);
     const steps: [number, number][] = [
       [5, -2.2],
       [8.5, -0.6],
@@ -162,70 +232,176 @@ export class JetModel {
       [14.4, 2.6],
       [14.4, 4],
     ];
-    for (const [span, z] of steps) add(span, 0.35, 1.7, 0, -0.2, z, wingMat);
-    // Franjas de color en las alas
-    add(1.2, 0.4, 1.4, -6.6, -0.15, 3.3, accent);
-    add(1.2, 0.4, 1.4, 6.6, -0.15, 3.3, accent);
-    add(1.9, 0.3, 0.8, 0, 1.05, -0.6, accent);
-    add(0.35, 0.8, 1.4, -1.35, 3.4, 5.4, accent).rotation.z = 0.25;
-    add(0.35, 0.8, 1.4, 1.35, 3.4, 5.4, accent).rotation.z = -0.25;
-    // Estabilizadores horizontales
-    add(8, 0.3, 1.6, 0, 0, 6.2, wingMat);
-    // Derivas dobles
-    const finL = add(0.3, 3.2, 2.6, -1.1, 2, 5, wingMat);
-    const finR = add(0.3, 3.2, 2.6, 1.1, 2, 5, wingMat);
-    finL.rotation.z = 0.25;
-    finR.rotation.z = -0.25;
-    // Toberas
-    add(1.1, 1.1, 1.2, -0.6, 0, 6.6, dark);
-    add(1.1, 1.1, 1.2, 0.6, 0, 6.6, dark);
-    // Variantes
+    for (const [span, z] of steps) add(span, 0.35, 1.7, 0, -0.2, z, m.wing);
+    add(1.2, 0.4, 1.4, -6.6, -0.15, 3.3, m.accent);
+    add(1.2, 0.4, 1.4, 6.6, -0.15, 3.3, m.accent);
+    add(1.9, 0.3, 0.8, 0, 1.05, -0.6, m.accent);
+    add(0.35, 0.8, 1.4, -1.35, 3.4, 5.4, m.accent).rotation.z = 0.25;
+    add(0.35, 0.8, 1.4, 1.35, 3.4, 5.4, m.accent).rotation.z = -0.25;
+    add(8, 0.3, 1.6, 0, 0, 6.2, m.wing);
+    add(0.3, 3.2, 2.6, -1.1, 2, 5, m.wing).rotation.z = 0.25;
+    add(0.3, 3.2, 2.6, 1.1, 2, 5, m.wing).rotation.z = -0.25;
+    add(1.1, 1.1, 1.2, -0.6, 0, 6.6, m.dark);
+    add(1.1, 1.1, 1.2, 0.6, 0, 6.6, m.dark);
     if (variant === 'raptor') {
-      add(0.9, 0.9, 3, 0, -0.1, -11.5, body);
-      add(0.4, 0.4, 1.2, 0, -0.1, -13.4, dark);
-      add(16.5, 0.3, 1.2, 0, -0.25, 3.9, wingMat);
-      add(1.2, 0.4, 1.4, -8, -0.2, 3.9, accent);
-      add(1.2, 0.4, 1.4, 8, -0.2, 3.9, accent);
+      add(0.9, 0.9, 3, 0, -0.1, -11.5, m.body);
+      add(0.4, 0.4, 1.2, 0, -0.1, -13.4, m.dark);
+      add(16.5, 0.3, 1.2, 0, -0.25, 3.9, m.wing);
+      add(1.2, 0.4, 1.4, -8, -0.2, 3.9, m.accent);
+      add(1.2, 0.4, 1.4, 8, -0.2, 3.9, m.accent);
+      this.wingTips = [new THREE.Vector3(-8.3, 0, 3.9), new THREE.Vector3(8.3, 0, 3.9)];
     } else if (variant === 'typhoon') {
-      add(3.4, 2.6, 9, 0, -0.2, 1.5, body);
-      add(1.6, 1.6, 1.6, -1.2, -0.2, 6.6, dark);
-      add(1.6, 1.6, 1.6, 1.2, -0.2, 6.6, dark);
-      add(17, 0.5, 2.2, 0, -0.3, 2.8, wingMat);
-      add(2, 0.6, 1.6, -8.2, -0.25, 2.8, accent);
-      add(2, 0.6, 1.6, 8.2, -0.25, 2.8, accent);
-    } else if (variant === 'colibri') {
-      this.group.scale.setScalar(0.85);
-      add(5.6, 0.3, 1.1, 0, 0.2, -6.4, accent);
-      add(1.2, 0.3, 1.1, -2.6, 0.5, -6.4, accent).rotation.z = 0.5;
-      add(1.2, 0.3, 1.1, 2.6, 0.5, -6.4, accent).rotation.z = -0.5;
+      add(3.4, 2.6, 9, 0, -0.2, 1.5, m.body);
+      add(1.6, 1.6, 1.6, -1.2, -0.2, 6.6, m.dark);
+      add(1.6, 1.6, 1.6, 1.2, -0.2, 6.6, m.dark);
+      add(17, 0.5, 2.2, 0, -0.3, 2.8, m.wing);
+      add(2, 0.6, 1.6, -8.2, -0.25, 2.8, m.accent);
+      add(2, 0.6, 1.6, 8.2, -0.25, 2.8, m.accent);
+      this.wingTips = [new THREE.Vector3(-8.5, 0, 2.8), new THREE.Vector3(8.5, 0, 2.8)];
     }
-    // Luces de navegación
-    add(0.4, 0.4, 0.4, -7.3, -0.1, 3.4, red);
-    add(0.4, 0.4, 0.4, 7.3, -0.1, 3.4, green);
+    this.flame(-0.6, 0, 7.2);
+    this.flame(0.6, 0, 7.2);
+  }
 
-    // Llamas de postcombustión
-    const flameGeo = new THREE.ConeGeometry(0.55, 4, 6);
-    flameGeo.rotateX(Math.PI / 2);
-    flameGeo.translate(0, 0, 2);
-    const flameOuter = new THREE.MeshBasicMaterial({
-      color: 0xff6a10,
-      transparent: true,
-      opacity: 0.85,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    });
-    const coreGeo = new THREE.ConeGeometry(0.3, 2.5, 6);
-    coreGeo.rotateX(Math.PI / 2);
-    coreGeo.translate(0, 0, 1.25);
-    const flameCore = new THREE.MeshBasicMaterial({ color: 0xfff0a0, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
-    for (const x of [-0.6, 0.6]) {
-      const f = new THREE.Mesh(flameGeo, flameOuter);
-      f.position.set(x, 0, 7.2);
-      const c = new THREE.Mesh(coreGeo, flameCore);
-      f.add(c);
-      this.group.add(f);
-      this.flames.push(f);
+  /** Entrenador de alas rectas y un solo motor */
+  private buildSparrow(add: AddFn, m: Mats) {
+    add(1.8, 1.7, 9, 0, 0, 0, m.body);
+    add(1.3, 1.2, 2.4, 0, -0.1, -5.6, m.body);
+    add(0.7, 0.7, 1, 0, -0.1, -7.2, m.accent);
+    add(1.2, 1, 4, 0, 1.2, -2.2, m.glass);
+    add(12.5, 0.35, 2.4, 0, -0.4, 0.2, m.wing);
+    add(1.4, 0.4, 2.4, -5.6, -0.35, 0.2, m.accent);
+    add(1.4, 0.4, 2.4, 5.6, -0.35, 0.2, m.accent);
+    add(5.5, 0.3, 1.5, 0, 0.3, 4.2, m.wing);
+    add(0.3, 2.6, 2, 0, 1.8, 3.9, m.accent);
+    add(1.2, 1.2, 1, 0, 0, 4.9, m.dark);
+    this.wingTips = [new THREE.Vector3(-6.2, -0.3, 0.2), new THREE.Vector3(6.2, -0.3, 0.2)];
+    this.flame(0, 0, 5.4, 0.9);
+  }
+
+  // ---------------------------------------------------------------- Avanzados
+  /** Ala volante furtiva */
+  private buildSpecter(add: AddFn, m: Mats) {
+    add(3, 1.3, 9, 0, 0, 0.5, m.body);
+    add(1.6, 0.8, 3.2, 0, 0.9, -2.2, m.glass);
+    add(1.8, 0.9, 2.4, 0, -0.1, -4.8, m.body);
+    for (let k = 0; k < 7; k++) {
+      const x = 1.8 + k * 1.35;
+      const z = -2.4 + k * 1.05;
+      const depth = 5.2 - k * 0.45;
+      for (const sx of [-1, 1]) {
+        add(1.45, 0.45, depth, sx * x, -0.1, z + depth / 2 - 1, m.body);
+        add(1.45, 0.12, 0.25, sx * x, 0.18, z - 1, m.glow); // borde de ataque luminoso
+      }
     }
+    for (const sx of [-1, 1]) {
+      add(1.3, 0.5, 1.2, sx * 1.6, 0.2, 5.4, m.dark);
+      add(3.2, 0.1, 0.3, sx * 2.5, 0.42, 1.2, m.glow);
+    }
+    this.wingTips = [new THREE.Vector3(-10, 0, 3.8), new THREE.Vector3(10, 0, 3.8)];
+    const c = VARIANT_GLOW.specter!.flame;
+    this.flame(-1.6, 0.2, 6, 0.8, c);
+    this.flame(1.6, 0.2, 6, 0.8, c);
+  }
+
+  /** Alas en flecha invertida, canards y tres derivas */
+  private buildPhoenix(add: AddFn, m: Mats) {
+    add(2.2, 1.9, 12, 0, 0, 0.6, m.body);
+    add(1.6, 1.5, 3, 0, 0, -6.8, m.body);
+    add(0.9, 0.9, 1.8, 0, -0.1, -9.2, m.accent);
+    add(1.3, 1, 3.6, 0, 1.3, -4.2, m.glass);
+    for (let k = 0; k < 6; k++) {
+      const x = 1.6 + k * 1.3;
+      const z = 2.4 - k * 0.85;
+      for (const sx of [-1, 1]) {
+        add(1.35, 0.35, 2.4, sx * x, -0.2, z, m.wing);
+        if (k % 2 === 1) add(1.35, 0.1, 0.3, sx * x, 0.02, z + 1.15, m.glow);
+      }
+    }
+    for (const sx of [-1, 1]) {
+      add(2.6, 0.25, 1.1, sx * 2, 0.4, -5.6, m.accent);
+      add(0.3, 2.8, 2.2, sx * 1.4, 1.8, 5.2, m.wing).rotation.z = sx * -0.35;
+      add(3.2, 0.3, 1.5, sx * 2.4, 0, 6.4, m.wing);
+    }
+    add(0.3, 3, 2, 0, 2.2, 5.6, m.accent);
+    add(1.4, 0.15, 6, 0, 1.0, 1.8, m.glow);
+    add(1.1, 1.1, 1.2, -0.6, 0, 7, m.dark);
+    add(1.1, 1.1, 1.2, 0.6, 0, 7, m.dark);
+    this.wingTips = [new THREE.Vector3(-8.6, -0.2, -1.8), new THREE.Vector3(8.6, -0.2, -1.8)];
+    const c = VARIANT_GLOW.phoenix!.flame;
+    this.flame(-0.6, 0, 7.6, 1, c);
+    this.flame(0.6, 0, 7.6, 1, c);
+  }
+
+  /** Doble fuselaje con lanzamisiles bajo las alas */
+  private buildMantis(add: AddFn, m: Mats) {
+    add(2.4, 2, 8, 0, 0, -1.5, m.body);
+    add(1.4, 1.2, 2.2, 0, -0.1, -6.4, m.accent);
+    add(1.4, 1, 3, 0, 1.3, -3, m.glass);
+    add(17, 0.4, 3, 0, -0.1, 0.4, m.wing);
+    for (const sx of [-1, 1]) {
+      add(1.3, 1.3, 11, sx * 3.6, 0, 3, m.body);
+      add(0.3, 2.6, 2, sx * 3.6, 1.6, 7.6, m.accent);
+      add(1.4, 0.15, 7, sx * 3.6, 0.72, 2.5, m.glow);
+      // Lanzamisiles: tres misiles por ala
+      for (const dx of [5.4, 6.6, 7.8]) {
+        add(0.45, 0.45, 2.8, sx * dx, -0.6, 0.2, m.white);
+        add(0.45, 0.45, 0.5, sx * dx, -0.6, -1.45, m.red);
+      }
+    }
+    add(8.6, 0.3, 1.4, 0, 0.9, 8.4, m.wing);
+    add(1.2, 1.2, 1.2, 0, 0, 2.9, m.dark);
+    this.wingTips = [new THREE.Vector3(-8.5, 0, 0.4), new THREE.Vector3(8.5, 0, 0.4)];
+    const c = VARIANT_GLOW.mantis!.flame;
+    this.flame(0, 0, 3.4, 0.9, c);
+    this.flame(-3.6, 0, 8.6, 0.7, c);
+    this.flame(3.6, 0, 8.6, 0.7, c);
+  }
+
+  /** Cañonera pesada de cuatro motores y cañón triple */
+  private buildStorm(add: AddFn, m: Mats) {
+    add(3.8, 3, 14, 0, 0, 0, m.body);
+    add(2.8, 2.2, 3, 0, -0.2, -8, m.body);
+    add(2, 1.2, 3.4, 0, 1.8, -4.4, m.glass);
+    for (const x of [-0.9, 0, 0.9]) add(0.35, 0.35, 3.2, x, -0.8, -10.8, m.dark);
+    add(23, 0.7, 4, 0, 0.2, 0.6, m.wing);
+    for (const sx of [-1, 1]) {
+      for (const x of [4.2, 8]) {
+        add(1.7, 1.7, 4.4, sx * x, -0.6, 1.2, m.dark);
+        add(1.7, 0.2, 0.4, sx * x, 0.3, -1, m.glow);
+      }
+      add(2, 0.8, 2.6, sx * 10.6, 0.2, 0.6, m.accent);
+    }
+    add(11, 0.4, 2.2, 0, 0.6, 7, m.wing);
+    add(0.5, 4.6, 3.2, 0, 3.2, 6.4, m.accent);
+    this.wingTips = [new THREE.Vector3(-11.4, 0.2, 0.6), new THREE.Vector3(11.4, 0.2, 0.6)];
+    const c = VARIANT_GLOW.storm!.flame;
+    for (const sx of [-1, 1]) for (const x of [4.2, 8]) this.flame(sx * x, -0.6, 3.4, 0.75, c);
+  }
+
+  /** Interceptor de morro de aguja y gran motor */
+  private buildComet(add: AddFn, m: Mats) {
+    add(1.7, 1.7, 14, 0, 0, 0, m.body);
+    add(1.1, 1.1, 3, 0, 0, -8.4, m.body);
+    add(0.5, 0.5, 3.4, 0, 0, -11.6, m.accent);
+    add(1.1, 0.9, 3.4, 0, 1.15, -4.4, m.glass);
+    const steps: [number, number][] = [
+      [3.4, 1.4],
+      [5.6, 2.6],
+      [7.8, 3.8],
+      [9.6, 5],
+    ];
+    for (const [span, z] of steps) add(span, 0.3, 1.25, 0, -0.2, z, m.wing);
+    for (const sx of [-1, 1]) {
+      add(2.2, 0.2, 0.8, sx * 1.4, 0.3, -6.2, m.accent);
+      add(0.3, 2.4, 2.4, sx * 0.9, 1.5, 5.4, m.wing).rotation.z = sx * -0.3;
+      add(0.2, 0.15, 9, sx * 0.9, 0.86, -0.5, m.glow);
+    }
+    add(2.6, 2.6, 2, 0, 0, 7.4, m.dark);
+    add(2.8, 0.3, 0.3, 0, 1.35, 8.3, m.glow);
+    add(2.8, 0.3, 0.3, 0, -1.35, 8.3, m.glow);
+    this.wingTips = [new THREE.Vector3(-4.8, -0.2, 5), new THREE.Vector3(4.8, -0.2, 5)];
+    this.flame(0, 0, 8.4, 1.6, VARIANT_GLOW.comet!.flame);
   }
 
   update(flight: Flight, time: number) {

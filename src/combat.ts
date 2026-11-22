@@ -34,12 +34,58 @@ export interface GunContext {
 
 const GUN_OFFSETS = [new THREE.Vector3(-2.3, -0.3, -3), new THREE.Vector3(2.3, -0.3, -3)];
 
+/** Arma principal de un avión */
+export interface WeaponDef {
+  name: string;
+  description: string;
+  /** disparos por segundo */
+  fireRate: number;
+  /** daño por bala */
+  damage: number;
+  /** m/s */
+  speed: number;
+  /** número de cañones (2, 3 o 4) */
+  barrels: number;
+  /** dispersión extra en grados (cañón triple) */
+  spread: number;
+  /** color HDR de la trazadora */
+  tracer: [number, number, number];
+  /** alcance de fijación (m) y cono de apuntado asistido (grados) */
+  lockRange: number;
+  cone: number;
+  /** misiles máximos */
+  missiles: number;
+}
+
+export const STANDARD_WEAPON: WeaponDef = {
+  name: 'Cañones dobles',
+  description: 'Fiables y equilibrados.',
+  fireRate: FIRE_RATE,
+  damage: BULLET_DAMAGE,
+  speed: BULLET_SPEED,
+  barrels: 2,
+  spread: 0,
+  tracer: [3.2, 2.2, 0.9],
+  lockRange: 1200,
+  cone: 20,
+  missiles: 4,
+};
+
+function barrelOffsets(n: number): THREE.Vector3[] {
+  if (n === 3) return [new THREE.Vector3(-2.3, -0.3, -3), new THREE.Vector3(0, -0.8, -6), new THREE.Vector3(2.3, -0.3, -3)];
+  if (n === 4) return [new THREE.Vector3(-3.2, -0.3, -2), new THREE.Vector3(-1.4, -0.3, -3.5), new THREE.Vector3(1.4, -0.3, -3.5), new THREE.Vector3(3.2, -0.3, -2)];
+  return GUN_OFFSETS;
+}
+
 /** Cañones, balas trazadoras y apuntado asistido */
 export class Guns {
   maxAmmo = MAX_AMMO;
   ammo = MAX_AMMO;
   /** Multiplicador de daño (recompensa «Doble daño») */
   damageMul = 1;
+  weapon: WeaponDef = STANDARD_WEAPON;
+  private offsets = GUN_OFFSETS;
+  private tracerMat!: THREE.MeshBasicMaterial;
   lock: Target | null = null;
   /** 0..1 progreso de fijación (para el retículo) */
   lockStrength = 0;
@@ -69,19 +115,26 @@ export class Guns {
     private fx: Fx,
   ) {
     const geo = new THREE.BoxGeometry(0.8, 0.8, 1);
-    const mat = new THREE.MeshBasicMaterial({
+    const mat = (this.tracerMat = new THREE.MeshBasicMaterial({
       color: new THREE.Color(3.2, 2.2, 0.9),
       transparent: true,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       fog: false,
-    });
+    }));
     this.mesh = new THREE.InstancedMesh(geo, mat, POOL);
     this.mesh.frustumCulled = false;
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     const zero = new THREE.Matrix4().makeScale(0, 0, 0);
     for (let i = 0; i < POOL; i++) this.mesh.setMatrixAt(i, zero);
     scene.add(this.mesh);
+  }
+
+  /** Cambia el arma (según el avión) */
+  setWeapon(w: WeaponDef) {
+    this.weapon = w;
+    this.offsets = barrelOffsets(w.barrels);
+    this.tracerMat.color.setRGB(...w.tracer);
   }
 
   reload(amount: number) {
@@ -99,8 +152,8 @@ export class Guns {
   /** Busca el mejor objetivo dentro del cono de apuntado */
   private updateLock(ctx: GunContext, dt: number) {
     const fwd = this._a.set(0, 0, -1).applyQuaternion(ctx.quat);
-    const cone = THREE.MathUtils.degToRad(ctx.aimAssist ? 20 : 8);
-    const range = 1200;
+    const cone = THREE.MathUtils.degToRad(ctx.aimAssist ? this.weapon.cone : 8);
+    const range = this.weapon.lockRange;
     let best: Target | null = null;
     let bestScore = Infinity;
     for (const t of ctx.targets) {
@@ -137,7 +190,7 @@ export class Guns {
         this.cooldown = 0;
         break;
       }
-      this.cooldown += 1 / FIRE_RATE;
+      this.cooldown += 1 / this.weapon.fireRate;
       this.ammo--;
       shots++;
       this.fire(ctx);
@@ -146,8 +199,8 @@ export class Guns {
   }
 
   private fire(ctx: GunContext) {
-    const offset = GUN_OFFSETS[this.side];
-    this.side = 1 - this.side;
+    const offset = this.offsets[this.side % this.offsets.length];
+    this.side = (this.side + 1) % this.offsets.length;
     const muzzle = this._c.copy(offset).applyQuaternion(ctx.quat).add(ctx.pos);
     const fwd = this._a.set(0, 0, -1).applyQuaternion(ctx.quat);
     const dir = fwd.clone();
@@ -157,23 +210,24 @@ export class Guns {
       const t = this.lock;
       const rel = this._b.subVectors(ctx.vel, t.vel);
       const delta = new THREE.Vector3().subVectors(t.pos, muzzle);
-      let time = delta.length() / BULLET_SPEED;
+      const bs = this.weapon.speed;
+      let time = delta.length() / bs;
       for (let i = 0; i < 2; i++) {
         const aim = delta.clone().addScaledVector(rel, -time);
-        time = aim.length() / BULLET_SPEED;
+        time = aim.length() / bs;
       }
       const aim = delta.addScaledVector(rel, -time).normalize();
       const assist = ctx.aimAssist ? 1 : 0.5;
       dir.lerp(aim, assist * this.lockStrength).normalize();
     }
     // Dispersión
-    const spread = THREE.MathUtils.degToRad(ctx.aimAssist ? 0.35 : 0.6);
+    const spread = THREE.MathUtils.degToRad((ctx.aimAssist ? 0.35 : 0.6) + this.weapon.spread);
     dir.x += (Math.random() - 0.5) * spread * 2;
     dir.y += (Math.random() - 0.5) * spread * 2;
     dir.z += (Math.random() - 0.5) * spread * 2;
     dir.normalize();
 
-    this.spawnBullet(muzzle, dir, ctx.vel, true);
+    this.spawnBullet(muzzle, dir, ctx.vel, true, this.weapon.speed);
     this.fx.muzzle(muzzle, dir, ctx.vel);
     if (this.side === 0) this.fx.muzzleLight(muzzle);
     ctx.onShot?.();
@@ -188,16 +242,16 @@ export class Guns {
     this.fx.muzzle(muzzle, dir, vel);
   }
 
-  private spawnBullet(p: THREE.Vector3, dir: THREE.Vector3, baseVel: THREE.Vector3, own: boolean) {
+  private spawnBullet(p: THREE.Vector3, dir: THREE.Vector3, baseVel: THREE.Vector3, own: boolean, speed = BULLET_SPEED) {
     const i = this.next;
     this.next = (this.next + 1) % POOL;
     const k = i * 3;
     this.pos[k] = p.x;
     this.pos[k + 1] = p.y;
     this.pos[k + 2] = p.z;
-    this.vel[k] = baseVel.x + dir.x * BULLET_SPEED;
-    this.vel[k + 1] = baseVel.y + dir.y * BULLET_SPEED;
-    this.vel[k + 2] = baseVel.z + dir.z * BULLET_SPEED;
+    this.vel[k] = baseVel.x + dir.x * speed;
+    this.vel[k + 1] = baseVel.y + dir.y * speed;
+    this.vel[k + 2] = baseVel.z + dir.z * speed;
     this.life[i] = BULLET_LIFE;
     this.own[i] = own ? 1 : 0;
   }
@@ -220,7 +274,7 @@ export class Guns {
           const r = t.radius;
           if (segmentSphere(a, b, t.pos, r)) {
             const point = closestPoint(a, b, t.pos, this._c);
-            ctx.onHit(t, point.clone(), BULLET_DAMAGE * this.damageMul);
+            ctx.onHit(t, point.clone(), this.weapon.damage * this.damageMul);
             this.fx.hit(point, t.vel);
             dead = true;
             break;

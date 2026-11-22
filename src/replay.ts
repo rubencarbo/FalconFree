@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Flight, JetModel } from './jet';
+import { Flight, JetModel, type PlaneVariant } from './jet';
 import { buildDrone } from './drones';
 import type { Fx } from './fx';
 import type { Guns } from './combat';
@@ -47,7 +47,7 @@ export interface Recording {
   highlights: Highlight[];
   me: string;
   myColors: [number, number];
-  myVariant: 'falcon' | 'raptor' | 'typhoon' | 'colibri';
+  myVariant: PlaneVariant;
 }
 
 /** Graba continuamente los últimos segundos de juego */

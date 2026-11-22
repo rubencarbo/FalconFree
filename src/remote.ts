@@ -44,12 +44,12 @@ class RemotePlayer {
 
   private makeJet(info: PlayerInfo) {
     const c = info.color;
-    return new JetModel(info.team ? TEAM_COLORS[info.team] : c, bodyTint(c));
+    return new JetModel(info.team ? TEAM_COLORS[info.team] : c, bodyTint(c), info.plane ?? 'falcon');
   }
 
   /** Actualiza nombre/color/icono si el piloto los cambia */
   setInfo(info: PlayerInfo) {
-    const changed = info.color !== this.info.color || info.team !== this.info.team;
+    const changed = info.color !== this.info.color || info.team !== this.info.team || info.plane !== this.info.plane;
     this.info = info;
     this.target.name = info.name;
     if (changed) {

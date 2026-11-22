@@ -1,25 +1,97 @@
 import { store } from './settings';
 
-export type PlaneId = 'falcon' | 'raptor' | 'typhoon' | 'colibri';
+import { STANDARD_WEAPON, type WeaponDef } from './combat';
+
+import type { PlaneVariant } from './jet';
+
+export type PlaneId = PlaneVariant;
 export type UpgradeId = 'engine' | 'armor' | 'ammo';
 
 export interface PlaneDef {
   id: PlaneId;
   name: string;
+  tier: 'basic' | 'advanced';
   description: string;
   speed: number;
   agility: number;
   armor: number;
   cost: number;
+  weapon: WeaponDef;
   /** Logro que también lo desbloquea */
   achievement?: string;
+  /** Color del fuego del motor */
+  flame?: number;
 }
 
 export const PLANES: PlaneDef[] = [
-  { id: 'falcon', name: 'Halcón', description: 'Equilibrado. El caza de siempre.', speed: 1, agility: 1, armor: 1, cost: 0 },
-  { id: 'raptor', name: 'Raptor', description: 'El más rápido, algo menos ágil y blindado.', speed: 1.12, agility: 0.94, armor: 0.85, cost: 800 },
-  { id: 'typhoon', name: 'Tifón', description: 'Un tanque volador: aguanta el doble.', speed: 0.95, agility: 0.88, armor: 1.6, cost: 1200 },
-  { id: 'colibri', name: 'Colibrí', description: 'Gira como nadie. Frágil.', speed: 1.02, agility: 1.35, armor: 0.8, cost: 1500, achievement: 'diario' },
+  // Básicos
+  { id: 'falcon', tier: 'basic', name: 'Halcón', description: 'Equilibrado. El caza de siempre.', speed: 1, agility: 1, armor: 1, cost: 0, weapon: STANDARD_WEAPON },
+  { id: 'sparrow', tier: 'basic', name: 'Gorrión', description: 'Avioneta de entrenamiento: ligera y muy manejable.', speed: 0.94, agility: 1.18, armor: 0.85, cost: 250, weapon: STANDARD_WEAPON },
+  { id: 'raptor', tier: 'basic', name: 'Raptor', description: 'El más rápido de los básicos, algo frágil.', speed: 1.12, agility: 0.94, armor: 0.85, cost: 800, weapon: STANDARD_WEAPON },
+  { id: 'typhoon', tier: 'basic', name: 'Tifón', description: 'Un tanque volador: aguanta mucho más.', speed: 0.95, agility: 0.88, armor: 1.6, cost: 1200, weapon: STANDARD_WEAPON },
+  // Avanzados: diseños elaborados y mejores armas
+  {
+    id: 'specter',
+    tier: 'advanced',
+    name: 'Espectro',
+    description: 'Ala volante furtiva con luces cian.',
+    speed: 1.1,
+    agility: 1.1,
+    armor: 1,
+    cost: 3000,
+    achievement: 'imparable',
+    flame: 0x40e0ff,
+    weapon: { ...STANDARD_WEAPON, name: 'Cañón láser', description: 'Disparos lentos pero muy rápidos y dañinos.', fireRate: 9, damage: 6, speed: 1500, tracer: [0.6, 2.4, 3.4], lockRange: 1500 },
+  },
+  {
+    id: 'phoenix',
+    tier: 'advanced',
+    name: 'Fénix',
+    description: 'Alas en flecha invertida. Gira como nadie.',
+    speed: 1.08,
+    agility: 1.28,
+    armor: 1.05,
+    cost: 3500,
+    flame: 0xff4a10,
+    weapon: { ...STANDARD_WEAPON, name: 'Ametralladoras cuádruples', description: 'Cuatro cañones y cadencia altísima.', fireRate: 22, damage: 2.8, barrels: 4, tracer: [3.4, 1.2, 0.4] },
+  },
+  {
+    id: 'mantis',
+    tier: 'advanced',
+    name: 'Mantis',
+    description: 'Doble fuselaje con lanzamisiles múltiple.',
+    speed: 1.0,
+    agility: 1.15,
+    armor: 1.25,
+    cost: 4000,
+    achievement: 'diario_7',
+    flame: 0xc070ff,
+    weapon: { ...STANDARD_WEAPON, name: 'Lanzamisiles múltiple', description: 'Hasta 6 misiles y cañones reforzados.', damage: 4.2, missiles: 6, tracer: [2.6, 1.2, 3.4] },
+  },
+  {
+    id: 'storm',
+    tier: 'advanced',
+    name: 'Tormenta',
+    description: 'Cañonera pesada de cuatro motores.',
+    speed: 0.95,
+    agility: 0.92,
+    armor: 1.9,
+    cost: 4500,
+    flame: 0xffc040,
+    weapon: { ...STANDARD_WEAPON, name: 'Cañón triple', description: 'Tres cañones en abanico: difícil fallar.', fireRate: 15, damage: 4.2, barrels: 3, spread: 0.9, tracer: [1.2, 3.4, 1.0], cone: 24 },
+  },
+  {
+    id: 'comet',
+    tier: 'advanced',
+    name: 'Cometa',
+    description: 'Interceptor de morro de aguja: el más veloz.',
+    speed: 1.24,
+    agility: 1.05,
+    armor: 0.95,
+    cost: 5000,
+    flame: 0x6a8aff,
+    weapon: { ...STANDARD_WEAPON, name: 'Cañón de riel', description: 'Proyectiles supersónicos de largo alcance.', fireRate: 7, damage: 8.5, speed: 2100, tracer: [2.8, 2.8, 3.6], lockRange: 1800, cone: 14 },
+  },
 ];
 
 export interface PaintDef {
@@ -150,9 +222,11 @@ export class Progress {
         upgrades: { ...d.upgrades, ...(s.upgrades ?? {}) },
         achievements: { ...(s.achievements ?? {}) },
         daily: { ...(s.daily ?? {}) },
-        planes: Array.from(new Set(['falcon', ...(s.planes ?? [])])) as PlaneId[],
+        planes: Array.from(new Set(['falcon', ...(s.planes ?? []).map((x) => ((x as string) === 'colibri' ? 'phoenix' : x))])).filter((x) => PLANES.some((pl) => pl.id === x)) as PlaneId[],
         paints: Array.from(new Set(['standard', ...(s.paints ?? [])])),
       };
+      if ((this.p.plane as string) === 'colibri') this.p.plane = 'phoenix';
+      if (!PLANES.some((pl) => pl.id === this.p.plane)) this.p.plane = 'falcon';
     } catch {
       this.p = d;
     }

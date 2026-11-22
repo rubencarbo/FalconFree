@@ -23,6 +23,7 @@ import type { StageId } from './stages';
 import type { Team } from './bots';
 import type { BattleKind } from './battle';
 import { ICONS, type IconId } from './identity';
+import type { PlaneVariant } from './jet';
 
 export type RoomMode = 'free' | 'race' | 'battle';
 export type RoomState = 'lobby' | 'countdown' | 'running';
@@ -41,6 +42,22 @@ export interface RoomMeta {
   bb?: number;
   bl?: number;
   bt?: number;
+  /** pública (aparece en la lista) o privada (solo con código) */
+  pub?: boolean;
+  /** nombre de quien la creó */
+  hn?: string;
+}
+
+/** Ficha de una partida pública en la lista */
+export interface PublicRoom {
+  code: string;
+  host: string;
+  mode: RoomMode;
+  stage: StageId;
+  n: number;
+  state: RoomState;
+  bk?: BattleKind;
+  t: number;
 }
 
 export interface PlayerInfo {
@@ -49,6 +66,7 @@ export interface PlayerInfo {
   joinedAt: number;
   team?: Team;
   icon?: IconId;
+  plane?: PlaneVariant;
 }
 
 /** Bot simulado por el anfitrión */
@@ -170,7 +188,14 @@ export class Room {
     return user.uid;
   }
 
-  static async create(name: string, mode: RoomMode, stage: StageId, course: string, battle?: { kind: BattleKind; bots: number; kill: number; time: number }): Promise<Room> {
+  static async create(
+    name: string,
+    mode: RoomMode,
+    stage: StageId,
+    course: string,
+    battle?: { kind: BattleKind; bots: number; kill: number; time: number },
+    pub = false,
+  ): Promise<Room> {
     const uid = await Room.ready();
     const db = firebase.database()!;
     for (let attempt = 0; attempt < 5; attempt++) {
@@ -188,6 +213,8 @@ export class Room {
         bb: battle?.bots ?? 2,
         bl: battle?.kill ?? 10,
         bt: battle?.time ?? 300,
+        pub,
+        hn: name.slice(0, 16) || 'Piloto',
       };
       const res = await runTransaction(ref(db, `rooms/${code}/meta`), (cur) => (cur === null ? meta : undefined));
       if (!res.committed) continue;
@@ -248,6 +275,7 @@ export class Room {
         this.meta = m;
         this.onMeta?.(m);
         this.checkHost();
+        this.publishLobby();
       }),
       onValue(ref(db, `rooms/${this.code}/players`), (s) => {
         this.players.clear();
@@ -255,6 +283,7 @@ export class Room {
         for (const [k, p] of Object.entries(v)) this.players.set(k, p);
         this.onPlayers?.();
         this.checkHost();
+        this.publishLobby();
       }),
       onChildAdded(ref(db, `rooms/${this.code}/pos`), (s) => {
         if (s.key !== this.uid) this.onState?.(s.key!, s.val() as NetState);
@@ -299,6 +328,51 @@ export class Room {
     );
   }
 
+  /** Escucha la lista de partidas públicas. Devuelve la función para dejar de escuchar. */
+  static async watchPublic(cb: (rooms: PublicRoom[]) => void): Promise<() => void> {
+    await Room.ready();
+    const db = firebase.database()!;
+    return onValue(ref(db, 'lobbies'), (s) => {
+      const v = (s.val() ?? {}) as Record<string, Omit<PublicRoom, 'code'>>;
+      const now = Date.now();
+      const list = Object.entries(v)
+        .map(([code, r]) => ({ ...r, code }))
+        .filter((r) => r.n > 0 && r.n < MAX_PLAYERS && now - r.t < 12 * 3600 * 1000)
+        .sort((a, b) => b.t - a.t);
+      cb(list);
+    });
+  }
+
+  /** El anfitrión mantiene la ficha pública al día (o la quita si es privada) */
+  private publishLobby() {
+    if (!this.isHost || !this.meta || this.closed) return;
+    const db = firebase.database()!;
+    const lref = ref(db, `lobbies/${this.code}`);
+    if (!this.meta.pub) {
+      remove(lref).catch(() => undefined);
+      return;
+    }
+    const entry: Omit<PublicRoom, 'code'> = {
+      host: this.players.get(this.meta.host)?.name ?? this.meta.hn ?? 'Piloto',
+      mode: this.meta.mode,
+      stage: this.meta.stage,
+      n: this.players.size,
+      state: this.meta.state,
+      t: this.meta.createdAt,
+    };
+    if (this.meta.bk) entry.bk = this.meta.bk;
+    set(lref, entry).catch(() => undefined);
+    if (!this.lobbyDisconnect) {
+      this.lobbyDisconnect = true;
+      onDisconnect(lref).remove().catch(() => undefined);
+    }
+  }
+  private lobbyDisconnect = false;
+
+  async setPublic(pub: boolean) {
+    await this.setMeta({ pub });
+  }
+
   /** Si el anfitrión se ha ido, el jugador más antiguo toma el relevo */
   private checkHost() {
     if (!this.meta || this.closed || this.players.size === 0) return;
@@ -335,7 +409,7 @@ export class Room {
   }
 
   /** Cambia nombre, color o icono del piloto (desde la sala) */
-  async setProfile(patch: { name?: string; color?: number; icon?: IconId }) {
+  async setProfile(patch: { name?: string; color?: number; icon?: IconId; plane?: PlaneVariant }) {
     if (patch.name !== undefined) {
       patch.name = patch.name.trim().slice(0, 16) || 'Piloto';
       this.name = patch.name;
@@ -430,6 +504,7 @@ export class Room {
     for (const u of this.unsubs) u();
     this.unsubs = [];
     try {
+      if (wasHost) await remove(ref(db, `lobbies/${this.code}`)).catch(() => undefined);
       if (alone && wasHost) {
         await remove(this.root);
       } else {

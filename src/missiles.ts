@@ -63,6 +63,8 @@ function buildMissileMesh() {
 /** Misiles teledirigidos y bengalas */
 export class Missiles {
   count = START_MISSILES;
+  /** capacidad máxima (depende del avión) */
+  max = MAX_MISSILES;
   flares = MAX_FLARES;
   /** s restantes en las que mis bengalas despistan misiles */
   myFlareWindow = 0;
@@ -89,7 +91,7 @@ export class Missiles {
   }
 
   addMissiles(n: number) {
-    this.count = Math.min(MAX_MISSILES, this.count + n);
+    this.count = Math.min(this.max, this.count + n);
   }
 
   /** ¿Hay algún misil persiguiéndome? */
