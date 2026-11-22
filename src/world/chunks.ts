@@ -20,6 +20,8 @@ interface Chunk {
   buildings?: THREE.InstancedMesh;
   props?: THREE.InstancedMesh;
   clouds?: THREE.InstancedMesh;
+  beacons?: THREE.InstancedMesh;
+  ltex?: THREE.DataTexture;
 }
 
 type RGB = [number, number, number];
@@ -30,13 +32,21 @@ function rgb(hex: string): RGB {
 
 export function createBuildingMaterial(stage: Stage): THREE.MeshLambertMaterial {
   const mat = new THREE.MeshLambertMaterial({ color: 0xffffff });
-  const uWindow = { value: new THREE.Color(stage.palette.window) };
+  const uWindow = { value: new THREE.Color(stage.night ? '#2a3548' : stage.palette.window) };
   const uNight = { value: stage.night ? 1 : 0 };
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uWindow = uWindow;
     shader.uniforms.uNight = uNight;
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;\nvarying vec3 vWN;')
+      .replace(
+        '#include <common>',
+        `#include <common>
+attribute vec3 aInfo;
+varying vec3 vWPos;
+varying vec3 vWN;
+varying vec3 vInfo;
+varying vec2 vUv2;`,
+      )
       .replace(
         '#include <begin_vertex>',
         `#include <begin_vertex>
@@ -46,7 +56,9 @@ export function createBuildingMaterial(stage: Stage): THREE.MeshLambertMaterial 
   mat4 fbModel = modelMatrix;
 #endif
   vWPos = (fbModel * vec4(transformed, 1.0)).xyz;
-  vWN = normalize(mat3(fbModel) * objectNormal);`,
+  vWN = normalize(mat3(fbModel) * objectNormal);
+  vInfo = aInfo;
+  vUv2 = uv;`,
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
@@ -54,6 +66,8 @@ export function createBuildingMaterial(stage: Stage): THREE.MeshLambertMaterial 
         `#include <common>
 varying vec3 vWPos;
 varying vec3 vWN;
+varying vec3 vInfo;
+varying vec2 vUv2;
 uniform vec3 uWindow;
 uniform float uNight;
 float fbHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }`,
@@ -61,27 +75,131 @@ float fbHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
+  int fbStyle = int(vInfo.x + 0.5);
+  float fbSeed = vInfo.y;
+  float fbH = vInfo.z;
   float fbWin = 0.0;
   float fbLit = 0.0;
+  float fbCrown = 0.0;
+  float fbShop = 0.0;
+  float fbPad = 0.0;
+  float fbRoofEdge = 0.0;
+  vec3 fbLitCol = vec3(1.0, 0.8, 0.5);
+  vec2 fbCell = vec2(0.0);
+  float fbU = abs(vWN.x) > 0.5 ? vWPos.z : vWPos.x;
+  float fbY = vWPos.y;
   if (abs(vWN.y) < 0.5) {
-    float u = abs(vWN.x) > 0.5 ? vWPos.z : vWPos.x;
-    vec2 cell = vec2(u / 3.2, vWPos.y / 3.5);
-    vec2 f = fract(cell);
-    fbWin = step(0.2, f.x) * step(f.x, 0.8) * step(0.28, f.y) * step(f.y, 0.84);
-    fbWin *= step(4.0, vWPos.y);
-    float hh = fbHash(floor(cell) + floor(vWN.xz * 3.0) * 17.0);
-    fbLit = step(0.5, hh);
-    vec3 wc = mix(uWindow * (0.75 + 0.5 * hh), diffuseColor.rgb * 0.35, uNight);
-    diffuseColor.rgb = mix(diffuseColor.rgb, wc, fbWin);
-    diffuseColor.rgb *= mix(0.62, 1.0, clamp(vWPos.y / 25.0, 0.0, 1.0));
+    vec2 f;
+    if (fbStyle == 1) {
+      // Cristal: muros cortina con montantes finos y reflejo del cielo
+      fbCell = vec2(fbU / 1.6, fbY / 3.5);
+      f = fract(fbCell);
+      fbWin = step(0.07, f.x) * step(f.x, 0.93) * step(0.14, f.y) * step(f.y, 0.92);
+      vec3 glass = diffuseColor.rgb * (1.05 + 0.15 * sin(fbY * 0.04 + fbSeed * 6.0)) + vec3(0.05, 0.08, 0.11);
+      diffuseColor.rgb = mix(diffuseColor.rgb * 0.5, glass, fbWin);
+    } else if (fbStyle == 2) {
+      // Viviendas: ventanas pequeñas y balcones
+      fbCell = vec2(fbU / 4.0, fbY / 3.0);
+      f = fract(fbCell);
+      fbWin = step(0.3, f.x) * step(f.x, 0.7) * step(0.38, f.y) * step(f.y, 0.8);
+      float balc = step(0.1, f.y) * step(f.y, 0.24) * step(0.22, f.x) * step(f.x, 0.78) * step(0.45, fbHash(vec2(floor(fbCell.x), fbSeed * 13.0)));
+      diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 1.3 + 0.05, balc);
+      diffuseColor.rgb = mix(diffuseColor.rgb, uWindow * 0.9, fbWin);
+    } else if (fbStyle == 3) {
+      // Nave industrial: chapa ondulada y franja de ventanas alta
+      fbCell = vec2(fbU / 3.0, 1.0);
+      diffuseColor.rgb *= 0.9 + 0.1 * step(0.5, fract(fbU / 0.9));
+      fbWin = step(fbH - 3.2, fbY) * step(fbY, fbH - 1.6) * step(0.12, fract(fbU / 3.0));
+      diffuseColor.rgb = mix(diffuseColor.rgb, uWindow, fbWin);
+    } else if (fbStyle == 5) {
+      fbCell = vec2(fbU / 3.0, fbY / 3.0);
+      f = fract(fbCell);
+      fbWin = step(0.35, f.x) * step(f.x, 0.65) * step(0.35, f.y) * step(f.y, 0.75);
+      diffuseColor.rgb = mix(diffuseColor.rgb, uWindow * 0.8, fbWin);
+    } else if (fbStyle == 0 || fbStyle == 6) {
+      // Oficinas (rejilla) y art déco (ranuras verticales)
+      float cw = fbStyle == 6 ? 2.2 : 3.2;
+      fbCell = vec2(fbU / cw, fbY / 3.5);
+      f = fract(fbCell);
+      fbWin = fbStyle == 6
+        ? step(0.32, f.x) * step(f.x, 0.68) * step(0.12, f.y) * step(f.y, 0.92)
+        : step(0.2, f.x) * step(f.x, 0.8) * step(0.28, f.y) * step(f.y, 0.84);
+      diffuseColor.rgb = mix(diffuseColor.rgb, uWindow * (0.85 + 0.3 * fbHash(floor(fbCell))), fbWin);
+    }
+    fbWin *= step(4.0, fbY);
+    // Bajos comerciales
+    if (fbStyle <= 2 || fbStyle == 6) {
+      fbShop = step(0.6, fbY) * step(fbY, 3.2);
+      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.2, 0.2, 0.22), fbShop * 0.6);
+    }
+    // Luces nocturnas: fracción encendida distinta por edificio y plantas enteras
+    float litFrac = mix(0.06, 0.3, fbSeed);
+    float cellRnd = fbHash(floor(fbCell) + vec2(fbSeed * 31.0, floor(vWN.x * 3.0 + vWN.z * 7.0)));
+    fbLit = step(cellRnd, litFrac);
+    if (fbStyle <= 1 || fbStyle == 6) fbLit = max(fbLit, step(fbHash(vec2(floor(fbY / 3.5), fbSeed * 97.0)), 0.05));
+    float cc = fbHash(floor(fbCell) * 1.7 + fbSeed * 5.0);
+    fbLitCol = cc < 0.6 ? vec3(1.0, 0.76, 0.42) : cc < 0.9 ? vec3(0.78, 0.86, 1.0) : vec3(0.45, 0.9, 1.0);
+    if (fbStyle == 1) fbLitCol = mix(fbLitCol, vec3(0.8, 0.9, 1.0), 0.6);
+    // Corona luminosa en lo alto de los rascacielos
+    if ((fbStyle == 0 || fbStyle == 1 || fbStyle == 6) && fbH > 70.0) fbCrown = step(fbH - 3.0, fbY);
+    diffuseColor.rgb *= mix(0.62, 1.0, clamp(fbY / 25.0, 0.0, 1.0));
   } else if (vWN.y > 0.5) {
-    diffuseColor.rgb *= 0.86;
+    // Tejados distintos por tipo: se leen bien desde arriba
+    vec2 r = vUv2;
+    float edge = min(min(r.x, 1.0 - r.x), min(r.y, 1.0 - r.y));
+    float speck = fbHash(floor(vWPos.xz * 1.5));
+    vec3 roof = diffuseColor.rgb * (0.72 + 0.12 * speck);
+    if (fbStyle == 1) {
+      roof = vec3(0.2, 0.22, 0.25) * (0.9 + 0.2 * speck);
+      if (fbSeed < 0.5 && fbH > 50.0) {
+        vec2 c = r - 0.5;
+        float d = length(c);
+        float ring = step(0.25, d) * step(d, 0.31);
+        float legs = step(0.07, abs(c.x)) * step(abs(c.x), 0.12) * step(abs(c.y), 0.15);
+        float bar = step(abs(c.y), 0.025) * step(abs(c.x), 0.08);
+        roof = mix(roof, mix(vec3(0.95, 0.8, 0.15), vec3(0.35, 0.32, 0.2), uNight), ring);
+        roof = mix(roof, mix(vec3(0.95), vec3(0.4), uNight), max(legs, bar));
+        // Balizas en las cuatro esquinas del helipuerto (de noche)
+        vec2 q = abs(c) - vec2(0.36);
+        fbPad = step(length(q), 0.035);
+      }
+    } else if (fbStyle == 2) {
+      if (fbSeed < 0.3) roof = mix(vec3(0.3, 0.52, 0.24), vec3(0.38, 0.62, 0.3), speck);
+      else if (fbSeed < 0.55) {
+        vec2 sp = fract(vWPos.xz / vec2(2.2, 1.4));
+        float panel = step(0.08, sp.x) * step(sp.x, 0.92) * step(0.1, sp.y) * step(sp.y, 0.9) * step(0.12, edge);
+        roof = mix(roof * 0.85, vec3(0.1, 0.16, 0.34), panel);
+      } else roof = mix(roof, vec3(0.6, 0.55, 0.5), 0.45);
+    } else if (fbStyle == 3) {
+      float st = fract(abs(vWPos.x) / 6.0);
+      roof = vec3(0.6, 0.61, 0.63) * (0.8 + 0.25 * st);
+      roof = mix(roof, vec3(0.42, 0.58, 0.74), step(0.8, st));
+    } else if (fbStyle == 6) {
+      roof = diffuseColor.rgb * 0.8;
+    } else if (fbStyle == 7) {
+      roof = diffuseColor.rgb * (0.85 + 0.12 * speck);
+    } else if (fbStyle == 0) {
+      roof = mix(vec3(0.45, 0.46, 0.48), diffuseColor.rgb, 0.35) * (0.85 + 0.2 * speck);
+    }
+    if (fbStyle != 7 && fbStyle != 5 && fbStyle != 4) {
+      fbRoofEdge = step(edge, 0.035);
+      roof = mix(roof, diffuseColor.rgb * 1.08 + 0.04, fbRoofEdge);
+    }
+    diffuseColor.rgb = roof;
   }`,
       )
       .replace(
         '#include <emissivemap_fragment>',
         `#include <emissivemap_fragment>
-  totalEmissiveRadiance += uWindow * (0.6 + 0.6 * fbLit) * fbWin * fbLit * uNight;`,
+  if (uNight > 0.5) {
+    totalEmissiveRadiance += fbLitCol * fbWin * fbLit * 0.62;
+    float cs = fract(fbSeed * 7.31);
+    vec3 crownCol = cs < 0.25 ? vec3(0.3, 0.9, 1.4) : cs < 0.5 ? vec3(1.4, 0.4, 1.1) : cs < 0.75 ? vec3(1.5, 1.1, 0.4) : vec3(1.3);
+    totalEmissiveRadiance += crownCol * fbCrown;
+    totalEmissiveRadiance += vec3(1.0, 0.72, 0.42) * fbShop * 0.8 * step(0.35, fbHash(vec2(floor(fbU / 5.0), fbSeed * 9.0)));
+    totalEmissiveRadiance += vec3(0.5, 1.4, 0.6) * fbPad;
+    totalEmissiveRadiance += diffuseColor.rgb * fbRoofEdge * 0.35;
+  }`,
       );
   };
   return mat;
@@ -95,6 +213,10 @@ export class ChunkManager {
   private buildingMat: THREE.MeshLambertMaterial;
   private propMat: THREE.MeshLambertMaterial;
   private cloudMat: THREE.MeshLambertMaterial;
+  private beaconMat: THREE.MeshBasicMaterial;
+  private night: boolean;
+  /** Luz del último píxel calculado (solo de noche) */
+  private px: RGB | null = null;
   private colors: {
     water: RGB[];
     grass: RGB[];
@@ -107,6 +229,13 @@ export class ChunkManager {
     line: RGB;
     white: RGB;
     rail: RGB;
+    path: RGB;
+    paveA: RGB;
+    paveB: RGB;
+    parking: RGB;
+    track: RGB;
+    pitchA: RGB;
+    pitchB: RGB;
   };
   private tmpM = new THREE.Matrix4();
   private tmpC = new THREE.Color();
@@ -128,6 +257,8 @@ export class ChunkManager {
       transparent: true,
       opacity: 0.92,
     });
+    this.beaconMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 0.2, 0.15) });
+    this.night = st.night;
     const p = st.palette;
     const lot = rgb(p.lot);
     this.colors = {
@@ -142,11 +273,21 @@ export class ChunkManager {
       line: st.night ? [200, 170, 60] : [235, 200, 40],
       white: st.night ? [150, 150, 150] : [235, 235, 235],
       rail: st.night ? [90, 90, 100] : [150, 150, 150],
+      path: st.night ? [80, 74, 70] : [214, 196, 160],
+      paveA: st.night ? [78, 74, 82] : [206, 200, 188],
+      paveB: st.night ? [66, 62, 70] : [184, 176, 164],
+      parking: st.night ? [34, 35, 40] : [70, 72, 78],
+      track: st.night ? [110, 60, 50] : [190, 92, 70],
+      pitchA: st.night ? [40, 90, 50] : [74, 160, 64],
+      pitchB: st.night ? [34, 80, 44] : [64, 146, 56],
     };
   }
 
   /** Llamar cada frame con la posición del jugador */
   update(x: number, z: number, budgetMs = 6) {
+    // Balizas rojas parpadeantes
+    const blink = Math.sin(performance.now() * 0.004) > 0.55 ? 3 : 0.25;
+    this.beaconMat.color.setRGB(blink, blink * 0.07, blink * 0.05);
     const cx = Math.floor(x / CHUNK);
     const cz = Math.floor(z / CHUNK);
     if (cx !== this.lastCx || cz !== this.lastCz) {
@@ -207,16 +348,25 @@ export class ChunkManager {
 
     // Suelo: textura pixelada generada
     const data = new Uint8Array(TEX * TEX * 4);
+    const ldata = this.night ? new Uint8Array(TEX * TEX * 4) : null;
     for (let j = 0; j < TEX; j++) {
       const z = z0 + CHUNK - (j + 0.5) * PX;
       for (let i = 0; i < TEX; i++) {
         const x = x0 + (i + 0.5) * PX;
+        this.px = null;
         const c = this.groundColor(x, z);
         const o = (j * TEX + i) * 4;
         data[o] = c[0];
         data[o + 1] = c[1];
         data[o + 2] = c[2];
         data[o + 3] = 255;
+        if (ldata) {
+          const l = this.px;
+          ldata[o] = l ? l[0] : 0;
+          ldata[o + 1] = l ? l[1] : 0;
+          ldata[o + 2] = l ? l[2] : 0;
+          ldata[o + 3] = 255;
+        }
       }
     }
     const tex = new THREE.DataTexture(data, TEX, TEX, THREE.RGBAFormat);
@@ -226,7 +376,16 @@ export class ChunkManager {
     tex.generateMipmaps = true;
     tex.anisotropy = 4;
     tex.needsUpdate = true;
-    const mat = new THREE.MeshLambertMaterial({ map: tex });
+    let ltex: THREE.DataTexture | undefined;
+    if (ldata) {
+      ltex = new THREE.DataTexture(ldata, TEX, TEX, THREE.RGBAFormat);
+      ltex.colorSpace = THREE.SRGBColorSpace;
+      ltex.magFilter = THREE.NearestFilter;
+      ltex.minFilter = THREE.LinearMipmapLinearFilter;
+      ltex.generateMipmaps = true;
+      ltex.needsUpdate = true;
+    }
+    const mat = new THREE.MeshLambertMaterial({ map: tex, emissiveMap: ltex ?? null, emissive: ltex ? new THREE.Color(1.8, 1.8, 1.8) : new THREE.Color(0) });
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(CHUNK, CHUNK), mat);
     ground.rotation.x = -Math.PI / 2;
     ground.position.set(x0 + CHUNK / 2, 0, z0 + CHUNK / 2);
@@ -238,19 +397,25 @@ export class ChunkManager {
     const n = CHUNK / PERIOD;
     const buildings: Box[] = [];
     const props: Box[] = [];
+    const beacons: Box[] = [];
     for (let i = 0; i < n; i++) {
       for (let j = 0; j < n; j++) {
         const b = this.gen.block(b0 + i, bz0 + j);
         for (const box of b.buildings) buildings.push(box);
         for (const t of b.trees) props.push(t);
+        for (const l of b.lights) beacons.push({ x0: l.x - 0.7, z0: l.z - 0.7, x1: l.x + 0.7, z1: l.z + 0.7, y0: l.y - 0.7, h: 1.4, color: 0xffffff });
       }
     }
     const clouds = this.gen.cloudsForChunk(cx, cz);
 
-    const chunk: Chunk = { cx, cz, group, ground, tex, mat };
+    const chunk: Chunk = { cx, cz, group, ground, tex, mat, ltex };
     if (buildings.length) {
-      chunk.buildings = this.instanced(buildings, this.buildingMat);
+      chunk.buildings = this.instanced(buildings, this.buildingMat, true);
       group.add(chunk.buildings);
+    }
+    if (beacons.length) {
+      chunk.beacons = this.instanced(beacons, this.beaconMat);
+      group.add(chunk.beacons);
     }
     if (props.length) {
       chunk.props = this.instanced(props, this.propMat);
@@ -265,8 +430,20 @@ export class ChunkManager {
     this.onChunkAdded?.(cx, cz);
   }
 
-  private instanced(boxes: Box[], mat: THREE.Material) {
-    const mesh = new THREE.InstancedMesh(unitBox, mat, boxes.length);
+  private instanced(boxes: Box[], mat: THREE.Material, withInfo = false) {
+    let geo = unitBox;
+    if (withInfo) {
+      // Atributo por instancia: estilo, aleatorio y altura (para el shader)
+      geo = unitBox.clone();
+      const info = new Float32Array(boxes.length * 3);
+      boxes.forEach((b, i) => {
+        info[i * 3] = b.style ?? 0;
+        info[i * 3 + 1] = b.seed ?? hash2(Math.floor(b.x0), Math.floor(b.z0), 7);
+        info[i * 3 + 2] = b.h;
+      });
+      geo.setAttribute('aInfo', new THREE.InstancedBufferAttribute(info, 3));
+    }
+    const mesh = new THREE.InstancedMesh(geo, mat, boxes.length);
     const pos = new THREE.Vector3();
     const scl = new THREE.Vector3();
     const q = new THREE.Quaternion();
@@ -288,6 +465,7 @@ export class ChunkManager {
   private groundColor(x: number, z: number): RGB {
     const g = this.gen;
     const C = this.colors;
+    const N = this.night;
     const bx = Math.floor(x / PERIOD);
     const bz = Math.floor(z / PERIOD);
     const lx = x - bx * PERIOD;
@@ -303,9 +481,11 @@ export class ChunkManager {
       const bridge = ((roadX && g.isAvenue(bx)) || (roadZ && g.isAvenue(bz))) && level - wv < 0.05;
       if (water && !bridge) return this.waterColor(level - wv, x, z);
       if (water && bridge) {
-        // Barandillas del puente
         const edge = roadX && !roadZ ? lx < 2 || lx >= ROAD - 2 : !roadX && roadZ ? lz < 2 || lz >= ROAD - 2 : false;
-        if (edge) return C.rail;
+        if (edge) {
+          if (N && Math.floor((roadX ? z : x) / 12) % 2 === 0) this.px = LAMP;
+          return C.rail;
+        }
       }
       if (roadX && roadZ) return C.road; // cruce
       const along = roadX ? lx : lz; // posición transversal
@@ -316,6 +496,21 @@ export class ChunkManager {
         if (along > 2 && along < ROAD - 2 && Math.floor(along / 2) % 2 === 0) return C.white;
         return C.road;
       }
+      // Coches: dos carriles por sentido
+      const lane = along >= 3 && along < 7 ? 0 : along >= 9 && along < 13 ? 1 : -1;
+      if (lane >= 0) {
+        const slot = Math.floor(lengthAbs / 7);
+        const hv = hash2(slot, (roadX ? bx : bz) * 4 + lane + (roadX ? 0 : 2), g.stage.seed + 41);
+        const inCar = lengthAbs - slot * 7 < 4.5 && (lane === 0 ? along < 6 : along >= 10);
+        if (hv < 0.16 && inCar) {
+          if (N) {
+            const front = (lengthAbs - slot * 7 < 2) === (lane === 0);
+            this.px = front ? [255, 245, 210] : [255, 40, 30];
+            return [40, 40, 46];
+          }
+          return CARS[Math.floor(hv * 1000) % CARS.length];
+        }
+      }
       // Línea central discontinua
       if (along >= 7 && along < 9 && Math.floor(lengthAbs / 8) % 2 === 0) return C.line;
       if (along < 2 || along >= ROAD - 2) return C.roadEdge;
@@ -325,12 +520,65 @@ export class ChunkManager {
     if (water) return this.waterColor(level - wv, x, z);
     if (wv - level < 0.012) return C.sand;
 
-    // Acera alrededor de la manzana
-    if (lx < ROAD + 2 || lx >= PERIOD - 2 || lz < ROAD + 2 || lz >= PERIOD - 2) return C.sidewalk;
+    // Acera alrededor de la manzana, con farolas
+    if (lx < ROAD + 2 || lx >= PERIOD - 2 || lz < ROAD + 2 || lz >= PERIOD - 2) {
+      if (N) {
+        const pos = lx < ROAD + 2 || lx >= PERIOD - 2 ? lz : lx;
+        if (Math.floor(pos / 2) % 8 === 0) this.px = LAMP;
+        else this.px = LAMP_DIM;
+      }
+      return C.sidewalk;
+    }
 
     const block = g.block(bx, bz);
     const n = hash2(Math.floor(x / 6), Math.floor(z / 6), g.stage.seed + 3);
-    if (block.park) return n < 0.5 ? C.grass[0] : C.grass[1];
+    const ux = lx - ROAD;
+    const uz = lz - ROAD;
+    const BL = PERIOD - ROAD;
+    const dcx = ux - BL / 2;
+    const dcz = uz - BL / 2;
+    switch (block.kind) {
+      case 'park':
+        if (Math.abs(dcx) < 1.5 || Math.abs(dcz) < 1.5) {
+          if (N && (Math.floor(ux / 2) + Math.floor(uz / 2)) % 6 === 0) this.px = LAMP_DIM;
+          return C.path;
+        }
+        return n < 0.5 ? C.grass[0] : C.grass[1];
+      case 'plaza': {
+        const d = Math.hypot(dcx, dcz);
+        if (d < 5) {
+          if (N && d < 3.5) this.px = [40, 120, 160];
+          return d < 3.5 ? C.water[2] : C.white;
+        }
+        // Ocho farolas puntuales alrededor de la plaza
+        if (N && d > 17 && d < 19.5) {
+          const a = Math.atan2(dcz, dcx) / (Math.PI / 4);
+          if (Math.abs(a - Math.round(a)) < 0.07) this.px = LAMP;
+        }
+        const tile = (Math.floor(ux / 4) + Math.floor(uz / 4)) % 2 === 0;
+        return tile ? C.paveA : C.paveB;
+      }
+      case 'parking': {
+        const row = Math.floor(uz / 12);
+        const inRow = uz - row * 12;
+        if (inRow < 5.5 || inRow > 6.5) {
+          const stall = Math.floor(ux / 3);
+          if (ux - stall * 3 < 0.8) return C.white;
+          const hv = hash2(stall, row, g.stage.seed + 77);
+          if (hv < 0.55 && ux - stall * 3 > 1 && (inRow < 4.5 || inRow > 7.5)) return N ? [40, 40, 46] : CARS[Math.floor(hv * 997) % CARS.length];
+        }
+        if (N && Math.floor(ux / 2) % 8 === 0 && inRow >= 5.5 && inRow <= 6.5) this.px = LAMP;
+        return C.parking;
+      }
+      case 'sports': {
+        const track = Math.abs(dcx) > 26 || Math.abs(dcz) > 22;
+        if (track) return Math.abs(dcx) > 28 || Math.abs(dcz) > 24 ? C.sidewalk : C.track;
+        if (N) this.px = FIELD_LIGHT;
+        const line = Math.abs(Math.abs(dcx) - 24) < 1 || Math.abs(Math.abs(dcz) - 20) < 1 || Math.abs(dcx) < 0.6 || Math.abs(Math.hypot(dcx, dcz) - 7) < 0.8;
+        if (line) return C.white;
+        return Math.floor(ux / 4) % 2 === 0 ? C.pitchA : C.pitchB;
+      }
+    }
     // Solares: hormigón con algo de césped
     const lotHash = hash2(Math.floor(x / 22), Math.floor(z / 22), g.stage.seed + 5);
     if (lotHash < 0.35) return n < 0.5 ? C.grass[0] : C.grass[1];
@@ -351,7 +599,12 @@ export class ChunkManager {
     ch.ground.geometry.dispose();
     ch.mat.dispose();
     ch.tex.dispose();
-    ch.buildings?.dispose();
+    if (ch.buildings) {
+      ch.buildings.geometry.dispose();
+      ch.buildings.dispose();
+    }
+    ch.beacons?.dispose();
+    ch.ltex?.dispose();
     ch.props?.dispose();
     ch.clouds?.dispose();
     this.onChunkRemoved?.(ch.cx, ch.cz);
@@ -364,8 +617,22 @@ export class ChunkManager {
     this.buildingMat.dispose();
     this.propMat.dispose();
     this.cloudMat.dispose();
+    this.beaconMat.dispose();
   }
 }
+
+const LAMP: RGB = [255, 190, 110];
+const LAMP_DIM: RGB = [120, 84, 46];
+const FIELD_LIGHT: RGB = [70, 110, 70];
+const CARS: RGB[] = [
+  [200, 40, 40],
+  [240, 240, 240],
+  [30, 30, 36],
+  [40, 90, 180],
+  [230, 190, 40],
+  [150, 155, 160],
+  [60, 140, 80],
+];
 
 function shade(c: RGB, k: number): RGB {
   return [Math.min(255, c[0] * k), Math.min(255, c[1] * k), Math.min(255, c[2] * k)];

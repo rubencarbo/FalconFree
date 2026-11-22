@@ -259,7 +259,7 @@ export class Fx {
   /** Rozamiento contra un edificio o el suelo */
   scrape(pos: THREE.Vector3, normal: THREE.Vector3) {
     this.sparks(pos, normal, 40, 90);
-    this.flash(pos, 20000, 0.25, 0xffd080);
+    this.flash(pos, 2500, 0.25, 0xffd080);
     for (let i = 0; i < 6; i++) {
       this.smoke.spawn({
         x: pos.x + rnd(-2, 2),
@@ -342,7 +342,7 @@ export class Fx {
     sh.t = 0;
     sh.life = 0.7;
     sh.max = 90 * scale;
-    this.flash(pos, 600000 * scale, 0.9);
+    this.flash(pos, 120000 * scale, 0.9);
   }
 
   /** Humo/fuego que sale de un avión dañado (llamar cada frame) */

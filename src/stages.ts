@@ -102,7 +102,7 @@ export const STAGES: Stage[] = [
     sun: { color: '#ff9a6a', intensity: 0.9, dir: [0.8, 0.25, -0.4] },
     hemi: { sky: '#6c5aa0', ground: '#201828', intensity: 0.9 },
     palette: {
-      buildings: ['#3a3f55', '#2e3245', '#4b4f66', '#5a4a5e', '#2a3a4f', '#454560', '#383040', '#50586e'],
+      buildings: ['#4a5272', '#3a4058', '#5c6080', '#6a5470', '#34506a', '#565878', '#4a3e58', '#607088', '#3e5a5e', '#6a5a50'],
       water: ['#121a3a', '#1b2752', '#2a3a6e'],
       grass: ['#24402a', '#1d3522'],
       road: '#17181c',
