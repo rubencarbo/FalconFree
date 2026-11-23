@@ -78,40 +78,92 @@
       </div>
 
       <div id="menu" class="overlay">
-        <div class="panel menu-panel">
+        <div class="panel menu-panel home">
           <div class="menu-head">
             <h1>Falcon<span>Sky</span></h1>
             <span id="menu-credits" class="credits">0 créditos</span>
           </div>
-          <p class="tagline">Vuela sobre ciudades vóxel, compite contra el reloj, combate y juega con tus amigos.</p>
-          <label class="field">
-            <span>Nombre de piloto</span>
-            <input id="pilot-name" maxlength="16" placeholder="Piloto" autocomplete="off" />
-          </label>
-          <div class="field">
-            <span>Escenario</span>
-            <div id="stage-list" class="stage-list"></div>
+          <button id="btn-profile" class="profile-chip" aria-label="Cambiar nombre de piloto"><span class="pc-icon">✈</span><b id="menu-name">Piloto</b><small>Editar</small></button>
+          <button id="btn-play" class="play-btn"><b>Jugar</b><small id="play-sub">Elige un modo para un jugador</small></button>
+          <button id="btn-mp" class="mp-btn"><b>Multijugador</b><small>Crea una sala, únete con un código o a una partida pública</small></button>
+          <div class="home-cards">
+            <button id="btn-daily" class="daily-card"><span class="dc-head"><b>Desafío diario</b><span class="dc-tag">Hoy</span></span><small id="daily-sub">Un circuito nuevo cada día</small></button>
+            <button id="btn-season" class="season-btn home-season"><span class="sb-name">Pase de temporada</span><span class="sb-tier" id="season-tier">Nivel 0</span><span class="sb-bar"><i id="season-bar"></i></span></button>
           </div>
-          <div class="modes">
-            <button id="btn-start" class="mode-btn primary"><b>Vuelo libre</b><small>Anillos, drones y recompensas</small></button>
-            <button id="btn-race" class="mode-btn race"><b>Competición</b><small>Contrarreloj por hitos</small></button>
-            <button id="btn-daily" class="mode-btn daily"><b>Desafío diario</b><small id="daily-sub">Un circuito nuevo cada día</small></button>
-            <button id="btn-battle" class="mode-btn battle"><b>Batalla</b><small>Contra bots: todos, equipos o cooperativo</small></button>
-            <button id="btn-mp" class="mode-btn mp"><b>Multijugador</b><small>Invita con un código</small></button>
-            <button id="btn-koth" class="mode-btn koth"><b>Rey del cielo</b><small>Domina la zona dorada</small></button>
-            <button id="btn-delivery" class="mode-btn delivery"><b>Mensajero</b><small>Entrega paquetes contra reloj</small></button>
-            <button id="btn-waves" class="mode-btn waves"><b>Oleadas</b><small>Sobrevive y mejora tu avión</small></button>
-            <button id="btn-tag" class="mode-btn tag"><b>Pilla-pilla</b><small>¡Que no te pillen!</small></button>
-          </div>
-          <button id="btn-season" class="season-btn"><span class="sb-name">Pase de temporada</span><span class="sb-tier" id="season-tier">Nivel 0</span><span class="sb-bar"><i id="season-bar"></i></span></button>
-          <div class="row">
-            <button id="btn-hangar" class="secondary">Hangar</button>
-            <button id="btn-achievements" class="secondary">Logros</button>
-            <button id="btn-board" class="secondary">Clasificación</button>
-            <button id="btn-settings" class="secondary">Ajustes</button>
-          </div>
+          <nav class="home-nav" aria-label="Más opciones">
+            <button id="btn-hangar"><span class="hn-icon">✈</span><span>Hangar</span></button>
+            <button id="btn-achievements"><span class="hn-icon">★</span><span>Logros</span><small id="ach-badge"></small></button>
+            <button id="btn-board"><span class="hn-icon">≡</span><span>Ranking</span></button>
+            <button id="btn-settings"><span class="hn-icon">⚙</span><span>Ajustes</span></button>
+          </nav>
           <button id="btn-install" class="install hidden">Instalar app</button>
           <p id="fb-status" class="muted"></p>
+        </div>
+      </div>
+
+      <div id="play" class="overlay hidden">
+        <div class="panel wide">
+          <div class="menu-head"><h2>Un jugador</h2><button class="icon-close" data-close aria-label="Volver">✕</button></div>
+          <section class="mode-group">
+            <h3>Explorar <small>Vuela a tu aire</small></h3>
+            <div class="mode-grid">
+              <button class="mode-card free" data-mode="free"><b>Vuelo libre</b><small>Anillos, drones y recompensas</small><em data-best="free"></em></button>
+              <button class="mode-card delivery" data-mode="delivery"><b>Mensajero</b><small>Entrega paquetes contra reloj</small><em data-best="delivery"></em></button>
+            </div>
+          </section>
+          <section class="mode-group">
+            <h3>Carreras <small>Contra el reloj</small></h3>
+            <div class="mode-grid">
+              <button class="mode-card race" data-mode="race"><b>Competición</b><small>Circuitos por hitos con fantasma</small><em data-best="race"></em></button>
+              <button class="mode-card daily" data-mode="daily"><b>Desafío diario</b><small>El mismo circuito para todos hoy</small><em data-best="daily"></em></button>
+            </div>
+          </section>
+          <section class="mode-group">
+            <h3>Combate <small>Contra bots</small></h3>
+            <div class="mode-grid">
+              <button class="mode-card battle" data-mode="battle"><b>Batalla</b><small>Todos contra todos, equipos o contra la máquina</small></button>
+              <button class="mode-card koth" data-mode="koth"><b>Rey del cielo</b><small>Domina la zona dorada</small></button>
+              <button class="mode-card tagm" data-mode="tag"><b>Pilla-pilla</b><small>Sin disparos: ¡que no te pillen!</small></button>
+              <button class="mode-card waves" data-mode="waves"><b>Oleadas</b><small>Sobrevive y mejora tu avión</small><em data-best="waves"></em></button>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <div id="preflight" class="overlay hidden">
+        <div class="panel">
+          <div class="menu-head"><button id="pf-back" class="icon-close" aria-label="Volver a los modos">←</button><h2 id="pf-title">Preparar vuelo</h2><span></span></div>
+          <p id="pf-desc" class="muted left"></p>
+          <div id="pf-stage" class="field">
+            <span>Escenario</span>
+            <div id="stage-list" class="stage-list compact"></div>
+          </div>
+          <div id="pf-course" class="field hidden">
+            <span>Circuito</span>
+            <div id="course-list" class="stage-list compact"></div>
+          </div>
+          <div id="pf-battle" class="battle-opts hidden">
+            <label id="pf-bkind-field" class="field"><span>Tipo de batalla</span>
+              <select id="bp-bkind">
+                <option value="ffa">Todos contra todos</option>
+                <option value="teams">Equipos: tú y bots aliados contra bots</option>
+                <option value="coop">Tú contra la máquina</option>
+                <option value="koth">Rey del cielo</option>
+                <option value="tag">Pilla-pilla</option>
+              </select>
+            </label>
+            <p id="bp-help" class="muted left"></p>
+            <label class="field slider"><span>Bots <b id="bp-bots-val">4</b></span><input id="bp-bots" type="range" min="1" max="7" step="1" value="4" /></label>
+            <div class="two">
+              <label class="field"><span id="bp-limit-label">Derribos para ganar</span>
+                <select id="bp-blimit"><option value="5">5</option><option value="10" selected>10</option><option value="20">20</option></select>
+              </label>
+              <label class="field"><span>Tiempo</span>
+                <select id="bp-btime"><option value="180">3 min</option><option value="300" selected>5 min</option><option value="600">10 min</option></select>
+              </label>
+            </div>
+          </div>
+          <button id="btn-go" class="primary">Despegar</button>
         </div>
       </div>
 
@@ -125,42 +177,6 @@
           </ol>
           <p class="muted left">Se abrirá a pantalla completa, como una app, y podrás jugar sin conexión a los modos en solitario.</p>
           <button class="primary" data-close>Entendido</button>
-        </div>
-      </div>
-
-      <div id="course-picker" class="overlay hidden">
-        <div class="panel">
-          <h2>Competición</h2>
-          <p class="muted left">Escenario: <b id="course-stage"></b>. Pasa por todos los hitos en orden: el siguiente tiene un <span class="tag beam">haz de luz</span> y la flecha y el radar te guían. Entre hito e hito elige ruta: la <span class="tag time">baja</span> tiene anillos que restan 1 s, la <span class="tag boost">alta</span> anillos de acelerón. Si te pierdes, pulsa <b>R</b> para volver a la ruta (+3 s).</p>
-          <div id="course-list" class="stage-list"></div>
-          <button class="secondary" data-close>Cancelar</button>
-        </div>
-      </div>
-
-      <div id="battle-picker" class="overlay hidden">
-        <div class="panel">
-          <h2>Batalla contra bots</h2>
-          <label class="field"><span>Modo</span>
-            <select id="bp-bkind">
-              <option value="ffa">Todos contra todos</option>
-              <option value="teams">Equipos: tú y bots aliados contra bots</option>
-              <option value="coop">Tú contra la máquina</option>
-              <option value="koth">Rey del cielo</option>
-              <option value="tag">Pilla-pilla</option>
-            </select>
-          </label>
-          <p id="bp-help" class="muted left"></p>
-          <label class="field slider"><span>Bots <b id="bp-bots-val">4</b></span><input id="bp-bots" type="range" min="1" max="7" step="1" value="4" /></label>
-          <div class="two">
-            <label class="field"><span id="bp-limit-label">Derribos para ganar</span>
-              <select id="bp-blimit"><option value="5">5</option><option value="10" selected>10</option><option value="20">20</option></select>
-            </label>
-            <label class="field"><span>Tiempo</span>
-              <select id="bp-btime"><option value="180">3 min</option><option value="300" selected>5 min</option><option value="600">10 min</option></select>
-            </label>
-          </div>
-          <button id="btn-battle-go" class="primary">Empezar batalla</button>
-          <button class="secondary" data-close>Cancelar</button>
         </div>
       </div>
 
@@ -296,6 +312,10 @@
       <div id="settings" class="overlay hidden">
         <div class="panel">
           <h2>Ajustes</h2>
+          <label class="field">
+            <span>Nombre de piloto</span>
+            <input id="pilot-name" maxlength="16" placeholder="Piloto" autocomplete="off" />
+          </label>
           <button id="btn-customize" class="secondary strong">Personalizar controles táctiles</button>
           <label class="field slider">
             <span>Sensibilidad <b id="set-sensitivity-val">100 %</b></span>

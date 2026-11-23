@@ -2595,3 +2595,327 @@ html.standalone .install {
     font-size: 12px;
   }
 }
+
+/* ================================================================ Menú principal reorganizado */
+.menu-panel.home {
+  width: min(460px, 100%);
+  gap: 10px;
+}
+
+.profile-chip {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  font-size: 14px;
+}
+
+.profile-chip .pc-icon {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--orange);
+  font-size: 13px;
+}
+
+.profile-chip small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.play-btn,
+.mp-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  border-radius: 16px;
+  color: #fff;
+}
+
+.play-btn {
+  padding: 18px 20px;
+  background: linear-gradient(180deg, var(--orange-2), var(--orange));
+  box-shadow: 0 8px 24px rgba(255, 122, 26, 0.4);
+}
+
+.play-btn b {
+  font-size: 28px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.play-btn small,
+.mp-btn small {
+  font-size: 13px;
+  opacity: 0.9;
+}
+
+.mp-btn {
+  padding: 14px 18px;
+  background: linear-gradient(180deg, #7b4ee0, #5a35b5);
+  box-shadow: 0 6px 18px rgba(123, 78, 224, 0.3);
+}
+
+.mp-btn b {
+  font-size: 19px;
+  font-weight: 800;
+}
+
+.home-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.daily-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(216, 160, 32, 0.3), rgba(176, 122, 16, 0.15));
+  border: 1px solid rgba(255, 208, 64, 0.5);
+}
+
+.daily-card b {
+  font-size: 15px;
+}
+
+.daily-card small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.dc-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dc-tag {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #2a1a00;
+  background: #ffd040;
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+
+.home-cards .season-btn {
+  padding: 10px 12px;
+}
+
+.home-nav {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.home-nav button {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 8px 4px;
+  border-radius: 12px;
+  background: none;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.home-nav button:hover,
+.home-nav button:focus-visible {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--ink);
+}
+
+.home-nav .hn-icon {
+  font-size: 20px;
+  line-height: 1;
+  color: var(--ink);
+}
+
+.home-nav small {
+  position: absolute;
+  top: 2px;
+  right: 6px;
+  font-size: 10px;
+  font-weight: 800;
+  color: #ffd040;
+}
+
+.home .install {
+  padding: 9px;
+  font-size: 14px;
+}
+
+.icon-close {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 16px;
+  flex: none;
+}
+
+/* Pantalla «Un jugador» */
+.mode-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mode-group h3 {
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--cyan);
+}
+
+.mode-group h3 small {
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--muted);
+  font-weight: 500;
+  margin-left: 6px;
+}
+
+.mode-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.mode-card {
+  --mc: var(--orange);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
+  text-align: left;
+  padding: 12px 12px 12px 16px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.mode-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  background: var(--mc);
+}
+
+.mode-card b {
+  font-size: 15px;
+}
+
+.mode-card small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.mode-card em {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 700;
+  color: #ffd080;
+}
+
+.mode-card em:empty {
+  display: none;
+}
+
+.mode-card.last::after {
+  content: 'Último';
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--mc);
+  color: #fff;
+}
+
+.mode-card:hover,
+.mode-card:focus-visible {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: var(--mc);
+}
+
+.mode-card.free { --mc: #ff8a2a; }
+.mode-card.delivery { --mc: #2aa06a; }
+.mode-card.race { --mc: #2a8fd8; }
+.mode-card.daily { --mc: #d8a020; }
+.mode-card.battle { --mc: #d83a4a; }
+.mode-card.koth { --mc: #c8a020; }
+.mode-card.tagm { --mc: #d0508a; }
+.mode-card.waves { --mc: #9a3a3a; }
+
+/* Preparar vuelo */
+#preflight .menu-head h2 {
+  flex: 1;
+  margin: 0;
+}
+
+.stage-list.compact .stage-card {
+  padding: 8px;
+}
+
+.stage-list.compact .stage-card .swatch {
+  flex-basis: 36px;
+  height: 36px;
+}
+
+@media (max-width: 380px) {
+  .mode-grid,
+  .home-cards {
+    grid-template-columns: 1fr;
+  }
+}
+
+.home-season {
+  grid-template-columns: 1fr;
+  align-content: start;
+  gap: 2px;
+  text-align: left;
+}
+
+.home-season .sb-name {
+  font-size: 15px;
+}
+
+.home-season .sb-tier {
+  font-size: 12px;
+}
+
+.home-season .sb-bar {
+  margin-top: 4px;
+}

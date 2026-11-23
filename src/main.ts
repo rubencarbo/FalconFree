@@ -48,6 +48,19 @@ const hex = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
 
 type Screen = 'menu' | 'playing' | 'crashed' | 'results' | 'lobby';
 type Mode = 'free' | 'race' | 'battle' | 'delivery' | 'waves';
+/** Modos que se eligen en la pantalla «Un jugador» */
+type PfMode = 'free' | 'delivery' | 'race' | 'daily' | 'battle' | 'koth' | 'tag' | 'waves';
+
+const PF_INFO: Record<PfMode, { title: string; desc: string }> = {
+  free: { title: 'Vuelo libre', desc: 'Explora la ciudad, atraviesa aros de colores, derriba drones y recoge recompensas. Sin prisa.' },
+  delivery: { title: 'Mensajero', desc: 'Recoge el paquete en la azotea verde y entrégalo en la naranja. Cada entrega suma 25 s; la propina sube si eres rápido y vuelas bajo.' },
+  race: { title: 'Competición', desc: 'Pasa por todos los hitos en orden. Entre hitos elige ruta: la baja tiene anillos que restan 1 s y la alta anillos de acelerón. Corres contra tu fantasma.' },
+  daily: { title: 'Desafío diario', desc: '' },
+  battle: { title: 'Batalla', desc: 'Combate aéreo contra bots. Gana quien llegue antes a los derribos indicados.' },
+  koth: { title: 'Rey del cielo', desc: 'Quédate solo dentro de la zona dorada para sumar 1 punto por segundo. La zona cambia de sitio cada minuto.' },
+  tag: { title: 'Pilla-pilla', desc: 'Sin disparos. Quien «la lleva» tiene que tocar a otro avión. Sumas 1 punto por cada segundo sin llevarla.' },
+  waves: { title: 'Oleadas', desc: 'Oleadas de drones y cazas cada vez más duras. Entre oleadas eliges una mejora. Una sola vida.' },
+};
 
 const isTouch = matchMedia('(hover: none), (pointer: coarse)').matches;
 
@@ -142,6 +155,8 @@ class Game {
   private missileBeep = 0;
   /** Anillos acumulados para el próximo misil (1 cada 5) */
   private ringsToMissile = 0;
+  private pfMode: PfMode = 'free';
+  private pfCourse: CourseDef = COURSES[0];
   stunts!: Stunts;
   season: Season;
   delivery: Delivery | null = null;
@@ -2749,7 +2764,10 @@ class Game {
     $('daily-sub').textContent = `${d.stage.name} · ${d.def.gates} hitos${best !== undefined ? ` · tu mejor ${formatTime(best)}` : ''}`;
     $('menu-credits').textContent = `${this.progress.p.credits} créditos`;
     const done = Object.keys(this.progress.p.achievements).length;
-    $('btn-achievements').textContent = `Logros ${done}/${ACHIEVEMENTS.length}`;
+    $('ach-badge').textContent = `${done}/${ACHIEVEMENTS.length}`;
+    $('menu-name').textContent = this.pilotName();
+    const last = store.get('lastMode') as PfMode | null;
+    $('play-sub').textContent = last && PF_INFO[last] ? `Último: ${PF_INFO[last].title}` : 'Elige un modo para un jugador';
     this.season.refresh();
     const tier = this.season.tier;
     $('season-tier').textContent = tier >= SEASON_TIERS ? 'Completo' : `Nivel ${tier}/${SEASON_TIERS}`;
@@ -2762,10 +2780,12 @@ class Game {
     name.addEventListener('change', () => {
       this.settings.name = name.value.trim().slice(0, 16);
       this.persist();
+      $('menu-name').textContent = this.pilotName();
     });
 
     this.buildStageList($('stage-list'), (s) => {
       if (s.id !== this.stage.id) this.loadStage(s);
+      if (this.pfMode === 'race') this.renderCourses();
     });
     this.buildStageList($('stage-list-2'), (s) => {
       show('stage-picker', false);
@@ -2775,28 +2795,26 @@ class Game {
     });
 
     // Modos
-    $('btn-start').addEventListener('click', () => this.startFree());
-    $('btn-race').addEventListener('click', () => this.openCoursePicker());
-    $('btn-daily').addEventListener('click', () => this.startDaily());
-    const openPicker = (kind: BattleKind) => {
-      $<HTMLSelectElement>('bp-bkind').value = kind;
-      this.updateBattlePicker();
-      show('battle-picker', true);
-    };
-    $('btn-battle').addEventListener('click', () => openPicker('ffa'));
-    $('btn-koth').addEventListener('click', () => openPicker('koth'));
-    $('btn-tag').addEventListener('click', () => openPicker('tag'));
+    $('btn-play').addEventListener('click', () => this.openPlay());
+    $('btn-daily').addEventListener('click', () => {
+      store.set('lastMode', 'daily');
+      this.startDaily();
+    });
+    document.querySelectorAll<HTMLElement>('#play .mode-card').forEach((b) => b.addEventListener('click', () => this.openPreflight(b.dataset.mode as PfMode)));
+    $('pf-back').addEventListener('click', () => {
+      show('preflight', false);
+      this.openPlay();
+    });
+    $('btn-go').addEventListener('click', () => this.launchPreflight());
     $('bp-bkind').addEventListener('change', () => this.updateBattlePicker());
-    $('btn-delivery').addEventListener('click', () => this.startDelivery());
-    $('btn-waves').addEventListener('click', () => this.startWaves());
+    $('btn-profile').addEventListener('click', () => {
+      this.openSettings();
+      setTimeout(() => $<HTMLInputElement>('pilot-name').focus(), 50);
+    });
     $('btn-season').addEventListener('click', () => this.openSeason());
     $('btn-sum-retry').addEventListener('click', () => (this.mode === 'delivery' ? this.startDelivery() : this.startWaves()));
     $('btn-sum-menu').addEventListener('click', () => this.setScreen('menu'));
     $('btn-sum-replay').addEventListener('click', () => this.startReplay('summary'));
-    $('btn-battle-go').addEventListener('click', () => {
-      show('battle-picker', false);
-      this.startBattle(this.readBattleForm('bp'));
-    });
     $('btn-mp').addEventListener('click', () => this.openMpPanel());
     $('mp-visibility').addEventListener('click', () => {
       this.mpPublic = !this.mpPublic;
@@ -3190,12 +3208,75 @@ class Game {
     );
   }
 
-  private openCoursePicker() {
-    const list = $('course-list');
-    list.replaceChildren(
+  /** Pantalla «Un jugador»: modos agrupados con el récord de cada uno */
+  private openPlay() {
+    const best = (k: string) => {
+      switch (k) {
+        case 'free': {
+          const b = Number(store.get(`best.${this.stage.id}`) ?? 0);
+          return b ? `Récord: ${b} anillos` : '';
+        }
+        case 'delivery': {
+          const b = Number(store.get('best.delivery') ?? 0);
+          return b ? `Récord: ${b} puntos` : '';
+        }
+        case 'waves': {
+          const b = Number(store.get('best.waves') ?? 0);
+          return b ? `Récord: oleada ${b}` : '';
+        }
+        case 'race': {
+          const b = loadBest(courseId(this.stage.id, COURSES[0]));
+          return b ? `Sprint: ${formatTime(b.time)}` : '';
+        }
+        case 'daily': {
+          const d = dailyChallenge();
+          const t = this.progress.p.daily[d.key];
+          return t !== undefined ? `Hoy: ${formatTime(t)}` : 'Sin completar hoy';
+        }
+      }
+      return '';
+    };
+    document.querySelectorAll<HTMLElement>('#play [data-best]').forEach((el) => (el.textContent = best(el.dataset.best!)));
+    const last = store.get('lastMode');
+    document.querySelectorAll<HTMLElement>('#play .mode-card').forEach((b) => b.classList.toggle('last', b.dataset.mode === last));
+    show('play', true);
+  }
+
+  /** Preparar vuelo: solo las opciones que necesita el modo elegido */
+  private openPreflight(mode: PfMode) {
+    if (mode === 'daily') {
+      show('play', false);
+      store.set('lastMode', 'daily');
+      this.startDaily();
+      return;
+    }
+    this.pfMode = mode;
+    $('pf-title').textContent = PF_INFO[mode].title;
+    $('pf-desc').textContent = PF_INFO[mode].desc;
+    const battleLike = mode === 'battle' || mode === 'koth' || mode === 'tag';
+    show('pf-course', mode === 'race');
+    show('pf-battle', battleLike);
+    if (mode === 'race') this.renderCourses();
+    if (battleLike) {
+      const sel = $<HTMLSelectElement>('bp-bkind');
+      for (const o of [...sel.options]) o.hidden = mode === 'battle' && (o.value === 'koth' || o.value === 'tag');
+      if (mode === 'battle') {
+        if (sel.value === 'koth' || sel.value === 'tag') sel.value = 'ffa';
+      } else sel.value = mode;
+      show('pf-bkind-field', mode === 'battle');
+      show('bp-help', mode === 'battle');
+      this.updateBattlePicker();
+    }
+    $('btn-go').textContent = 'Despegar';
+    show('play', false);
+    show('preflight', true);
+  }
+
+  private renderCourses() {
+    $('course-list').replaceChildren(
       ...COURSES.map((c) => {
         const b = document.createElement('button');
-        b.className = 'stage-card';
+        b.className = `stage-card${c.id === this.pfCourse.id ? ' active' : ''}`;
         const best = loadBest(courseId(this.stage.id, c));
         const txt = document.createElement('span');
         const t = document.createElement('b');
@@ -3205,14 +3286,34 @@ class Game {
         txt.append(t, d);
         b.append(txt);
         b.addEventListener('click', () => {
-          show('course-picker', false);
-          this.startRace(c);
+          this.pfCourse = c;
+          this.renderCourses();
         });
         return b;
       }),
     );
-    $('course-stage').textContent = this.stage.name;
-    show('course-picker', true);
+  }
+
+  private launchPreflight() {
+    const mode = this.pfMode;
+    store.set('lastMode', mode);
+    show('preflight', false);
+    switch (mode) {
+      case 'free':
+        this.startFree();
+        break;
+      case 'delivery':
+        this.startDelivery();
+        break;
+      case 'waves':
+        this.startWaves();
+        break;
+      case 'race':
+        this.startRace(this.pfCourse);
+        break;
+      default:
+        this.startBattle(this.readBattleForm('bp'));
+    }
   }
 
   private buildStageList(container: HTMLElement, onPick: (s: Stage) => void) {
