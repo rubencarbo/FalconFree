@@ -19,7 +19,7 @@ import { Input } from './input';
 import { Hud } from './hud';
 import { GameAudio } from './audio';
 import { firebase, countryName, playerCountry } from './firebase';
-import { Room, NetError, formatCode, normalizeCode, MAX_PLAYERS, PLAYER_COLORS, type NetEvent, type PublicRoom, type RoomMeta, type RoomMode } from './net';
+import { Room, NetError, type PauseState, formatCode, normalizeCode, MAX_PLAYERS, PLAYER_COLORS, type NetEvent, type PublicRoom, type RoomMeta, type RoomMode } from './net';
 import { RemotePlayers, bodyTint } from './remote';
 import { loadSettings, saveSettings, store, type Settings } from './settings';
 import { applyControlLayout, ControlsEditor } from './controls';
@@ -1230,7 +1230,7 @@ class Game {
   }
 
   private now() {
-    return this.room ? this.room.serverNow() : performance.now();
+    return this.room ? this.room.gameNow() : performance.now();
   }
 
   // ================================================================ Pantallas
@@ -1280,21 +1280,49 @@ class Game {
   }
 
   private pauseStart = 0;
+  /**
+   * Pausa. En multijugador la pausa es de toda la sala: se pide a la sala y el estado
+   * llega a todos por applyRoomPause (también a quien la ha pedido).
+   */
   setPaused(p: boolean) {
     if (this.screen !== 'playing') return;
+    if (this.room) {
+      if (p) void this.room.setPause();
+      else void this.room.resume();
+      return;
+    }
     if (p && !this.paused) {
       this.pauseStart = performance.now();
-      // Silencio total: el motor dejaba de actualizarse pero seguía sonando
-      this.audio.engine(0, 0, false);
     } else if (!p && this.paused) {
-      if (!this.room) {
-        // En solitario la pausa detiene también los relojes (batalla, cuenta atrás de carrera)
-        this.goAt += performance.now() - this.pauseStart;
-      } else if (!this.race || this.race.started) this.flight.frozen = false;
+      // En solitario la pausa detiene también los relojes (batalla, cuenta atrás de carrera)
+      this.goAt += performance.now() - this.pauseStart;
     }
     this.paused = p;
-    show('pause-note', !!this.room);
+    this.showPauseMenu(p, null);
+  }
+
+  /** Pausa común de la sala (la pone o la quita cualquier jugador) */
+  private applyRoomPause(st: PauseState | null) {
+    const room = this.room;
+    if (!room) return;
+    if (st) {
+      if (this.screen !== 'playing' || this.paused) return;
+      this.paused = true;
+      this.toggleChat(false);
+      this.showPauseMenu(true, st.by === room.uid ? 'Has pausado la partida para todos.' : `${st.n} ha pausado la partida para todos.`);
+      if (st.by !== room.uid) this.audio.countdown(false);
+    } else if (this.paused) {
+      this.paused = false;
+      this.showPauseMenu(false, null);
+      if (this.screen === 'playing') this.hud.toast('¡Seguimos!', 1000);
+    }
+  }
+
+  private showPauseMenu(p: boolean, note: string | null) {
     show('pause', p);
+    if (p) this.audio.engine(0, 0, false); // silencio: el motor no seguía sonando en pausa
+    $('pause-note').textContent = note ?? '';
+    show('pause-note', !!note);
     $('btn-leave-room').classList.toggle('hidden', !this.room);
     $('btn-room-lobby').classList.toggle('hidden', !this.room?.isHost);
     $('btn-pause-menu').classList.toggle('hidden', !!this.room);
@@ -1900,7 +1928,7 @@ class Game {
       return;
     }
 
-    if (this.screen === 'playing' && !(this.paused && !this.room) && !this.waveChoosing) this.updatePlaying(dt);
+    if (this.screen === 'playing' && !this.paused && !this.waveChoosing) this.updatePlaying(dt);
     else if (this.screen === 'menu' || this.screen === 'lobby') this.updateMenu(dt);
     else if (this.screen === 'crashed') {
       this.crashTimer += dt;
@@ -1921,7 +1949,7 @@ class Game {
       if (this.screen === 'lobby' || this.screen === 'results') this.sendNetState();
     }
 
-    const frozen = (this.paused && !this.room) || this.waveChoosing;
+    const frozen = this.paused || this.waveChoosing;
     if (!frozen) {
       this.fx.update(dt);
       this.drones.update(dt, this.flight.pos, this.flight.forward(), this.time);
@@ -1978,11 +2006,6 @@ class Game {
     this.shield = Math.max(0, this.shield - dt);
     this.doubleDamage = Math.max(0, this.doubleDamage - dt);
     this.turbo = Math.max(0, this.turbo - dt);
-    // Multijugador: la partida sigue para los demás, pero tu avión queda quieto y protegido
-    if (this.paused && this.room) {
-      f.frozen = true;
-      this.invuln = Math.max(this.invuln, 0.5);
-    }
     this.guns.damageMul = (this.doubleDamage > 0 ? 2 : 1) * (1 + 0.25 * (this.waveLevels.damage ?? 0));
     this.tagImmune = Math.max(0, this.tagImmune - dt);
     const input = this.paused ? { x: 0, y: 0, boost: false, climb: false, fire: false } : this.input.read();
@@ -3633,9 +3656,18 @@ class Game {
     this.myRound = room.meta?.round ?? 0;
     const resync = () => this.remotes.sync(room.players, room.uid, room.isHost ? undefined : room.bots);
     let myColor = -1;
+    let lastCount = room.players.size;
     room.onPlayers = () => {
       resync();
       this.rememberFriends();
+      // Si alguien sale de la sala con la partida en pausa, continúa para los demás.
+      // Lo hace el piloto más antiguo que queda (el anfitrión puede ser justo el que se ha ido).
+      const left = room.players.size < lastCount;
+      lastCount = room.players.size;
+      if (room.pause && (left || !room.players.has(room.pause.by))) {
+        const oldest = [...room.players.entries()].sort((a, b) => a[1].joinedAt - b[1].joinedAt)[0]?.[0];
+        if (oldest === room.uid) void room.resume();
+      }
       const me = room.players.get(room.uid);
       if (me && me.color !== myColor) {
         myColor = me.color;
@@ -3653,6 +3685,7 @@ class Game {
     };
     room.onMeta = (m) => this.onRoomMeta(m);
     room.onTalk = () => this.updateTalkUi();
+    room.onPause = (st) => this.applyRoomPause(st);
     room.onVoice = (v) => this.onVoice(v);
     this.updateTalkUi();
     room.onBoss = (st) => {

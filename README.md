@@ -93,6 +93,14 @@ Para no perderse en un mundo abierto, sin mover los hitos (sería injusto en la 
   «Mis circuitos» o con el enlace `?circuito=CODIGO`. En las salas de carrera, el anfitrión puede
   elegir sus circuitos publicados (★).
 
+## Multijugador: pausa común
+
+Si cualquier jugador pulsa pausa, la partida se detiene **para toda la sala** (aviones, bots,
+dirigible y relojes de batalla o cuenta atrás), con el aviso «X ha pausado la partida para todos».
+Cualquiera puede pulsar **Continuar**. Si alguien sale de la sala (o se desconecta) mientras está en
+pausa, la partida continúa automáticamente para los demás. Los relojes compartidos descuentan el
+tiempo en pausa, así que todos siguen sincronizados.
+
 ## Multijugador: mensajes de voz
 
 Botón **🎙️ HABLAR** (o tecla V) en la sala y en partida: con **un solo toque** graba 5 segundos
@@ -349,6 +357,7 @@ Realtime Database (`rooms/{CODE}`):
 - `results/{uid}` → tiempo de carrera · `rings/{id}` → anillos recogidos por el equipo
 - `bots/{botId}` → estado de los bots (solo escribe el anfitrión) · `score/{id}` → derribos y caídas
 - `boss` → estado del dirigible del Jefe final (solo escribe el anfitrión)
+- `pause` → pausa común `{ by, n, at }` · `pausedMs` → tiempo total en pausa (relojes sincronizados)
 
 Y `lobbies/{CODE}`: ficha de las partidas públicas (solo la escribe el anfitrión).
 

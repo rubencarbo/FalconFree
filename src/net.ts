@@ -70,6 +70,15 @@ export interface PlayerInfo {
   plane?: PlaneVariant;
 }
 
+/** Pausa común de la sala */
+export interface PauseState {
+  /** quién la ha puesto */
+  by: string;
+  n: string;
+  /** hora del servidor a la que empezó */
+  at: number;
+}
+
 /** Turno de palabra: solo un piloto puede mandar audio a la vez */
 export interface TalkState {
   uid: string;
@@ -172,6 +181,11 @@ export class Room {
   /** Mensaje de voz de otro piloto */
   onVoice?: (v: VoiceClip) => void;
   talk: TalkState | null = null;
+  /** Pausa común: si alguien pausa, se para para todos */
+  pause: PauseState | null = null;
+  /** Milisegundos acumulados en pausa (para que los relojes de partida sigan sincronizados) */
+  pausedMs = 0;
+  onPause?: (p: PauseState | null) => void;
   /** Pilla-pilla: quién la lleva */
   onTagIt?: (id: string, seq: number) => void;
   onScores?: () => void;
@@ -348,6 +362,13 @@ export class Room {
         for (const [k, b] of Object.entries(v)) this.bots.set(k, b);
         this.onBots?.();
       }),
+      onValue(ref(db, `rooms/${this.code}/pause`), (s) => {
+        this.pause = (s.val() as PauseState | null) ?? null;
+        this.onPause?.(this.pause);
+      }),
+      onValue(ref(db, `rooms/${this.code}/pausedMs`), (s) => {
+        this.pausedMs = Number(s.val() ?? 0);
+      }),
       onValue(ref(db, `rooms/${this.code}/talk`), (s) => {
         this.talk = (s.val() as TalkState | null) ?? null;
         this.onTalk?.(this.talk);
@@ -442,6 +463,29 @@ export class Room {
       out[`bot${i + 1}`] = o;
     });
     set(ref(firebase.database()!, `rooms/${this.code}/bots`), out).catch(() => undefined);
+  }
+
+  /** Hora de la partida: la del servidor menos el tiempo que ha estado en pausa */
+  gameNow() {
+    const now = this.serverNow();
+    return now - this.pausedMs - (this.pause ? Math.max(0, now - this.pause.at) : 0);
+  }
+
+  /** Pausa la partida para todos */
+  async setPause() {
+    if (this.closed || this.pause) return;
+    await set(ref(firebase.database()!, `rooms/${this.code}/pause`), { by: this.uid, n: this.name.slice(0, 16), at: Math.round(this.serverNow()) }).catch(() => undefined);
+  }
+
+  /** Reanuda para todos: suma el tiempo de pausa y quita la pausa */
+  async resume() {
+    const p = this.pause;
+    if (this.closed || !p) return;
+    const db = firebase.database()!;
+    const dur = Math.max(0, Math.round(this.serverNow() - p.at));
+    // Solo quien consigue quitar ESTA pausa suma su duración (evita sumarla dos veces)
+    const res = await runTransaction(ref(db, `rooms/${this.code}/pause`), (cur: PauseState | null) => (cur && cur.at === p.at && cur.by === p.by ? null : undefined)).catch(() => null);
+    if (res?.committed) await runTransaction(ref(db, `rooms/${this.code}/pausedMs`), (cur: number | null) => (cur ?? 0) + dur).catch(() => undefined);
   }
 
   /** ¿Puedo hablar ahora? (nadie tiene el turno o es mío) */
@@ -567,10 +611,13 @@ export class Room {
     await remove(ref(db, `rooms/${this.code}/score`)).catch(() => undefined);
     await remove(ref(db, `rooms/${this.code}/tagit`)).catch(() => undefined);
     await remove(ref(db, `rooms/${this.code}/boss`)).catch(() => undefined);
+    await remove(ref(db, `rooms/${this.code}/pause`)).catch(() => undefined);
+    await set(ref(db, `rooms/${this.code}/pausedMs`), 0).catch(() => undefined);
     await this.setMeta({ state: 'countdown', startAt: Math.round(this.serverNow() + 5000), round: this.meta.round + 1 });
   }
 
   async backToLobby() {
+    if (this.pause) await this.resume();
     await this.setMeta({ state: 'lobby' });
   }
 
@@ -600,6 +647,8 @@ export class Room {
 
   async leave() {
     if (this.closed) return;
+    // Si sales con la partida en pausa, sigue para los demás
+    if (this.pause) await this.resume().catch(() => undefined);
     const db = firebase.database()!;
     const alone = this.players.size <= 1;
     const wasHost = this.isHost;

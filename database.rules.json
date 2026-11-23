@@ -140,6 +140,14 @@
             ".write": "auth != null && ((!data.exists() && root.child('rooms/' + $code + '/talk/uid').val() === auth.uid) || (data.exists() && !newData.exists() && data.child('from').val() === auth.uid))",
             ".validate": "newData.hasChildren(['from', 'n', 't', 'ms', 'd']) && newData.child('from').val() === auth.uid && newData.child('d').isString() && newData.child('d').val().length <= 60000 && newData.child('ms').isNumber() && newData.child('ms').val() <= 5500"
           }
+        },
+        "pause": {
+          ".write": "auth != null && root.child('rooms/' + $code + '/players/' + auth.uid).exists()",
+          ".validate": "!newData.exists() || (newData.hasChildren(['by', 'n', 'at']) && newData.child('by').val() === auth.uid && newData.child('at').isNumber() && newData.child('n').isString())"
+        },
+        "pausedMs": {
+          ".write": "auth != null && root.child('rooms/' + $code + '/players/' + auth.uid).exists()",
+          ".validate": "newData.isNumber() && newData.val() >= 0"
         }
       }
     },
