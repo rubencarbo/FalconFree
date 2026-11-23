@@ -68,7 +68,7 @@ export class GuideArrow {
 }
 
 const TRAIL_MAX = 110;
-const TRAIL_GAP = 34;
+const TRAIL_GAP = 52;
 
 /**
  * Estela en el cielo: chevrones luminosos que fluyen por el camino a seguir
@@ -92,9 +92,9 @@ export class RouteTrail {
 
   constructor(scene: THREE.Scene) {
     const arm = (side: number) => {
-      const g = new THREE.BoxGeometry(1.8, 0.9, 10);
+      const g = new THREE.BoxGeometry(1.1, 0.6, 8);
       g.rotateY(side * 0.62);
-      g.translate(side * 2.9, 0, 2.2);
+      g.translate(side * 2.3, 0, 1.8);
       return g.toNonIndexed();
     };
     const geo = mergeGeometries([arm(1), arm(-1)]);
@@ -128,7 +128,7 @@ export class RouteTrail {
       return;
     }
     this.phase = (this.phase + dt * 70) % TRAIL_GAP;
-    this.base.setHex(color).multiplyScalar(1.6);
+    this.base.setHex(color).multiplyScalar(0.9);
     const n = Math.min(TRAIL_MAX, Math.floor(L / TRAIL_GAP));
     let k = 0;
     for (let i = 0; i < n; i++) {
@@ -139,14 +139,15 @@ export class RouteTrail {
       curve.getTangentAt(u, this.t);
       this.look.lookAt(this.p, this.t.add(this.p), this.up);
       this.q.setFromRotationMatrix(this.look);
-      const scale = 1.1 + Math.min(3.2, d / 260);
+      const scale = 1 + Math.min(2, d / 380);
       this.s.setScalar(scale);
       this.m.compose(this.p, this.q, this.s);
       this.mesh.setMatrixAt(k, this.m);
       // Aparece suave cerca del avión y se apaga al final
-      const fadeIn = Math.min(1, d / 120);
+      // Nada justo delante del avión: no tapa la vista
+      const fadeIn = THREE.MathUtils.clamp((d - 70) / 160, 0, 1);
       const fadeOut = Math.min(1, (L - d) / 80);
-      const pulse = 0.75 + 0.25 * Math.sin(i * 0.9 - this.phase * 0.18);
+      const pulse = 0.8 + 0.2 * Math.sin(i * 0.9 - this.phase * 0.12);
       this.c.copy(this.base).multiplyScalar(fadeIn * fadeOut * pulse);
       this.mesh.setColorAt(k, this.c);
       k++;
