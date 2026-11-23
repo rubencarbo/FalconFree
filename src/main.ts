@@ -81,7 +81,7 @@ type PfMode = 'free' | 'delivery' | 'race' | 'daily' | 'battle' | 'koth' | 'tag'
 
 const PF_INFO: Record<PfMode, { title: string; desc: string }> = {
   free: { title: 'Vuelo libre', desc: 'Explora la ciudad, atraviesa aros de colores, derriba drones y recoge recompensas. Sin prisa.' },
-  delivery: { title: 'Mensajero', desc: 'Recoge el paquete en la azotea verde y entrégalo en la naranja. Cada entrega suma 25 s; la propina sube si eres rápido y vuelas bajo.' },
+  delivery: { title: 'Mensajero', desc: 'Atraviesa la esfera verde que flota sobre una azotea para recoger el paquete y llévalo a la esfera naranja, lejos en la ciudad. Todo en el aire, sin aterrizar. Cada entrega suma 40 s; la propina sube si eres rápido.' },
   race: { title: 'Competición', desc: 'Pasa por todos los hitos en orden. Entre hitos elige ruta: la baja tiene anillos que restan 1 s y la alta anillos de acelerón. Corres contra tu fantasma.' },
   daily: { title: 'Desafío diario', desc: '' },
   battle: { title: 'Batalla', desc: 'Combate aéreo contra bots. Gana quien llegue antes a los derribos indicados.' },
@@ -705,7 +705,7 @@ class Game {
     this.delivery = new Delivery(this.scene, this.gen);
     this.delivery.start(this.flight.pos);
     this.setScreen('playing');
-    this.hud.toast('Recoge el paquete en la azotea verde', 2200);
+    this.hud.toast('Atraviesa la esfera verde para recoger el paquete', 2400);
   }
 
   /** Oleadas: sobrevive y mejora tu avión entre oleadas */
@@ -1863,8 +1863,13 @@ class Game {
       if (ev?.type === 'pickup') {
         this.audio.reload();
         Haptic.pickup();
-        this.hud.toast('Paquete recogido · llévalo a la azotea naranja', 1800);
+        this.fx.sparks(f.pos, null, 70, 90);
+        this.rig.addShake(1.5);
+        this.hud.split('📦 ¡PAQUETE RECOGIDO! · llévalo a la esfera naranja', 'good');
       } else if (ev?.type === 'deliver') {
+        this.fx.sparks(f.pos, null, 110, 120);
+        this.rig.addShake(2);
+        this.hud.split(`✅ ${ev.label?.toUpperCase()} · +${ev.reward}`, 'good');
         this.audio.gate(true);
         Haptic.gate();
         this.progress.add('deliveries');
@@ -1922,7 +1927,7 @@ class Game {
 
     // Fantasma
     if (this.race?.started && !this.race.finished) {
-      this.ghostRec.record(dt, f);
+      if (this.race.lap === 1) this.ghostRec.record(dt, f);
       this.ghost?.update(this.race.elapsed, this.time);
       this.worldGhost?.update(this.race.elapsed, this.time);
     } else if (this.race && !this.race.started) {
@@ -2413,7 +2418,8 @@ class Game {
       case 'finish':
         this.audio.gate(ev.best);
         this.recorder.highlight('Meta');
-        this.onRaceFinished(ev.time, ev.splits, ev.best);
+        if (ev.lap > 1) this.onLapFinished(ev.time, ev.total, ev.lap);
+        else this.onRaceFinished(ev.time, ev.splits, ev.best);
         break;
     }
   }
@@ -2807,6 +2813,44 @@ class Game {
     else this.startRace(this.courseDef, 0, 1, undefined, undefined, this.customCircuit ?? undefined);
   }
 
+  /** «¡Seguir!»: otra vuelta al mismo circuito; el cronómetro total sigue */
+  private continueRace() {
+    const race = this.race;
+    if (!race || !race.finished || this.room) return;
+    race.continueLap();
+    if (!this.alive) {
+      const p = race.respawnPoint();
+      this.spawnAt(p.pos, p.yaw);
+    }
+    this.flight.frozen = false;
+    this.setScreen('playing');
+    this.hud.countdown(`Vuelta ${race.lap}`);
+    setTimeout(() => this.hud.countdown(null), 1200);
+    this.audio.countdown(true);
+  }
+
+  /** Fin de una vuelta extra */
+  private onLapFinished(lapTime: number, total: number, lap: number) {
+    this.screen = 'results';
+    this.earn(40);
+    this.progress.add('races');
+    const race = this.race!;
+    this.hud.split(`VUELTA ${lap} · ${formatTime(lapTime)}`, lapTime <= race.bestLap ? 'good' : 'neutral');
+    $('rr-title').textContent = `¡Vuelta ${lap} completada!`;
+    $('rr-time').textContent = formatTime(lapTime);
+    $('rr-course').textContent = `${race.course.name} · ${lap} vueltas en ${formatTime(total)} · mejor vuelta ${formatTime(race.bestLap)}`;
+    $('rr-credits').textContent = `+${this.sessionCredits} créditos`;
+    $('rr-splits').replaceChildren();
+    $('rr-msg').textContent = 'Solo la primera vuelta cuenta para los récords y la clasificación.';
+    show('rr-room', false);
+    show('rr-solo-actions', true);
+    show('btn-rr-continue', true);
+    show('btn-rr-replay', true);
+    setTimeout(() => {
+      if (this.screen === 'results' && !this.replaying) this.setScreen('results');
+    }, 1500);
+  }
+
   /** Volver al último hito (penalización de tiempo) */
   resetToRoute() {
     if (!this.race?.started || this.race.finished || this.screen !== 'playing' || !this.alive) return;
@@ -2873,7 +2917,7 @@ class Game {
     }
     if (this.delivery && !this.delivery.over) {
       const t = this.delivery.target;
-      return [start, t.clone().setY(Math.max(t.y + 60, (start.y + t.y) / 2)), t.clone().setY(t.y + 12)];
+      return [start, t.clone()];
     }
     return null;
   }
@@ -3230,6 +3274,7 @@ class Game {
     }
     show('rr-room', !!this.room);
     show('rr-solo-actions', !this.room);
+    show('btn-rr-continue', !this.room);
     show('btn-rr-replay', !this.room);
     this.updateRoomResultButtons();
     setTimeout(() => {
@@ -4016,6 +4061,7 @@ class Game {
 
     // Resultados
     $('btn-rr-retry').addEventListener('click', () => this.restartRace());
+    $('btn-rr-continue').addEventListener('click', () => this.continueRace());
     $('btn-rr-menu').addEventListener('click', () => this.setScreen('menu'));
     $('btn-rr-replay').addEventListener('click', () => this.startReplay('race-results'));
     $('btn-rr-again').addEventListener('click', () => void this.room?.startRound());

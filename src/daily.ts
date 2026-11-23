@@ -26,13 +26,13 @@ export function dailyChallenge(d = new Date(), variant: DailyVariant = 'day'): {
   const dayStages = STAGES.filter((s) => !s.night);
   const nightStage = STAGES.find((s) => s.night) ?? STAGES[0];
   const stage = variant === 'night' ? nightStage : dayStages[n % dayStages.length];
-  const gates = 8 + (n % 4);
+  const gates = 12 + (n % 4);
   const def: CourseDef = {
     id: `daily-${baseKey}`,
     name: 'Desafío diario',
     description: `${gates} hitos · ${stage.name}`,
     gates,
-    radius: 1000 + (n % 5) * 150,
+    radius: 1600 + (n % 5) * 200,
     seedOffset: 1000 + (n % 9973),
   };
   return { stage, def, key: variant === 'night' ? `${baseKey}n` : baseKey, variant, baseKey };

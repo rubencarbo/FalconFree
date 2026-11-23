@@ -13,8 +13,8 @@ export interface CourseDef {
 }
 
 export const COURSES: CourseDef[] = [
-  { id: 'sprint', name: 'Sprint', description: '7 hitos · circuito corto y rápido', gates: 7, radius: 900, seedOffset: 11 },
-  { id: 'grand', name: 'Gran circuito', description: '12 hitos · ruta larga con muchas variantes', gates: 12, radius: 1700, seedOffset: 29 },
+  { id: 'sprint2', name: 'Sprint', description: '9 hitos · circuito rápido', gates: 9, radius: 1300, seedOffset: 11 },
+  { id: 'grand2', name: 'Gran circuito', description: '15 hitos · ruta larga con muchas variantes', gates: 15, radius: 2300, seedOffset: 29 },
 ];
 
 export interface Gate {
@@ -121,7 +121,8 @@ export function buildCourse(gen: CityGen, def: CourseDef): Course {
 
 export type RaceEvent =
   | { type: 'gate'; index: number; total: number; split: number; delta: number | null }
-  | { type: 'finish'; time: number; splits: number[]; best: boolean }
+  /** time: tiempo de la vuelta; total: tiempo acumulado; lap: número de vuelta */
+  | { type: 'finish'; time: number; splits: number[]; best: boolean; total: number; lap: number }
   | { type: 'bonus'; kind: BonusKind; pos: THREE.Vector3 }
   /** Se ha saltado hitos para ir a uno posterior (con penalización) */
   | { type: 'skip'; count: number; penalty: number; gates: number[] }
@@ -206,6 +207,23 @@ export class Race {
   private disposables: { dispose(): void }[] = [];
   private inv = new THREE.Matrix4();
   private missedGate = -1;
+  /** Vuelta actual (botón «¡Seguir!») y momento en que empezó */
+  lap = 1;
+  lapStart = 0;
+  bestLap = Infinity;
+
+  /** Otra vuelta al mismo circuito: el cronómetro total sigue corriendo */
+  continueLap() {
+    if (!this.finished) return;
+    this.finished = false;
+    this.lap++;
+    this.lapStart = this.time;
+    this.nextGate = 1;
+    this.passed = 0;
+    this.splits = [];
+    this.missedGate = -1;
+    this.highlight();
+  }
   private la = new THREE.Vector3();
 
   constructor(
@@ -420,22 +438,24 @@ export class Race {
         // Los parciales de los hitos saltados se registran con el tiempo de este
         for (let j = 0; j < skipped; j++) {
           this.passed++;
-          this.splits.push(this.time);
+          this.splits.push(this.time - this.lapStart);
         }
       }
       this.passed++;
-      const split = this.time;
+      const split = this.time - this.lapStart;
       this.splits.push(split);
       const idx = this.splits.length - 1;
       const delta = this.best && this.best.splits[idx] !== undefined ? split - this.best.splits[idx] : null;
       if (reached === 0) {
         this.finished = true;
-        const isBest = !this.best || split < this.best.time;
+        // El récord del circuito cuenta la primera vuelta (las demás son «seguir volando»)
+        const isBest = this.lap === 1 && (!this.best || split < this.best.time);
         if (isBest) {
           this.best = { time: split, splits: [...this.splits] };
           store.set(`race.${this.course.id}`, JSON.stringify(this.best));
         }
-        events.push({ type: 'finish', time: split, splits: [...this.splits], best: isBest });
+        this.bestLap = Math.min(this.bestLap, split);
+        events.push({ type: 'finish', time: split, splits: [...this.splits], best: isBest, total: this.time, lap: this.lap });
       } else {
         events.push({ type: 'gate', index: this.passed, total: this.totalCheckpoints, split, delta });
         this.nextGate = (reached + 1) % N;

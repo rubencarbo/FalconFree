@@ -44,6 +44,9 @@ completa, con su icono, sin barra del navegador.
 - **Saltar hitos**: si te pasas un hito, puedes seguir al siguiente: al atravesarlo se acepta con
   **+5 s por hito saltado** (rótulo rojo «+5 s · HITO SALTADO» y cronómetro en rojo). La meta no se
   puede saltar. Si pasas al lado de un hito sin atravesarlo, el juego te avisa.
+- **¡Seguir!**: al cruzar la meta en solitario puedes dar otra vuelta al mismo circuito; el
+  cronómetro total sigue y se muestra tu mejor vuelta (los récords cuentan solo la primera).
+  Los circuitos son más largos: Sprint 9 hitos, Gran circuito 15 y el desafío diario 12–15.
 - **Desafío diario de día o de noche**: el mismo circuito para todos; eliges escenario de día o la
   Ciudad nocturna, y cada versión tiene su propia clasificación.
 
@@ -70,8 +73,9 @@ Para no perderse en un mundo abierto, sin mover los hitos (sería injusto en la 
 - **Rey del cielo** (contra bots o en multijugador): una zona dorada se mueve cada minuto por
   la ciudad. Sumas 1 punto por segundo si estás solo dentro; si hay más aviones, nadie suma.
   Gana el primero en llegar a la meta de puntos o quien más tenga al acabar el tiempo.
-- **Mensajero urbano** (solo): recoge el paquete en la azotea verde y entrégalo en la naranja.
-  Cada entrega da +25 s; la propina sube si llegas rápido y volando bajo.
+- **Mensajero urbano** (solo): todo en el aire. Atraviesa la esfera verde que flota sobre una
+  azotea (con el paquete dentro) y llévalo a la esfera naranja, a 2–3 km. Empiezas con 120 s y
+  cada entrega suma 40 s; la propina sube si llegas rápido.
 - **Oleadas** (solo): drones y, desde la oleada 3, cazas enemigos. Entre oleadas eliges 1 de 3
   mejoras (daño, cadencia, blindaje, autorreparación, vampiro, escudo pulsante…). Una sola vida.
 - **Pilla-pilla** (contra bots o en multijugador): sin disparos. Quien la lleva (rótulo rojo)
