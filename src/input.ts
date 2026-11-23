@@ -10,6 +10,7 @@ export class Input {
   private joy = { x: 0, y: 0, id: -1 as number };
   private touchBoost = false;
   private touchClimb = false;
+  private touchBrake = false;
   onCamera?: () => void;
   onPause?: () => void;
   onBoostStart?: () => void;
@@ -28,8 +29,10 @@ export class Input {
     fireBtn: HTMLElement,
     canvas: HTMLElement,
     missileBtn: HTMLElement,
+    brakeBtn?: HTMLElement,
   ) {
     this.bindTap(missileBtn, () => this.onMissile?.());
+    if (brakeBtn) this.bindHold(brakeBtn, (v) => (this.touchBrake = v));
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     window.addEventListener('keydown', (e) => {
       if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
@@ -138,6 +141,7 @@ export class Input {
     let boost = this.touchBoost || k.has('Space') || k.has('ShiftLeft') || k.has('ShiftRight');
     let climb = this.touchClimb || k.has('KeyE');
     let fire = this.touchFire || this.mouseFire || k.has('KeyF') || k.has('KeyJ') || k.has('ControlLeft');
+    let brake = this.touchBrake || k.has('KeyB') || k.has('KeyX');
 
     // Mando
     let pads: (Gamepad | null)[] = [];
@@ -162,6 +166,7 @@ export class Input {
       boost ||= btn(0) || btn(7);
       climb ||= btn(1);
       fire ||= btn(2) || btn(6);
+      brake ||= btn(13);
       const rb = !!p.buttons[5]?.pressed;
       const lb = !!p.buttons[4]?.pressed;
       if (rb && !this.padPrev[5]) this.onMissile?.();
@@ -182,7 +187,8 @@ export class Input {
     if (this.invertY) y = -y;
     if (boost && !this.prevBoost) this.onBoostStart?.();
     this.prevBoost = boost;
-    return { x, y, boost, climb, fire };
+    if (brake) boost = false;
+    return { x, y, boost, climb, fire, brake };
   }
 
   reset() {
@@ -191,5 +197,6 @@ export class Input {
     this.touchClimb = false;
     this.touchFire = false;
     this.mouseFire = false;
+    this.touchBrake = false;
   }
 }

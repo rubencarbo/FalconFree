@@ -109,6 +109,10 @@ botón de los demás muestra «🔊 Habla …» y queda bloqueado (el turno lo r
 con la hora del servidor). El audio va en calidad telefónica (~40 KB por mensaje) y se borra a
 los 20 s. En Ajustes puedes desactivar la voz de los demás.
 
+**Prueba de micrófono** (Ajustes → Imagen y sonido): graba 3 s con medidor de nivel y te lo
+reproduce tal como lo oirán los demás pilotos; si solo capta silencio o el navegador lo bloquea, te
+dice cómo arreglarlo.
+
 ## Multijugador: chat rápido
 
 En partida multijugador, el botón 💬 (o la tecla T y luego 1–8) envía frases predefinidas:
@@ -135,12 +139,19 @@ En partida multijugador, el botón 💬 (o la tecla T y luego 1–8) envía fras
   Crúzalos por debajo de la barra; con las alas en vertical («en cuchillo») valen casi el doble.
 - **Bandadas de pájaros**: se apartan a tu paso. Atraviesa la bandada sin tocar ninguno para
   «Vuelo limpio»; si chocas, pierdes algo de blindaje.
-- **Rampas de lanzamiento y montañas flotantes**: seis aros verdes en curva te lanzan por encima
-  de las nubes, a unas montañas de roca suspendidas en el aire (con lianas, neblina, cascadas y
-  plantas que brillan de noche). Son un refugio útil: la **cascada** repara el avión al 100 %, los
-  **arcos de piedra** recargan la munición y dan +1 misil, el **nido** de la cima da una recompensa
-  (escudo, turbo, doble daño o reparación; reaparece cada minuto) y la **corriente ascendente**
-  te sube gratis. Además hay un tesoro dorado bajo cada montaña. En el radar aparecen con la «M».
+- **Montañas flotantes**: tres enormes montañas de roca suspendidas a media altura (la raíz queda
+  por encima de los edificios), con lianas, neblina, cascadas y plantas que brillan de noche. Son
+  **sólidas**: si chocas con la roca o los arcos, rozas o te estrellas como con un edificio. La
+  **cascada** repara el avión, los **arcos de piedra** recargan munición y +1 misil, la **corriente
+  ascendente** te sube gratis y hay un tesoro bajo cada montaña. Se llega por una rampa de aros verdes;
+  en el radar aparecen con la «M».
+- **Santuario del cielo**: en la cima de la montaña grande hay una plataforma de aterrizaje con runas
+  y un árbol de luz. **Frena** (botón Freno o tecla B: baja hasta 110 km/h) y posa el avión por debajo
+  de 340 km/h. Al aterrizar se repara y recarga todo y puedes elegir maravillas: despertar el árbol de
+  luz (+50 % de blindaje y regeneración 3 min), llamar a las aves de luz (te escoltan y disparan rayos
+  3 min), cielo de aurora (noche con auroras boreales y estrellas 2 min), pintura viva (tu avión cambia
+  de color) y el pozo de los deseos (50 créditos: créditos, turbo infinito, revelar una pieza
+  legendaria… o nada). Al despegar sales en vertical dejando una estela arcoíris.
 - **Avión legendario**: 20 piezas doradas escondidas a ras de calle entre rascacielos (7 en
   Metrópolis, 7 en Archipiélago y 6 en Ciudad nocturna). Reúnelas todas para desbloquear el
   **Aurora**. Aparecen en el radar (?) cuando estás cerca.

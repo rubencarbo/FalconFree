@@ -472,9 +472,17 @@ export class Room {
   }
 
   /** Pausa la partida para todos */
-  async setPause() {
-    if (this.closed || this.pause) return;
-    await set(ref(firebase.database()!, `rooms/${this.code}/pause`), { by: this.uid, n: this.name.slice(0, 16), at: Math.round(this.serverNow()) }).catch(() => undefined);
+  /** Devuelve false si Firebase la rechaza (p. ej. reglas sin publicar) */
+  async setPause(): Promise<boolean> {
+    if (this.closed) return false;
+    if (this.pause) return true;
+    try {
+      await set(ref(firebase.database()!, `rooms/${this.code}/pause`), { by: this.uid, n: this.name.slice(0, 16), at: Math.round(this.serverNow()) });
+      return true;
+    } catch (e) {
+      console.warn('[sala] no se pudo pausar', e);
+      return false;
+    }
   }
 
   /** Reanuda para todos: suma el tiempo de pausa y quita la pausa */

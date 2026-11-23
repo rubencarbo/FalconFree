@@ -14,7 +14,12 @@ export interface FlightInput {
   boost: boolean;
   climb: boolean;
   fire?: boolean;
+  /** Freno aerodinámico: reduce mucho la velocidad (para aterrizar) */
+  brake?: boolean;
 }
+
+/** Velocidad mínima con el freno (km/h) */
+export const BRAKE_KMH = 110;
 
 /** Modelo de vuelo arcade: rumbo/cabeceo/alabeo (sin loopings) */
 export class Flight {
@@ -42,6 +47,8 @@ export class Flight {
    * tira del morro hacia arriba con fuerza, la subida se acentúa.
    */
   pullUpAssist = 0;
+  /** frenando (para efectos y HUD) */
+  braking = false;
   private prevY = 500;
 
   reset(x: number, y: number, z: number, yaw: number) {
@@ -111,20 +118,26 @@ export class Flight {
     this.yaw += Math.sin(this.roll) * 0.95 * this.agility * dt;
 
     // Velocidad: empuje + gravedad
-    const target = ((this.burst > 0 ? MAX_KMH : input.boost ? BOOST_KMH : CRUISE_KMH) / KMH) * (this.burst > 0 ? 1 : this.speedMul);
+    const braking = !!input.brake && this.burst <= 0;
+    const target = braking ? BRAKE_KMH / KMH : ((this.burst > 0 ? MAX_KMH : input.boost ? BOOST_KMH : CRUISE_KMH) / KMH) * (this.burst > 0 ? 1 : this.speedMul);
     const accel = this.burst > 0 ? 260 : input.boost ? 110 : 45;
     if (this.speed < target) this.speed = Math.min(target, this.speed + accel * dt);
-    else this.speed = Math.max(target, this.speed - 35 * dt);
+    else this.speed = Math.max(target, this.speed - (braking ? 220 : 35) * dt);
     this.speed -= Math.sin(this.pitch) * 9.81 * 1.6 * dt;
     // Sin turbo, un picado no pasa de ~1000 km/h (antes llegaba casi a la velocidad máxima
     // y parecía que el turbo se activaba solo)
     const diveCap = (1000 / KMH) * this.speedMul;
     if (!input.boost && this.burst <= 0 && this.pitch < -0.05 && this.speed > diveCap) this.speed = Math.max(diveCap, this.speed - 120 * dt);
-    this.speed = THREE.MathUtils.clamp(this.speed, MIN_KMH / KMH, (MAX_KMH / KMH) * Math.max(1, this.speedMul));
-    this.thrust += ((input.boost || this.burst > 0 ? 1 : 0.55) - this.thrust) * Math.min(1, dt * 3);
+    const minSpeed = (braking || this.speed * KMH < MIN_KMH ? BRAKE_KMH : MIN_KMH) / KMH;
+    this.speed = THREE.MathUtils.clamp(this.speed, minSpeed, (MAX_KMH / KMH) * Math.max(1, this.speedMul));
+    this.thrust += ((input.boost || this.burst > 0 ? 1 : braking ? 0.15 : 0.55) - this.thrust) * Math.min(1, dt * 3);
+    this.braking = braking;
 
     const f = this.forward(_v);
     this.pos.addScaledVector(f, this.speed * dt);
+    // A poca velocidad el avión pierde sustentación y se hunde poco a poco
+    const kmh = this.speed * KMH;
+    if (kmh < 260) this.pos.y -= ((260 - kmh) / 150) * 9 * dt;
     // Sustentación extra del tirón de emergencia (y sin perder tanta velocidad al subir)
     if (assist > 0) {
       this.pos.y += assist * py * 28 * dt;
@@ -170,6 +183,9 @@ export class JetModel {
   group = new THREE.Group();
   private flames: THREE.Mesh[] = [];
   wingTips = [new THREE.Vector3(-7.2, 0.1, 3.6), new THREE.Vector3(7.2, 0.1, 3.6)];
+  /** «Pintura viva» del santuario: los colores cambian continuamente */
+  shimmer = false;
+  private mats!: Mats;
 
   constructor(accentColor = 0xff7a1a, bodyColor = 0x40454e, variant: PlaneVariant = 'falcon') {
     const g = VARIANT_GLOW[variant];
@@ -184,6 +200,7 @@ export class JetModel {
       red: new THREE.MeshBasicMaterial({ color: 0xff3030 }),
       green: new THREE.MeshBasicMaterial({ color: 0x30ff60 }),
     };
+    this.mats = m;
     const add: AddFn = (w, h, d, x, y, z, mat) => {
       const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
       mesh.position.set(x, y, z);
@@ -547,6 +564,12 @@ export class JetModel {
   }
 
   update(flight: Flight, time: number) {
+    if (this.shimmer) {
+      const h = (time * 0.12) % 1;
+      (this.mats.accent as THREE.MeshLambertMaterial).color.setHSL(h, 0.85, 0.55);
+      (this.mats.wing as THREE.MeshLambertMaterial).color.setHSL((h + 0.33) % 1, 0.55, 0.5);
+      (this.mats.glow as THREE.MeshBasicMaterial).color.setHSL((h + 0.66) % 1, 0.9, 0.6);
+    }
     this.group.position.copy(flight.pos);
     flight.quaternion(this.group.quaternion);
     const t = flight.thrust;

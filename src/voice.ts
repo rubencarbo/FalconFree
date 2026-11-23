@@ -61,13 +61,17 @@ export class VoiceRecorder {
   }
 
   /** Empieza a grabar (el micro ya está abierto); se para solo a los 5 s */
-  begin() {
+  begin(ms = VOICE_MAX_MS) {
     if (!this.node || this.recording) return;
     this.chunks = [];
     this.recording = true;
+    this.duration = ms;
     this.startedAt = performance.now();
-    this.timer = window.setTimeout(() => this.stop(), VOICE_MAX_MS);
+    this.timer = window.setTimeout(() => this.stop(), ms);
   }
+
+  /** Duración de la grabación en curso (ms) */
+  duration = VOICE_MAX_MS;
 
   /** Abre el micro y graba (atajo) */
   async start() {

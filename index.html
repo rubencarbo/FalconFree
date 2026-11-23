@@ -80,7 +80,8 @@
         <button id="btn-fire" class="round">Disparo</button>
         <button id="btn-missile" class="round">Misil</button>
         <button id="btn-boost" class="round">Turbo</button>
-        <div id="keys-hint">W/S/A/D vuelo · Espacio turbo · F/clic disparo · Q/clic dcho. misil · G bengalas · E subir · C vista · P pausa · T chat · V hablar (en sala) · H hito (editor)</div>
+        <button id="btn-brake" class="round">Freno</button>
+        <div id="keys-hint">W/S/A/D vuelo · Espacio turbo · B freno · F/clic disparo · Q/clic dcho. misil · G bengalas · E subir · C vista · P pausa · T chat · V hablar (en sala) · H hito (editor)</div>
       </div>
 
       <div id="replay-ui" class="hidden">
@@ -244,6 +245,15 @@
             <button id="btn-cs-race" class="primary">Correr ahora</button>
             <button id="btn-cs-menu" class="secondary">Volver a Mis circuitos</button>
           </div>
+        </div>
+      </div>
+
+      <div id="sanctuary" class="overlay hidden">
+        <div class="panel sanctuary">
+          <h2>✨ Santuario del cielo</h2>
+          <p class="muted left">Has aterrizado. Tu avión está reparado y con la munición y los misiles al máximo. Elige las maravillas que quieras (cada una una vez por aterrizaje):</p>
+          <div id="wonder-list" class="wonder-list"></div>
+          <button id="btn-takeoff" class="primary">🚀 Despegar</button>
         </div>
       </div>
 
@@ -433,6 +443,11 @@
           <button id="set-quality" class="toggle" aria-pressed="true"><span>Calidad gráfica<small>Baja va más fluida en móviles modestos</small></span><b>Automática</b></button>
           <button id="set-sound" class="toggle" aria-pressed="true"><span>Sonido</span><b>Sí</b></button>
           <button id="set-voice" class="toggle" aria-pressed="true"><span>Mensajes de voz<small>Oír a los otros pilotos en multijugador</small></span><b>Sí</b></button>
+          <div class="mic-test">
+            <button id="btn-mic-test" class="secondary strong">🎙️ Probar micrófono</button>
+            <span class="mic-meter"><i id="mic-test-level"></i></span>
+            <small id="mic-test-msg" class="muted left">Graba 3 segundos y te los reproduce tal como te oirán los demás pilotos.</small>
+          </div>
           <h3 class="set-group">Perfil en la nube</h3>
           <div id="cloud-box" class="cloud-box">
             <p id="cloud-info" class="muted left"></p>

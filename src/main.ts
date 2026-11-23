@@ -7,7 +7,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { STAGES, getStage, type Stage, type StageId } from './stages';
 import { CityGen, type Box } from './world/city';
 import { ChunkManager } from './world/chunks';
-import { Flight, JetModel, CRUISE_KMH, BOOST_KMH, type FlightInput } from './jet';
+import { Flight, JetModel, CRUISE_KMH, BOOST_KMH, BRAKE_KMH, KMH, type FlightInput } from './jet';
 import { CameraRig, CAMERA_LABELS, CAMERA_MODES } from './cameraRig';
 import { Contrails, FarGround, Rings, Sky, RING_INFO, type RingPickup } from './effects';
 import { ICONS, ICON_GLYPH, ICON_NAMES, hexColor, type IconId } from './identity';
@@ -43,7 +43,8 @@ import { hash2 } from './world/noise';
 import { Haptic, setHaptics } from './haptics';
 import { Boss, PHASE_LABELS } from './boss';
 import { CityEvents } from './events';
-import { SkyFun } from './skyfun';
+import { SkyFun, type FloatingRealm } from './skyfun';
+import { AuroraSky, LightBirds } from './wonders';
 import { StormZone } from './zone';
 import { CloudSave, formatRecovery } from './cloud';
 import { QUICK_CHAT, CHAT_ICONS } from './chat';
@@ -66,7 +67,7 @@ import {
 } from './circuits';
 import type { GhostData } from './ghost';
 import type { WeatherKind } from './weather';
-import { VoicePlayer, VoiceRecorder, VOICE_MAX_MS } from './voice';
+import { VoicePlayer, VoiceRecorder, VOICE_MAX_MS, decodeMuLaw } from './voice';
 import { PlanePreview, type PreviewMode } from './planePreview';
 import { AutoQuality, QUALITY_LABELS, qualityPreset, type QualityPreset } from './quality';
 import type { QualityLevel, QualitySetting, TrailStyleSetting } from './settings';
@@ -225,6 +226,19 @@ class Game {
   private bossWinAt = 0;
   cityEvents: CityEvents | null = null;
   skyfun: SkyFun | null = null;
+  // Santuario del cielo (aterrizaje) y sus maravillas
+  landed: FloatingRealm | null = null;
+  private usedWonders = new Set<string>();
+  private blessT = 0;
+  private birds: LightBirds | null = null;
+  private birdsT = 0;
+  private aurora: AuroraSky | null = null;
+  private auroraT = 0;
+  private rainbowT = 0;
+  private fastWarnT = 0;
+  /** segundos sin choques con la roca tras despegar del santuario */
+  private rockGrace = 0;
+  private wasBraking = false;
   private prevWeather: WeatherKind = 'clear';
   cloud = new CloudSave();
   worldGhost: GhostPlayer | null = null;
@@ -259,7 +273,7 @@ class Game {
   private shotSoundTimer = 0;
   private prevPos = new THREE.Vector3();
   private stageListEls: HTMLElement[] = [];
-  private lastInput: FlightInput = { x: 0, y: 0, boost: false, climb: false, fire: false };
+  private lastInput: FlightInput = { x: 0, y: 0, boost: false, climb: false, fire: false, brake: false };
 
   constructor() {
     const canvas = $<HTMLCanvasElement>('scene');
@@ -292,6 +306,7 @@ class Game {
       $('btn-fire'),
       canvas,
       $('btn-missile'),
+      $('btn-brake'),
     );
     this.applySettings();
     this.input.onCamera = () => this.cycleCamera();
@@ -462,6 +477,7 @@ class Game {
     this.cityEvents = null;
     this.skyfun?.dispose();
     this.skyfun = null;
+    this.endWonders();
     this.endEditor();
     this.stopSpectating();
     this.hud.bossBar(null);
@@ -1287,8 +1303,19 @@ class Game {
   setPaused(p: boolean) {
     if (this.screen !== 'playing') return;
     if (this.room) {
-      if (p) void this.room.setPause();
-      else void this.room.resume();
+      const room = this.room;
+      if (p) {
+        // Se para al momento en esta pantalla; la sala lo confirma para todos
+        this.localPause = true;
+        this.applyRoomPause({ by: room.uid, n: this.pilotName(), at: room.serverNow() });
+        void room.setPause().then((ok) => {
+          if (!ok && this.paused) {
+            $('pause-note').textContent = 'No se pudo pausar para toda la sala: Firebase la rechaza (publica las reglas con «npm run deploy»). Tu avión está quieto y protegido.';
+            show('pause-note', true);
+          }
+        });
+      } else if (room.pause) void room.resume();
+      else this.applyRoomPause(null);
       return;
     }
     if (p && !this.paused) {
@@ -1301,21 +1328,39 @@ class Game {
     this.showPauseMenu(p, null);
   }
 
+  /** Pausa local en una sala (mientras llega la confirmación o si Firebase la rechaza) */
+  private localPause = false;
+
   /** Pausa común de la sala (la pone o la quita cualquier jugador) */
   private applyRoomPause(st: PauseState | null) {
     const room = this.room;
     if (!room) return;
     if (st) {
-      if (this.screen !== 'playing' || this.paused) return;
+      if (this.screen !== 'playing') return;
+      if (this.paused) {
+        // ya en pausa (local): actualizar el aviso con quién la ha puesto
+        $('pause-note').textContent = st.by === room.uid ? 'Has pausado la partida para todos.' : `${st.n} ha pausado la partida para todos.`;
+        show('pause-note', true);
+        return;
+      }
       this.paused = true;
+      this.pauseStart = performance.now();
       this.toggleChat(false);
       this.showPauseMenu(true, st.by === room.uid ? 'Has pausado la partida para todos.' : `${st.n} ha pausado la partida para todos.`);
       if (st.by !== room.uid) this.audio.countdown(false);
     } else if (this.paused) {
+      // Si la pausa era solo local (aún sin confirmar), la sala vacía no la quita
+      if (this.localPause && !room.pause && st === null && this.pauseConfirmPending()) return;
       this.paused = false;
+      this.localPause = false;
       this.showPauseMenu(false, null);
       if (this.screen === 'playing') this.hud.toast('¡Seguimos!', 1000);
     }
+  }
+
+  /** ¿La pausa local acaba de pedirse y la sala aún no la ha confirmado? */
+  private pauseConfirmPending() {
+    return performance.now() - this.pauseStart < 4000;
   }
 
   private showPauseMenu(p: boolean, note: string | null) {
@@ -1355,7 +1400,7 @@ class Game {
   // ================================================================ Daños
   /** Daño recibido (balas, misiles, choques) */
   private takeDamage(amount: number, killer?: string, weapon = false) {
-    if (!this.alive || this.invuln > 0) return;
+    if (!this.alive || this.invuln > 0 || this.paused || this.landed) return;
     if (weapon && this.shield > 0) {
       for (let i = 0; i < 6; i++) this.fx.shieldSpark(this.flight.pos);
       return;
@@ -1368,7 +1413,7 @@ class Game {
 
   /** Explosión del avión propio */
   private destroy(killer?: string) {
-    if (!this.alive) return;
+    if (!this.alive || (this.paused && this.room) || this.landed) return;
     this.alive = false;
     this.myTarget.alive = false;
     this.hp = 0;
@@ -1443,7 +1488,7 @@ class Game {
   }
 
   /** Choque contra el escenario: leve (rozadura) o fuerte (explosión) */
-  private impact(normal: THREE.Vector3, box: Box | null) {
+  private impact(normal: THREE.Vector3, box: Box | null, push?: THREE.Vector3) {
     const f = this.flight;
     const v = f.forward().multiplyScalar(f.speed);
     const into = -v.dot(normal);
@@ -1456,7 +1501,9 @@ class Game {
     v.addScaledVector(normal, Math.max(into, 8) * 1.6);
     v.multiplyScalar(0.72);
     f.setVelocity(v);
-    if (box && normal.y < 0.5) {
+    if (push) {
+      f.pos.copy(push);
+    } else if (box && normal.y < 0.5) {
       if (normal.x < -0.5) f.pos.x = box.x0 - 4;
       else if (normal.x > 0.5) f.pos.x = box.x1 + 4;
       else if (normal.z < -0.5) f.pos.z = box.z0 - 4;
@@ -1492,6 +1539,11 @@ class Game {
     for (const p of pts) {
       if (p.y < 1.2) {
         this.impact(new THREE.Vector3(0, 1, 0), null);
+        return true;
+      }
+      const rockHit = this.rockGrace > 0 ? null : this.skyfun?.collide(p);
+      if (rockHit) {
+        this.impact(rockHit.normal, null, rockHit.push);
         return true;
       }
       const box = this.gen.boxAt(p.x, p.z);
@@ -1811,7 +1863,7 @@ class Game {
     const other = this.remotes.get(e.from)?.target;
     switch (e.type) {
       case 'hit':
-        if (!this.alive || this.invuln > 0) return;
+        if (!this.alive || this.invuln > 0 || this.paused) return;
         this.audio.damaged();
         this.fx.hit(this.flight.pos, this.myTarget.vel);
         this.takeDamage(e.v, e.b ?? e.from, true);
@@ -2006,9 +2058,12 @@ class Game {
     this.shield = Math.max(0, this.shield - dt);
     this.doubleDamage = Math.max(0, this.doubleDamage - dt);
     this.turbo = Math.max(0, this.turbo - dt);
+    this.updateWonders(dt);
     this.guns.damageMul = (this.doubleDamage > 0 ? 2 : 1) * (1 + 0.25 * (this.waveLevels.damage ?? 0));
     this.tagImmune = Math.max(0, this.tagImmune - dt);
     const input = this.paused ? { x: 0, y: 0, boost: false, climb: false, fire: false } : this.input.read();
+    if (input.brake && !this.wasBraking && !f.frozen) this.hud.toast('Freno aerodinámico', 700);
+    this.wasBraking = !!input.brake;
     this.lastInput = input;
     this.myTarget.id = this.myId;
     this.myTarget.vel.copy(f.forward()).multiplyScalar(f.speed);
@@ -2102,6 +2157,18 @@ class Game {
       } else {
         const got = this.rings.update(sdt, this.prevPos, f.pos);
         if (got.length) this.onRingsCollected(got);
+      }
+      // Aterrizaje en el santuario (antes del choque con la roca)
+      if (this.skyfun && !f.frozen && !this.landed) {
+        const ld = this.skyfun.landing(f);
+        if (ld?.state === 'land') {
+          this.landOn(ld.realm);
+          break;
+        }
+        if (ld?.state === 'fast' && this.fastWarnT <= 0) {
+          this.fastWarnT = 3;
+          this.hud.toast(`¡Demasiado rápido para aterrizar! Frena (B / Freno) por debajo de 340 km/h`, 2000);
+        }
       }
       if (!f.frozen && this.checkCollision()) break;
     }
@@ -2936,12 +3003,71 @@ class Game {
     }
   }
 
+  // ---------------------------------------------------------------- Prueba de micrófono (Ajustes)
+  private micTest = new VoiceRecorder();
+  private micTestTimer = 0;
+
+  private async testMic() {
+    const btn = $<HTMLButtonElement>('btn-mic-test');
+    const msg = $('mic-test-msg');
+    if (this.micTest.recording || btn.disabled) return;
+    this.voicePlayer.unlock();
+    if (!VoiceRecorder.supported) {
+      msg.textContent = '❌ Este navegador no permite grabar audio.';
+      return;
+    }
+    btn.disabled = true;
+    msg.textContent = 'Pidiendo permiso para el micrófono…';
+    try {
+      await this.micTest.open();
+    } catch (e) {
+      const denied = /NotAllowed|Permission|denied/i.test(String((e as Error)?.name ?? e));
+      msg.textContent = denied
+        ? '❌ El navegador ha bloqueado el micrófono. Pulsa el candado junto a la dirección web y permite «Micrófono».'
+        : '❌ No se encuentra ningún micrófono o lo está usando otra app.';
+      btn.disabled = false;
+      return;
+    }
+    const level = $('mic-test-level');
+    this.micTest.onDone = (clip) => {
+      clearInterval(this.micTestTimer);
+      level.style.transform = 'scaleX(0)';
+      btn.textContent = '🎙️ Probar micrófono';
+      if (!clip) {
+        msg.textContent = '❌ No se ha grabado nada. Revisa el micrófono.';
+        btn.disabled = false;
+        return;
+      }
+      const pcm = decodeMuLaw(clip.data);
+      let ss = 0;
+      for (let i = 0; i < pcm.length; i++) ss += pcm[i] * pcm[i];
+      const rms = Math.sqrt(ss / pcm.length);
+      if (rms < 0.004) {
+        msg.textContent = '⚠️ Solo se oye silencio: puede que el micrófono esté silenciado o tapado.';
+        btn.disabled = false;
+        return;
+      }
+      msg.textContent = '▶ Reproduciendo lo que has grabado…';
+      this.voicePlayer.play(clip.data, undefined, () => {
+        msg.textContent = '✔ Tu micrófono funciona. Así te oyen los demás pilotos.';
+        btn.disabled = false;
+      });
+    };
+    this.micTest.begin(3000);
+    btn.textContent = '🔴 Habla ahora…';
+    this.micTestTimer = window.setInterval(() => {
+      const left = Math.max(0, 3000 - (performance.now() - this.micTest.startedAt));
+      msg.textContent = `🔴 Grabando: di algo… ${Math.ceil(left / 1000)} s`;
+      level.style.transform = `scaleX(${0.05 + this.micTest.level() * 0.95})`;
+    }, 80);
+  }
+
   /** Estado de los botones HABLAR (grabando, libre u ocupado por otro) */
   private updateTalkUi() {
     const room = this.room;
     const rec = this.voiceRec.recording;
     const other = room && !room.canTalk() ? room.talk : null;
-    const left = rec ? Math.max(0, VOICE_MAX_MS - (performance.now() - this.voiceRec.startedAt)) : 0;
+    const left = rec ? Math.max(0, this.voiceRec.duration - (performance.now() - this.voiceRec.startedAt)) : 0;
     for (const id of ['btn-talk', 'btn-talk-lobby']) {
       const b = $<HTMLButtonElement>(id);
       b.classList.toggle('rec', rec);
@@ -3011,6 +3137,214 @@ class Game {
       this.progress.locked = false;
       $('cloud-msg').textContent = (e as Error).message || 'No se pudo recuperar.';
     }
+  }
+
+  // ================================================================ Santuario del cielo
+  private landOn(realm: FloatingRealm) {
+    const f = this.flight;
+    this.landed = realm;
+    f.frozen = true;
+    f.pos.set(realm.pad.x, realm.pad.y + 3.2, realm.pad.z);
+    f.pitch = 0;
+    f.roll = 0;
+    f.speed = BRAKE_KMH / KMH;
+    this.hp = this.maxHp;
+    this.guns.refill();
+    this.missiles.addMissiles(this.missiles.max);
+    this.jet.shimmer = false;
+    this.usedWonders.clear();
+    this.audio.gate(true);
+    Haptic.gate();
+    this.fx.sparks(f.pos, null, 80, 60);
+    this.stunts.trick('Aterrizaje perfecto', 300);
+    this.earn(20);
+    this.renderWonders();
+    show('sanctuary', true);
+  }
+
+  private takeOff() {
+    const f = this.flight;
+    show('sanctuary', false);
+    this.landed = null;
+    f.frozen = false;
+    f.speed = CRUISE_KMH / KMH;
+    f.burst = 2.5;
+    // Despegue vertical: sube por encima de los picos y árboles antes de nivelar
+    f.pos.y += 12;
+    f.pitch = 1.1;
+    this.invuln = 3;
+    this.rockGrace = 3;
+    this.rainbowT = 5;
+    this.audio.boostRing();
+    this.hud.toast('¡Despegue mágico!', 1200);
+    this.timer.update();
+  }
+
+  private renderWonders() {
+    const W: { id: string; icon: string; name: string; desc: string }[] = [
+      { id: 'tree', icon: '🌳', name: 'Despertar el árbol de luz', desc: 'Sus hojas brillan y te da su bendición: +50 % de blindaje y regeneración durante 3 minutos.' },
+      { id: 'birds', icon: '🕊️', name: 'Llamar a las aves de luz', desc: 'Tres aves luminosas te escoltan 3 minutos y disparan rayos de luz a drones, globos y enemigos.' },
+      { id: 'aurora', icon: '🌌', name: 'Cielo de aurora', desc: 'Cae la noche y el cielo se llena de auroras boreales y estrellas durante 2 minutos.' },
+      { id: 'paint', icon: '🎨', name: 'Pintura viva', desc: 'Tu avión cambia de color como un arcoíris hasta que vuelvas a aterrizar.' },
+      { id: 'well', icon: '🪙', name: 'Pozo de los deseos (50 créditos)', desc: 'Lanza una moneda: créditos, turbo infinito, una pieza legendaria revelada… o nada.' },
+    ];
+    $('wonder-list').replaceChildren(
+      ...W.map((w) => {
+        const b = document.createElement('button');
+        const used = this.usedWonders.has(w.id);
+        b.className = `wonder${used ? ' used' : ''}`;
+        b.disabled = used || (w.id === 'well' && this.progress.p.credits < 50);
+        b.innerHTML = '<span class="wi"></span><b></b><small></small>';
+        (b.querySelector('.wi') as HTMLElement).textContent = w.icon;
+        (b.querySelector('b') as HTMLElement).textContent = w.name;
+        (b.querySelector('small') as HTMLElement).textContent = w.desc;
+        b.addEventListener('click', () => this.useWonder(w.id));
+        return b;
+      }),
+    );
+  }
+
+  private useWonder(id: string) {
+    const realm = this.landed;
+    if (!realm || this.usedWonders.has(id)) return;
+    this.usedWonders.add(id);
+    Haptic.pickup();
+    const f = this.flight;
+    switch (id) {
+      case 'tree':
+        realm.awakenTree();
+        this.blessT = 180;
+        this.maxHp = Math.round(100 * this.progress.modifiers.armor * 1.5);
+        this.hp = this.maxHp;
+        this.audio.gate(true);
+        this.hud.split('🌳 BENDICIÓN DEL ÁRBOL: +50 % BLINDAJE', 'good');
+        break;
+      case 'birds':
+        this.birds?.dispose();
+        this.birds = new LightBirds(this.scene, f.pos);
+        this.birdsT = 180;
+        this.audio.ring();
+        this.hud.split('🕊️ LAS AVES DE LUZ TE ACOMPAÑAN', 'good');
+        break;
+      case 'aurora':
+        this.startAurora(120);
+        this.hud.split('🌌 CIELO DE AURORA', 'good');
+        break;
+      case 'paint':
+        this.jet.shimmer = true;
+        this.audio.boostRing();
+        this.hud.split('🎨 PINTURA VIVA', 'good');
+        break;
+      case 'well': {
+        if (this.progress.p.credits < 50) {
+          this.usedWonders.delete(id);
+          return;
+        }
+        this.progress.p.credits -= 50;
+        this.progress.save();
+        const r = Math.random();
+        if (r < 0.35) {
+          this.earn(250);
+          this.hud.split('🪙 ¡EL POZO TE REGALA 250 CRÉDITOS!', 'good');
+          this.audio.gate(true);
+        } else if (r < 0.6) {
+          this.turbo = 45;
+          this.hud.split('🪙 ¡TURBO INFINITO 45 s AL DESPEGAR!', 'good');
+          this.audio.boostRing();
+        } else if (r < 0.8) {
+          const p = this.skyfun?.revealPiece(f.pos);
+          this.hud.split(p ? '🪙 UNA PIEZA LEGENDARIA SE REVELA EN EL RADAR (?)' : '🪙 YA TIENES TODAS LAS PIEZAS DE ESTE ESCENARIO: +100', 'good');
+          if (!p) this.earn(100);
+          this.audio.ring();
+        } else {
+          this.earn(10);
+          this.hud.split('🪙 EL POZO SE RÍE… (te devuelve 10 créditos)', 'neutral');
+          this.audio.empty();
+        }
+        break;
+      }
+    }
+    this.renderWonders();
+  }
+
+  /** Oscurece el cielo y muestra auroras boreales y estrellas */
+  private startAurora(seconds: number) {
+    this.auroraT = seconds;
+    if (!this.aurora) this.aurora = new AuroraSky(this.scene);
+    const u = (this.sky.mesh.material as THREE.ShaderMaterial).uniforms as { uTop: { value: THREE.Color }; uHorizon: { value: THREE.Color } };
+    u.uTop.value.set(0x040818);
+    u.uHorizon.value.set(0x0c1e34);
+    const fog = this.scene.fog as THREE.FogExp2;
+    fog.color.set(0x0c1a2c);
+    if (this.scene.background instanceof THREE.Color) this.scene.background.set(0x0c1a2c);
+    this.hemi.intensity *= 0.45;
+    this.sun.intensity *= 0.25;
+    this.audio.gate(true);
+  }
+
+  private endAurora() {
+    this.aurora?.dispose();
+    this.aurora = null;
+    this.auroraT = 0;
+    // El clima vuelve a poner cielo, niebla y luces a sus valores
+    this.weather?.set(this.weather.kind);
+  }
+
+  private updateWonders(dt: number) {
+    const f = this.flight;
+    this.fastWarnT = Math.max(0, this.fastWarnT - dt);
+    this.rockGrace = Math.max(0, this.rockGrace - dt);
+    // Bendición del árbol
+    if (this.blessT > 0) {
+      this.blessT -= dt;
+      if (this.alive) this.hp = Math.min(this.maxHp, this.hp + 3 * dt);
+      if (this.blessT <= 0) {
+        this.maxHp = Math.round(100 * this.progress.modifiers.armor);
+        this.hp = Math.min(this.hp, this.maxHp);
+        this.hud.toast('La bendición del árbol se desvanece', 1500);
+      }
+    }
+    // Aves de luz
+    if (this.birds) {
+      this.birdsT -= dt;
+      this.birds.update(dt, this.time, f.pos, this.jet.group.quaternion, this.enemyTargets(), (t) => this.onMyHit(t, 12, false));
+      if (this.birdsT <= 0) {
+        this.birds.dispose();
+        this.birds = null;
+        this.hud.toast('Las aves de luz regresan al santuario', 1500);
+      }
+    }
+    // Aurora
+    if (this.aurora) {
+      this.auroraT -= dt;
+      this.aurora.update(this.time, this.camera, Math.min(1, this.auroraT / 4));
+      if (this.auroraT <= 0) this.endAurora();
+    }
+    // Estela arcoíris al despegar
+    if (this.rainbowT > 0 && this.alive) {
+      this.rainbowT -= dt;
+      const c = new THREE.Color().setHSL((this.time * 0.8) % 1, 0.9, 0.6).getHex();
+      this.fx.formationSmoke(f.pos, f.forward().negate(), c);
+    }
+  }
+
+  private endWonders() {
+    this.birds?.dispose();
+    this.birds = null;
+    this.birdsT = 0;
+    if (this.aurora) this.endAurora();
+    if (this.blessT > 0) {
+      this.blessT = 0;
+      this.maxHp = Math.round(100 * this.progress.modifiers.armor);
+      this.hp = Math.min(this.hp, this.maxHp);
+    }
+    if (this.landed) {
+      this.landed = null;
+      this.flight.frozen = false;
+    }
+    show('sanctuary', false);
+    this.rainbowT = 0;
+    this.jet.shimmer = false;
   }
 
   private restartRace() {
@@ -3343,6 +3677,10 @@ class Game {
     if (this.doubleDamage > 0) pws.push({ name: 'Doble daño', color: POWER_INFO.damage.css, left: this.doubleDamage, total: POWER_INFO.damage.duration });
     if (this.turbo > 0) pws.push({ name: 'Turbo', color: POWER_INFO.turbo.css, left: this.turbo, total: POWER_INFO.turbo.duration });
     this.hud.setPowerups(pws);
+    if (this.skyfun?.revealed && !this.landed) {
+      arrowTarget = this.skyfun.revealed.pos;
+      arrowColor = 0xffd040;
+    }
     this.radar.draw(f.pos, f.yaw, items, route, circles);
     const night = this.stage.night;
     const trailColor = this.race ? (this.race.nextGate === 0 ? 0xffc040 : night ? 0x9fe8ff : 0xfff0a0) : 0xffb060;
@@ -4314,6 +4652,8 @@ class Game {
       );
     });
     $('btn-cloud-restore').addEventListener('click', () => void this.cloudRestore());
+    $('btn-mic-test').addEventListener('click', () => void this.testMic());
+    $('btn-takeoff').addEventListener('click', () => this.takeOff());
     this.cloud.startAuto(
       () => this.pilotName(),
       () => this.progress.flush(),

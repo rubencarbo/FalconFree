@@ -17,7 +17,7 @@ export interface TrailSettings {
   tune: Partial<Record<TrailStyleSetting, TrailTune>>;
 }
 
-export type ControlId = 'joy' | 'boost' | 'fire' | 'missile';
+export type ControlId = 'joy' | 'boost' | 'fire' | 'missile' | 'brake';
 
 export interface ControlLayout {
   /** Centro del control como fracción del ancho/alto de la pantalla */
@@ -49,13 +49,14 @@ export interface Settings {
   controls: Record<ControlId, ControlLayout>;
 }
 
-export const CONTROL_IDS: ControlId[] = ['joy', 'fire', 'missile', 'boost'];
+export const CONTROL_IDS: ControlId[] = ['joy', 'fire', 'missile', 'boost', 'brake'];
 
 export const CONTROL_LABELS: Record<ControlId, string> = {
   joy: 'Joystick',
   fire: 'Disparo',
   boost: 'Turbo',
   missile: 'Misil',
+  brake: 'Freno',
 };
 
 /** Tamaño base en px (a escala 1) */
@@ -64,6 +65,7 @@ export const CONTROL_BASE_SIZE: Record<ControlId, number> = {
   fire: 80,
   boost: 92,
   missile: 60,
+  brake: 64,
 };
 
 export function defaultControls(): Record<ControlId, ControlLayout> {
@@ -72,6 +74,7 @@ export function defaultControls(): Record<ControlId, ControlLayout> {
     fire: { x: 0.64, y: 0.84, scale: 1, opacity: 0.95 },
     boost: { x: 0.84, y: 0.74, scale: 1, opacity: 0.95 },
     missile: { x: 0.58, y: 0.62, scale: 1, opacity: 0.95 },
+    brake: { x: 0.9, y: 0.52, scale: 1, opacity: 0.95 },
   };
 }
 

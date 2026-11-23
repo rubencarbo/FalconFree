@@ -142,6 +142,7 @@ export class SkyFun {
         saveCollected(got);
         p.dispose();
         this.pieces.splice(this.pieces.indexOf(p), 1);
+        if (this.revealed === p) this.revealed = null;
         this.hooks.sparks(p.pos, 80);
         this.hooks.sound('win');
         this.hooks.reward(50);
@@ -155,6 +156,42 @@ export class SkyFun {
       this.banner = { text: `Globos ${b.popped}/${b.total} · ${Math.ceil(b.timeLeft)} s`, kind: b.timeLeft < 4 ? 'warn' : 'info' };
     }
     this.prev.copy(f.pos);
+  }
+
+  /** Choque con las montañas flotantes (sólidas como edificios) */
+  collide(p: THREE.Vector3) {
+    for (const ft of this.cells.values()) {
+      if (!(ft instanceof Ramp)) continue;
+      const hit = ft.realm.collide(p);
+      if (hit) return hit;
+    }
+    return null;
+  }
+
+  /** Santuario bajo el avión: 'land' si puede posarse, 'fast' si va demasiado rápido */
+  landing(f: Flight): { state: 'land' | 'fast'; realm: FloatingRealm } | null {
+    for (const ft of this.cells.values()) {
+      if (!(ft instanceof Ramp)) continue;
+      const st = ft.realm.landing(f);
+      if (st) return { state: st, realm: ft.realm };
+    }
+    return null;
+  }
+
+  /** Pieza legendaria revelada por el pozo de los deseos */
+  revealed: Piece | null = null;
+  revealPiece(me: THREE.Vector3) {
+    let best: Piece | null = null;
+    let bd = Infinity;
+    for (const p of this.pieces) {
+      const d = p.pos.distanceTo(me);
+      if (d < bd) {
+        bd = d;
+        best = p;
+      }
+    }
+    this.revealed = best;
+    return best;
   }
 
   /** Globos que se pueden reventar a tiros */
@@ -171,7 +208,7 @@ export class SkyFun {
 
   radar(items: RadarItem[], me: THREE.Vector3) {
     for (const ft of this.cells.values()) ft?.radar(items, me);
-    for (const p of this.pieces) if (p.pos.distanceTo(me) < 450) items.push({ pos: p.pos, kind: 'power', color: '#ffd76a', label: '?' });
+    for (const p of this.pieces) if (p.pos.distanceTo(me) < 450 || p === this.revealed) items.push({ pos: p.pos, kind: 'power', color: '#ffd76a', label: '?' });
   }
 
   dispose() {
@@ -503,13 +540,15 @@ class Ramp implements Feature {
     }
     // Montañas flotantes por encima de las nubes (al final de la rampa)
     const last = this.rings[n - 1].pos;
-    this.islandsCenter = last.clone().addScaledVector(this.dir, 500);
-    this.islandsCenter.y = last.y + 480;
-    this.realm = new FloatingRealm(this.group, this.islandsCenter, this.dir, rand, gen.stage.night, hooks);
+    // A media altura: la raíz de la montaña grande queda ~80 m por encima de los edificios
+    this.islandsCenter = last.clone().addScaledVector(this.dir, 750);
+    const ground = gen.maxHeightNear(this.islandsCenter.x, this.islandsCenter.z, 420);
+    this.islandsCenter.y = Math.max(ground + REALM_BIG_H + 80, last.y + 60);
+    this.realm = new FloatingRealm(this.group, this.islandsCenter, this.dir, rand, gen, hooks);
     scene.add(this.group);
   }
 
-  private realm: FloatingRealm;
+  realm: FloatingRealm;
 
   update(dt: number, time: number, f: Flight, prev: THREE.Vector3) {
     void prev;
@@ -535,7 +574,7 @@ class Ramp implements Feature {
 
   radar(items: RadarItem[], me: THREE.Vector3) {
     if (this.start.distanceTo(me) < 2600) items.push({ pos: this.start, kind: 'power', color: '#7ff09a', label: 'R' });
-    if (this.islandsCenter.distanceTo(me) < 3500) items.push({ pos: this.islandsCenter, kind: 'power', color: '#7fe8d0', label: 'M' });
+    if (this.islandsCenter.distanceTo(me) < 3500) items.push({ pos: this.realm.pad, kind: 'power', color: '#7fe8d0', label: 'M' });
   }
 
   dispose() {
@@ -545,29 +584,51 @@ class Ramp implements Feature {
 }
 
 // ------------------------------------------------------------ Montañas flotantes
+const REALM_BIG_H = 300;
+
+interface RockLayer {
+  x: number;
+  z: number;
+  y0: number;
+  y1: number;
+  r: number;
+}
+
 /**
- * Montañas de roca suspendidas en el aire, con lianas, cascadas que caen al vacío,
- * arcos de piedra, neblina y plantas que brillan de noche. Cada elemento sirve para algo:
- * cascada = reparación, arcos = recarga de munición, nido = recompensa, corriente = subida.
+ * Montañas de roca suspendidas en el aire (sólidas, como los edificios), con lianas,
+ * cascadas que caen al vacío, arcos de piedra, neblina y plantas que brillan de noche.
+ * Cascada = reparación · arcos = recarga · corriente = subida · santuario = aterrizaje y maravillas.
  */
-class FloatingRealm {
+export class FloatingRealm {
   private falls: { pos: THREE.Vector3; w: number; h: number; mesh: THREE.Mesh; cool: number }[] = [];
-  private arches: { center: THREE.Vector3; normal: THREE.Vector3; r: number; cool: number }[] = [];
-  private nest: { pos: THREE.Vector3; orb: THREE.Group; respawn: number } | null = null;
+  private arches: { center: THREE.Vector3; normal: THREE.Vector3; r: number; tube: number; cool: number }[] = [];
   private orbs: { mesh: THREE.Mesh; taken: boolean }[] = [];
   private updraft: { pos: THREE.Vector3; r: number; h: number; streaks: THREE.InstancedMesh; u: Float32Array } | null = null;
   private glowMats: THREE.MeshBasicMaterial[] = [];
+  private layers: RockLayer[] = [];
   private hinted = false;
+  private padHinted = false;
   private m4 = new THREE.Matrix4();
+  /** Santuario de aterrizaje en la cima de la montaña grande */
+  pad = new THREE.Vector3();
+  padR = 34;
+  private runeMat: THREE.MeshBasicMaterial;
+  private treeMats: THREE.MeshBasicMaterial[] = [];
+  private seeds: THREE.InstancedMesh | null = null;
+  private seedU: Float32Array | null = null;
+  treeAwake = 0;
+  private night: boolean;
 
   constructor(
     private group: THREE.Group,
     private center: THREE.Vector3,
     dir: THREE.Vector3,
     rand: () => number,
-    private night: boolean,
+    gen: CityGen,
     private hooks: SkyFunHooks,
   ) {
+    const night = gen.stage.night;
+    this.night = night;
     const rock = new THREE.MeshLambertMaterial({ color: 0x7c7466, flatShading: true });
     const rockDark = new THREE.MeshLambertMaterial({ color: 0x5a544a, flatShading: true });
     const grass = new THREE.MeshLambertMaterial({ color: 0x4f9a3c });
@@ -578,67 +639,85 @@ class FloatingRealm {
     this.glowMats.push(glowA, glowB);
     const side = new THREE.Vector3(dir.z, 0, -dir.x);
 
-    // Tres montañas: una grande y dos menores
+    // Tres montañas grandes: la principal (con el santuario) y dos menores
     const mounts: { c: THREE.Vector3; r: number; h: number }[] = [
-      { c: center.clone(), r: 70, h: 170 },
-      { c: center.clone().addScaledVector(side, 230).addScaledVector(dir, 60).add(new THREE.Vector3(0, -40 + rand() * 30, 0)), r: 46, h: 115 },
-      { c: center.clone().addScaledVector(side, -210).addScaledVector(dir, -40).add(new THREE.Vector3(0, 30 + rand() * 40, 0)), r: 40, h: 100 },
+      { c: center.clone(), r: 150, h: REALM_BIG_H },
+      { c: center.clone().addScaledVector(side, 430).addScaledVector(dir, 120).add(new THREE.Vector3(0, -30 + rand() * 40, 0)), r: 95, h: 200 },
+      { c: center.clone().addScaledVector(side, -400).addScaledVector(dir, -90).add(new THREE.Vector3(0, 20 + rand() * 50, 0)), r: 85, h: 180 },
     ];
+    // Que ninguna raíz toque los edificios
+    for (const mt of mounts) mt.c.y = Math.max(mt.c.y, gen.maxHeightNear(mt.c.x, mt.c.z, mt.r) + mt.h + 60);
+    this.pad.copy(mounts[0].c).add(new THREE.Vector3(0, 3.5, 0));
     for (const [k, mt] of mounts.entries()) {
       const g = new THREE.Group();
       g.position.copy(mt.c);
       // Cuerpo: capas de roca que se estrechan hacia abajo como una raíz colgante
-      const layers = 9;
+      const layers = 10;
+      const hh = mt.h / layers;
       for (let l = 0; l < layers; l++) {
         const t = l / (layers - 1);
-        const rr = mt.r * (1 - t * 0.85) * (0.9 + rand() * 0.2);
-        const hh = mt.h / layers;
-        const geo = new THREE.CylinderGeometry(rr, rr * 0.82, hh, 7);
+        const rr = mt.r * (1 - t * 0.85) * (0.92 + rand() * 0.16);
+        const geo = new THREE.CylinderGeometry(rr, rr * 0.84, hh, 8);
         const b = new THREE.Mesh(geo, l % 3 === 1 ? rockDark : rock);
-        b.position.set((rand() - 0.5) * mt.r * 0.12, -hh / 2 - l * hh, (rand() - 0.5) * mt.r * 0.12);
+        const ox = (rand() - 0.5) * mt.r * 0.1;
+        const oz = (rand() - 0.5) * mt.r * 0.1;
+        b.position.set(ox, -hh / 2 - l * hh, oz);
         b.rotation.y = rand() * Math.PI;
         g.add(b);
+        this.layers.push({ x: mt.c.x + ox, z: mt.c.z + oz, y0: mt.c.y - (l + 1) * hh, y1: mt.c.y - l * hh, r: rr * 0.96 });
       }
-      // Picos en la cima
-      for (let q = 0; q < 3; q++) {
-        const pr = mt.r * (0.25 + rand() * 0.2);
-        const peak = new THREE.Mesh(new THREE.ConeGeometry(pr, mt.r * (0.5 + rand() * 0.5), 6), rock);
-        const a = rand() * Math.PI * 2;
-        peak.position.set(Math.cos(a) * mt.r * 0.35, mt.r * 0.25, Math.sin(a) * mt.r * 0.35);
-        g.add(peak);
-      }
-      // Manto verde y árboles
-      const top = new THREE.Mesh(new THREE.CylinderGeometry(mt.r * 1.02, mt.r * 0.98, 5, 7), grass);
+      // Manto verde (la superficie de la cima)
+      const top = new THREE.Mesh(new THREE.CylinderGeometry(mt.r * 1.02, mt.r * 0.98, 5, 8), grass);
       top.position.y = 1;
       g.add(top);
-      for (let q = 0; q < 6 + k * 2; q++) {
+      this.layers.push({ x: mt.c.x, z: mt.c.z, y0: mt.c.y - 1.5, y1: mt.c.y + 3.5, r: mt.r });
+      const clearOfPad = (x: number, z: number) => k !== 0 || Math.hypot(x, z) > this.padR + 30;
+      // Picos de roca en la cima (sólidos)
+      for (let q = 0; q < 4; q++) {
+        const pr = mt.r * (0.16 + rand() * 0.12);
+        const ph = mt.r * (0.45 + rand() * 0.45);
         const a = rand() * Math.PI * 2;
-        const d = rand() * mt.r * 0.8;
-        const h = 10 + rand() * 14;
-        const trunk = new THREE.Mesh(new THREE.BoxGeometry(2.2, h, 2.2), rockDark);
-        trunk.position.set(Math.cos(a) * d, 3 + h / 2, Math.sin(a) * d);
-        const crown = new THREE.Mesh(new THREE.BoxGeometry(10 + rand() * 6, 7, 10 + rand() * 6), moss);
-        crown.position.set(trunk.position.x, 3 + h + 2, trunk.position.z);
+        const d = mt.r * (0.45 + rand() * 0.35);
+        const x = Math.cos(a) * d;
+        const z = Math.sin(a) * d;
+        if (!clearOfPad(x, z)) continue;
+        const peak = new THREE.Mesh(new THREE.ConeGeometry(pr, ph, 7), rock);
+        peak.position.set(x, ph / 2 + 2, z);
+        g.add(peak);
+        this.layers.push({ x: mt.c.x + x, z: mt.c.z + z, y0: mt.c.y, y1: mt.c.y + ph * 0.6, r: pr * 0.6 });
+      }
+      // Árboles
+      for (let q = 0; q < 10 + k * 3; q++) {
+        const a = rand() * Math.PI * 2;
+        const d = rand() * mt.r * 0.85;
+        const x = Math.cos(a) * d;
+        const z = Math.sin(a) * d;
+        if (!clearOfPad(x, z)) continue;
+        const h = 14 + rand() * 18;
+        const trunk = new THREE.Mesh(new THREE.BoxGeometry(3, h, 3), rockDark);
+        trunk.position.set(x, 3 + h / 2, z);
+        const crown = new THREE.Mesh(new THREE.BoxGeometry(14 + rand() * 8, 9, 14 + rand() * 8), moss);
+        crown.position.set(x, 3 + h + 3, z);
         g.add(trunk, crown);
       }
       // Lianas colgando del borde
-      for (let q = 0; q < 14; q++) {
-        const a = (q / 14) * Math.PI * 2 + rand() * 0.3;
-        const len = 25 + rand() * mt.h * 0.6;
-        const v = new THREE.Mesh(new THREE.BoxGeometry(0.9, len, 0.9), vine);
-        v.position.set(Math.cos(a) * mt.r * 0.95, -len / 2, Math.sin(a) * mt.r * 0.95);
+      for (let q = 0; q < 22; q++) {
+        const a = (q / 22) * Math.PI * 2 + rand() * 0.3;
+        const len = 40 + rand() * mt.h * 0.6;
+        const v = new THREE.Mesh(new THREE.BoxGeometry(1.4, len, 1.4), vine);
+        v.position.set(Math.cos(a) * mt.r * 0.96, -len / 2, Math.sin(a) * mt.r * 0.96);
         g.add(v);
       }
       // Plantas luminosas (de noche brillan)
-      for (let q = 0; q < 16; q++) {
+      for (let q = 0; q < 26; q++) {
         const a = rand() * Math.PI * 2;
         const d = rand() * mt.r * 0.9;
-        const pl = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.4, 1.6), q % 2 ? glowA : glowB);
-        pl.position.set(Math.cos(a) * d, 4.5, Math.sin(a) * d);
+        const pl = new THREE.Mesh(new THREE.BoxGeometry(2.4, 3.6, 2.4), q % 2 ? glowA : glowB);
+        pl.position.set(Math.cos(a) * d, 5, Math.sin(a) * d);
         g.add(pl);
       }
       // Neblina bajo la montaña
-      const mistMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.18, depthWrite: false });
+      const mistMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.16, depthWrite: false });
       for (let q = 0; q < 5; q++) {
         const mist = new THREE.Mesh(new THREE.SphereGeometry(mt.r * (0.5 + rand() * 0.4), 8, 6), mistMat);
         mist.scale.y = 0.35;
@@ -646,85 +725,128 @@ class FloatingRealm {
         g.add(mist);
       }
       this.group.add(g);
-      // Tesoro dorado en cada montaña
-      const orb = new THREE.Mesh(new THREE.OctahedronGeometry(5, 0), new THREE.MeshBasicMaterial({ color: new THREE.Color(1, 0.84, 0.35) }));
-      orb.position.copy(mt.c).add(new THREE.Vector3(0, -mt.h * 0.45, mt.r * 1.25));
+      // Tesoro dorado bajo cada montaña
+      const orb = new THREE.Mesh(new THREE.OctahedronGeometry(6, 0), new THREE.MeshBasicMaterial({ color: new THREE.Color(1, 0.84, 0.35) }));
+      orb.position.copy(mt.c).add(new THREE.Vector3(0, -mt.h * 0.45, mt.r * 1.2));
       this.group.add(orb);
       this.orbs.push({ mesh: orb, taken: false });
     }
-
-    // Cascada que cae de la montaña grande al vacío (repara el avión)
     const big = mounts[0];
+
+    // ---- Santuario de aterrizaje: plataforma, runas, faroles y el árbol de luz
+    const stone = new THREE.MeshLambertMaterial({ color: 0xb8b0a0 });
+    const plat = new THREE.Mesh(new THREE.CylinderGeometry(this.padR, this.padR + 2, 3, 24), stone);
+    plat.position.copy(big.c).add(new THREE.Vector3(0, 2.2, 0));
+    this.group.add(plat);
+    this.runeMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.45, 0.95, 0.9) });
+    const rune = new THREE.Mesh(new THREE.TorusGeometry(this.padR - 5, 0.9, 6, 48), this.runeMat);
+    rune.rotation.x = Math.PI / 2;
+    rune.position.copy(big.c).add(new THREE.Vector3(0, 3.9, 0));
+    this.group.add(rune);
+    const inner = new THREE.Mesh(new THREE.TorusGeometry(10, 0.7, 6, 32), this.runeMat);
+    inner.rotation.x = Math.PI / 2;
+    inner.position.copy(rune.position);
+    this.group.add(inner);
+    for (let q = 0; q < 8; q++) {
+      const a = (q / 8) * Math.PI * 2;
+      const post = new THREE.Mesh(new THREE.BoxGeometry(1.6, 9, 1.6), rockDark);
+      post.position.copy(big.c).add(new THREE.Vector3(Math.cos(a) * (this.padR + 3), 7, Math.sin(a) * (this.padR + 3)));
+      const lamp = new THREE.Mesh(new THREE.BoxGeometry(2.4, 2.4, 2.4), this.runeMat);
+      lamp.position.copy(post.position).add(new THREE.Vector3(0, 5.5, 0));
+      this.group.add(post, lamp);
+    }
+    // Árbol de luz junto al santuario
+    const treeBase = big.c.clone().addScaledVector(side, this.padR + 34).add(new THREE.Vector3(0, 3, 0));
+    const bark = new THREE.MeshLambertMaterial({ color: 0x6a5a4a });
+    const trunkH = 70;
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(5, 9, trunkH, 8), bark);
+    trunk.position.copy(treeBase).add(new THREE.Vector3(0, trunkH / 2, 0));
+    this.group.add(trunk);
+    this.layers.push({ x: treeBase.x, z: treeBase.z, y0: treeBase.y, y1: treeBase.y + trunkH, r: 7 });
+    for (let q = 0; q < 4; q++) {
+      const lm = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.32, 0.6, 0.5), transparent: true, opacity: 0.85 });
+      this.treeMats.push(lm);
+      const crown = new THREE.Mesh(new THREE.SphereGeometry(34 - q * 6, 10, 6), lm);
+      crown.scale.y = 0.45;
+      crown.position.copy(treeBase).add(new THREE.Vector3(0, trunkH - 6 + q * 10, 0));
+      this.group.add(crown);
+    }
+    // Hilos de luz colgando del árbol
+    for (let q = 0; q < 18; q++) {
+      const a = (q / 18) * Math.PI * 2;
+      const len = 14 + rand() * 20;
+      const strand = new THREE.Mesh(new THREE.BoxGeometry(0.5, len, 0.5), this.treeMats[0]);
+      strand.position.copy(treeBase).add(new THREE.Vector3(Math.cos(a) * 26, trunkH - 6 - len / 2, Math.sin(a) * 26));
+      this.group.add(strand);
+    }
+    // Semillas de luz (aparecen al despertar el árbol)
+    const NS = 80;
+    this.seeds = new THREE.InstancedMesh(new THREE.OctahedronGeometry(1.4, 0), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.75, 1, 0.9) }), NS);
+    this.seeds.frustumCulled = false;
+    this.seeds.count = 0;
+    this.seedU = new Float32Array(NS * 3);
+    for (let i = 0; i < NS; i++) {
+      this.seedU[i * 3] = rand();
+      this.seedU[i * 3 + 1] = rand() * Math.PI * 2;
+      this.seedU[i * 3 + 2] = 8 + rand() * 40;
+    }
+    this.group.add(this.seeds);
+    this.treeBase = treeBase.add(new THREE.Vector3(0, trunkH - 10, 0));
+
+    // ---- Cascadas que caen de la montaña grande al vacío (reparan el avión)
     for (const sgn of [1, -1]) {
       const fpos = big.c.clone().addScaledVector(dir, sgn * big.r * 0.98);
-      const h = 220;
-      const w = 16;
+      const h = 420;
+      const w = 30;
       const fallMat = new THREE.MeshBasicMaterial({ color: 0xd8f0ff, transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide });
       const fall = new THREE.Mesh(new THREE.PlaneGeometry(w, h, 1, 8), fallMat);
-      fall.position.copy(fpos).add(new THREE.Vector3(0, -h / 2 + 3, 0)).addScaledVector(dir, sgn * 2);
+      fall.position.copy(fpos).add(new THREE.Vector3(0, -h / 2 + 3, 0)).addScaledVector(dir, sgn * 3);
       fall.lookAt(fall.position.clone().addScaledVector(dir, sgn));
       this.group.add(fall);
-      const spray = new THREE.Mesh(new THREE.SphereGeometry(22, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.22, depthWrite: false }));
+      const spray = new THREE.Mesh(new THREE.SphereGeometry(40, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.2, depthWrite: false }));
       spray.scale.y = 0.5;
-      spray.position.copy(fpos).add(new THREE.Vector3(0, -h + 10, 0)).addScaledVector(dir, sgn * 4);
+      spray.position.copy(fpos).add(new THREE.Vector3(0, -h + 20, 0)).addScaledVector(dir, sgn * 6);
       this.group.add(spray);
-      this.falls.push({ pos: fpos.clone().add(new THREE.Vector3(0, -h / 2, 0)).addScaledVector(dir, sgn * 2), w, h, mesh: fall, cool: 0 });
+      this.falls.push({ pos: fpos.clone().add(new THREE.Vector3(0, -h / 2, 0)).addScaledVector(dir, sgn * 4), w, h, mesh: fall, cool: 0 });
     }
 
-    // Arcos de piedra entre montañas (recargan munición y misiles)
+    // ---- Arcos de piedra entre montañas (recargan munición y misiles) — también sólidos
     for (const other of [mounts[1], mounts[2]]) {
       const mid = big.c.clone().lerp(other.c, 0.5);
-      mid.y = Math.min(big.c.y, other.c.y) - 30;
+      mid.y = Math.min(big.c.y, other.c.y) - 60;
       const normal = other.c.clone().sub(big.c).setY(0).normalize();
       const flyDir = new THREE.Vector3(normal.z, 0, -normal.x);
-      const arch = new THREE.Mesh(new THREE.TorusGeometry(30, 6, 6, 14), rock);
+      const R = 58;
+      const tube = 11;
+      const arch = new THREE.Mesh(new THREE.TorusGeometry(R, tube, 7, 18), rock);
       arch.position.copy(mid);
       arch.lookAt(mid.clone().add(flyDir));
       this.group.add(arch);
-      for (let q = 0; q < 6; q++) {
-        const a = -Math.PI / 2 + (q - 2.5) * 0.35;
-        const v = new THREE.Mesh(new THREE.BoxGeometry(0.8, 14 + rand() * 10, 0.8), vine);
-        const right = new THREE.Vector3().crossVectors(flyDir, new THREE.Vector3(0, 1, 0)).normalize();
-        v.position.copy(mid).addScaledVector(right, Math.sin(a + Math.PI / 2) * 30).add(new THREE.Vector3(0, 30 * Math.cos(a + Math.PI / 2) - 8, 0));
+      const right = new THREE.Vector3().crossVectors(flyDir, new THREE.Vector3(0, 1, 0)).normalize();
+      for (let q = 0; q < 8; q++) {
+        const a = Math.PI * 0.15 + (q / 7) * Math.PI * 0.7;
+        const len = 18 + rand() * 16;
+        const v = new THREE.Mesh(new THREE.BoxGeometry(1.2, len, 1.2), vine);
+        v.position.copy(mid).addScaledVector(right, Math.cos(a) * R).add(new THREE.Vector3(0, Math.sin(a) * R - tube - len / 2, 0));
         this.group.add(v);
       }
-      // Cadenas de rocas que unen el arco a las montañas
       for (const end of [big.c, other.c]) {
-        for (let q = 1; q < 6; q++) {
-          const pt = mid.clone().lerp(end, q / 6);
-          pt.y = mid.y + Math.sin((q / 6) * Math.PI) * 12 + (end.y - mid.y) * (q / 6) * 0.6;
-          const rk = new THREE.Mesh(new THREE.DodecahedronGeometry(3 + rand() * 3, 0), rockDark);
+        for (let q = 1; q < 7; q++) {
+          const pt = mid.clone().lerp(end, q / 7);
+          pt.y = mid.y + R + Math.sin((q / 7) * Math.PI) * 14 + (end.y - mid.y - R) * (q / 7);
+          const rk = new THREE.Mesh(new THREE.DodecahedronGeometry(4 + rand() * 4, 0), rockDark);
           rk.position.copy(pt);
           this.group.add(rk);
         }
       }
-      this.arches.push({ center: mid, normal: flyDir, r: 26, cool: 0 });
+      this.arches.push({ center: mid, normal: flyDir, r: R, tube, cool: 0 });
     }
 
-    // Nido en la cima de la montaña grande (recompensa que reaparece)
-    const nestPos = big.c.clone().add(new THREE.Vector3(0, 14, 0));
-    const nestG = new THREE.Group();
-    for (let q = 0; q < 10; q++) {
-      const a = (q / 10) * Math.PI * 2;
-      const st = new THREE.Mesh(new THREE.BoxGeometry(5, 4, 3), rockDark);
-      st.position.set(Math.cos(a) * 12, 0, Math.sin(a) * 12);
-      st.rotation.y = -a;
-      nestG.add(st);
-    }
-    nestG.position.copy(nestPos).add(new THREE.Vector3(0, -6, 0));
-    this.group.add(nestG);
-    const orbG = new THREE.Group();
-    orbG.add(new THREE.Mesh(new THREE.IcosahedronGeometry(5, 0), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.55, 0.95, 1) })));
-    orbG.add(new THREE.Mesh(new THREE.TorusGeometry(8, 0.6, 6, 24), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.9, 0.95, 1) })));
-    orbG.position.copy(nestPos);
-    this.group.add(orbG);
-    this.nest = { pos: nestPos, orb: orbG, respawn: 0 };
-
-    // Corriente ascendente junto a la montaña grande
-    const upPos = big.c.clone().addScaledVector(side, big.r + 45);
-    upPos.y = big.c.y - 260;
-    const N = 70;
-    const streaks = new THREE.InstancedMesh(new THREE.BoxGeometry(0.6, 10, 0.6), new THREE.MeshBasicMaterial({ color: 0xe8fbff, transparent: true, opacity: 0.45, depthWrite: false }), N);
+    // ---- Corriente ascendente junto a la montaña grande
+    const upPos = big.c.clone().addScaledVector(side, -(big.r + 90));
+    upPos.y = big.c.y - REALM_BIG_H - 200;
+    const N = 90;
+    const streaks = new THREE.InstancedMesh(new THREE.BoxGeometry(0.8, 14, 0.8), new THREE.MeshBasicMaterial({ color: 0xe8fbff, transparent: true, opacity: 0.45, depthWrite: false }), N);
     streaks.frustumCulled = false;
     const u = new Float32Array(N * 2);
     for (let i = 0; i < N; i++) {
@@ -732,19 +854,89 @@ class FloatingRealm {
       u[i * 2 + 1] = rand() * Math.PI * 2;
     }
     this.group.add(streaks);
-    this.updraft = { pos: upPos, r: 34, h: 380, streaks, u };
+    this.updraft = { pos: upPos, r: 60, h: REALM_BIG_H + 420, streaks, u };
+  }
+
+  private treeBase: THREE.Vector3;
+
+  /** ¿El punto p choca con la roca? Devuelve la normal y dónde dejar el avión */
+  collide(p: THREE.Vector3): { normal: THREE.Vector3; push: THREE.Vector3 } | null {
+    if (p.distanceToSquared(this.center) > 1100 * 1100) return null;
+    for (const L of this.layers) {
+      if (p.y < L.y0 || p.y > L.y1) continue;
+      const dx = p.x - L.x;
+      const dz = p.z - L.z;
+      const d = Math.hypot(dx, dz);
+      if (d >= L.r) continue;
+      // Desde arriba (superficie) o desde el lado
+      if (L.y1 - p.y < 3 || (d < L.r * 0.6 && L.y1 - p.y < 8)) return { normal: new THREE.Vector3(0, 1, 0), push: new THREE.Vector3(p.x, L.y1 + 4, p.z) };
+      const n = d > 0.01 ? new THREE.Vector3(dx / d, 0, dz / d) : new THREE.Vector3(1, 0, 0);
+      return { normal: n, push: new THREE.Vector3(L.x + n.x * (L.r + 4), p.y, L.z + n.z * (L.r + 4)) };
+    }
+    for (const ar of this.arches) {
+      const rel = p.clone().sub(ar.center);
+      const along = rel.dot(ar.normal);
+      if (Math.abs(along) > ar.tube) continue;
+      const inPlane = rel.addScaledVector(ar.normal, -along);
+      const radial = inPlane.length();
+      if (Math.abs(radial - ar.r) < ar.tube) {
+        const n = inPlane.normalize().multiplyScalar(radial > ar.r ? 1 : -1);
+        return { normal: n, push: ar.center.clone().add(inPlane.clone().normalize().multiplyScalar(radial > ar.r ? ar.r + ar.tube + 4 : ar.r - ar.tube - 4)).addScaledVector(ar.normal, along) };
+      }
+    }
+    return null;
+  }
+
+  /** ¿Está en condiciones de posarse en el santuario? */
+  landing(f: Flight): 'land' | 'fast' | null {
+    const d = Math.hypot(f.pos.x - this.pad.x, f.pos.z - this.pad.z);
+    if (d > this.padR || f.pos.y - this.pad.y > 9 || f.pos.y < this.pad.y - 4) return null;
+    return f.speedKmh <= 340 ? 'land' : 'fast';
+  }
+
+  /** Despertar el árbol de luz */
+  awakenTree() {
+    this.treeAwake = 180;
   }
 
   update(dt: number, time: number, f: Flight) {
     const me = f.pos;
     const near = me.distanceTo(this.center);
-    if (!this.hinted && near < 700) {
+    if (!this.hinted && near < 1100) {
       this.hinted = true;
-      this.hooks.toast('Montañas flotantes: la cascada repara, los arcos recargan, el nido da premio', 4200);
+      this.hooks.toast('Montañas flotantes: la cascada repara, los arcos recargan, la corriente sube', 4200);
     }
-    // Brillo suave de las plantas
+    if (!this.padHinted && me.distanceTo(this.pad) < 500) {
+      this.padHinted = true;
+      this.hooks.toast('✨ Santuario en la cima: frena (botón Freno o B) y aterriza en la plataforma', 4200);
+    }
+    // Brillo suave de las plantas y de las runas
     const k = this.night ? 0.85 + 0.15 * Math.sin(time * 1.6) : 1;
     this.glowMats[0].color.setRGB(this.night ? 0.35 * k : 0.55, this.night ? 0.95 * k : 0.8, this.night ? 0.9 * k : 0.5);
+    const rk = 0.7 + 0.3 * Math.sin(time * 2.2);
+    this.runeMat.color.setRGB(0.4 * rk, 0.95 * rk, 0.9 * rk);
+    // Árbol de luz: dormido = verde apagado; despierto = luminoso y suelta semillas
+    this.treeAwake = Math.max(0, this.treeAwake - dt);
+    const aw = this.treeAwake > 0 ? 1 : 0;
+    for (const [i, m] of this.treeMats.entries()) {
+      const pulse = 0.85 + 0.15 * Math.sin(time * 3 + i);
+      if (aw) m.color.setRGB(0.45 * pulse, 0.98 * pulse, 0.85 * pulse);
+      else m.color.setRGB(0.3, 0.55, 0.45);
+    }
+    if (this.seeds && this.seedU) {
+      this.seeds.count = aw ? this.seedU.length / 3 : 0;
+      if (aw) {
+        for (let i = 0; i < this.seeds.count; i++) {
+          const u = this.seedU;
+          u[i * 3] = (u[i * 3] + dt * 0.08) % 1;
+          const a = u[i * 3 + 1] + time * 0.3;
+          const r = u[i * 3 + 2];
+          this.m4.makeTranslation(this.treeBase.x + Math.cos(a) * r, this.treeBase.y - 20 + u[i * 3] * 120, this.treeBase.z + Math.sin(a) * r);
+          this.seeds.setMatrixAt(i, this.m4);
+        }
+        this.seeds.instanceMatrix.needsUpdate = true;
+      }
+    }
     // Cascadas
     for (const fl of this.falls) {
       fl.cool = Math.max(0, fl.cool - dt);
@@ -767,7 +959,7 @@ class FloatingRealm {
       const rel = me.clone().sub(ar.center);
       const along = rel.dot(ar.normal);
       const radial = rel.addScaledVector(ar.normal, -along).length();
-      if (Math.abs(along) < 10 && radial < ar.r) {
+      if (Math.abs(along) < 14 && radial < ar.r - ar.tube) {
         ar.cool = 6;
         this.hooks.refill();
         this.hooks.sound('whoosh');
@@ -775,29 +967,11 @@ class FloatingRealm {
         this.hooks.trick('Arco de piedra', 180);
       }
     }
-    // Nido
-    const n = this.nest!;
-    if (n.respawn > 0) {
-      n.respawn -= dt;
-      n.orb.visible = n.respawn <= 0;
-    } else {
-      n.orb.rotation.y = time * 1.4;
-      (n.orb.children[1] as THREE.Mesh).rotation.x = time * 2;
-      n.orb.position.y = n.pos.y + Math.sin(time * 2) * 2;
-      if (n.orb.position.distanceTo(me) < 16) {
-        n.respawn = 60;
-        n.orb.visible = false;
-        const what = this.hooks.power();
-        this.hooks.sparks(me, 60);
-        this.hooks.sound('win');
-        this.hooks.big(`🪺 NIDO: ${what.toUpperCase()}`);
-      }
-    }
     // Tesoros
     for (const o of this.orbs) {
       if (o.taken) continue;
       o.mesh.rotation.y = time * 1.5;
-      if (o.mesh.position.distanceTo(me) < 14) {
+      if (o.mesh.position.distanceTo(me) < 16) {
         o.taken = true;
         o.mesh.visible = false;
         this.hooks.sparks(o.mesh.position, 40);
@@ -814,7 +988,7 @@ class FloatingRealm {
     // Corriente ascendente
     const up = this.updraft!;
     for (let i = 0; i < up.u.length / 2; i++) {
-      up.u[i * 2] = (up.u[i * 2] + dt * 0.25) % 1;
+      up.u[i * 2] = (up.u[i * 2] + dt * 0.2) % 1;
       const a = up.u[i * 2 + 1] + time * 0.6;
       const r = up.r * (0.3 + ((i * 37) % 10) / 14);
       this.m4.makeTranslation(up.pos.x + Math.cos(a) * r, up.pos.y + up.u[i * 2] * up.h, up.pos.z + Math.sin(a) * r);
@@ -822,7 +996,7 @@ class FloatingRealm {
     }
     up.streaks.instanceMatrix.needsUpdate = true;
     if (Math.hypot(me.x - up.pos.x, me.z - up.pos.z) < up.r && me.y > up.pos.y && me.y < up.pos.y + up.h) {
-      me.y += 70 * dt;
+      me.y += 80 * dt;
       f.pitch += (0.5 - f.pitch) * Math.min(1, dt * 1.5);
       f.burst = Math.max(f.burst, 0.2);
     }

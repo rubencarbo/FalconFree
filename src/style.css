@@ -593,9 +593,21 @@ button:disabled {
 @media (hover: hover) and (pointer: fine) {
   #joy-zone,
   #btn-boost,
-  #btn-fire {
+  #btn-fire,
+  #btn-brake {
     display: none;
   }
+}
+
+#btn-brake {
+  background: radial-gradient(circle at 35% 30%, #8fb4d8, #3a5a7a);
+  border: 3px solid rgba(255, 255, 255, 0.85);
+  font-size: 12px;
+}
+
+#btn-brake.pressed {
+  background: radial-gradient(circle at 35% 30%, #c8e4ff, #4a8ad0);
+  box-shadow: 0 0 18px rgba(120, 190, 255, 0.7);
 }
 
 @media (hover: none), (pointer: coarse) {
@@ -3805,4 +3817,86 @@ html.standalone .install {
 /* En la sala: el aviso aparece encima del panel */
 #lobby .talk-btn.rec::after {
   content: ' · MICRO ABIERTO';
+}
+
+/* Ajustes: prueba de micrófono */
+.mic-test {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mic-meter {
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.mic-meter i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #5cff8a, #ffd040, #ff4a4a);
+  transform-origin: left;
+  transform: scaleX(0);
+  transition: transform 0.08s;
+}
+
+.ce-brake {
+  background: radial-gradient(circle at 35% 30%, #8fb4d8, #3a5a7a);
+}
+
+/* Santuario del cielo */
+#sanctuary {
+  background: linear-gradient(180deg, rgba(8, 30, 40, 0.35), rgba(8, 14, 30, 0.75));
+}
+
+.panel.sanctuary {
+  border-color: rgba(120, 240, 220, 0.5);
+  box-shadow: 0 0 40px rgba(80, 230, 200, 0.25);
+}
+
+.wonder-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 52vh;
+  overflow-y: auto;
+}
+
+.wonder {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 4px 10px;
+  align-items: center;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 14px;
+  color: var(--ink);
+  background: rgba(120, 240, 220, 0.08);
+  border: 1px solid rgba(120, 240, 220, 0.3);
+}
+
+.wonder .wi {
+  grid-row: span 2;
+  font-size: 30px;
+  text-align: center;
+}
+
+.wonder b {
+  font-size: 15px;
+}
+
+.wonder small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.wonder:disabled {
+  opacity: 0.45;
+}
+
+.wonder.used b::after {
+  content: ' ✔';
+  color: var(--green);
 }
