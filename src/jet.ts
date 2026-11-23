@@ -37,6 +37,11 @@ export class Flight {
   /** Multiplicadores del avión elegido y sus mejoras */
   speedMul = 1;
   agility = 1;
+  /**
+   * Tirón de emergencia (0..1): cuando el juego detecta un choque inminente y el piloto
+   * tira del morro hacia arriba con fuerza, la subida se acentúa.
+   */
+  pullUpAssist = 0;
   private prevY = 500;
 
   reset(x: number, y: number, z: number, yaw: number) {
@@ -50,6 +55,7 @@ export class Flight {
     this.prevY = y;
     this.stun = 0;
     this.burst = 0;
+    this.pullUpAssist = 0;
   }
 
   /** Cambia la dirección y velocidad a partir de un vector velocidad */
@@ -92,7 +98,10 @@ export class Flight {
     // Cabeceo
     const py = input.climb ? 1 : input.y;
     const pitchRate = 0.95 * (0.6 + 0.4 * Math.min(1, this.speed / (CRUISE_KMH / KMH)));
-    this.pitch += py * pitchRate * this.agility * dt;
+    const assist = py > 0 ? this.pullUpAssist : 0;
+    // Con el tirón de emergencia el morro sube hasta 2,6 veces más rápido y las alas se nivelan
+    this.pitch += py * pitchRate * this.agility * (1 + 1.6 * assist) * dt;
+    if (assist > 0) this.roll *= 1 - Math.min(1, dt * 3 * assist);
     // Ligera recuperación hacia el horizonte sin input
     if (Math.abs(py) < 0.05) this.pitch *= 1 - Math.min(1, dt * 0.25);
     const maxPitch = THREE.MathUtils.degToRad(80);
@@ -116,6 +125,11 @@ export class Flight {
 
     const f = this.forward(_v);
     this.pos.addScaledVector(f, this.speed * dt);
+    // Sustentación extra del tirón de emergencia (y sin perder tanta velocidad al subir)
+    if (assist > 0) {
+      this.pos.y += assist * py * 28 * dt;
+      this.speed += Math.sin(Math.max(0, this.pitch)) * 9.81 * 0.8 * assist * dt;
+    }
     if (this.pos.y > 4500) this.pos.y = 4500;
 
     this.verticalSpeed = (this.pos.y - this.prevY) / Math.max(dt, 1e-4);

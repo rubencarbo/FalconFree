@@ -3203,3 +3203,269 @@ html.standalone .install {
     top: calc(250px + var(--safe-top));
   }
 }
+
+/* ================================================================ Visor de aviones */
+.showroom {
+  position: relative;
+  height: 210px;
+  border-radius: 16px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background:
+    radial-gradient(ellipse at 50% 120%, rgba(255, 255, 255, 0.35), transparent 60%),
+    linear-gradient(180deg, #2f6fb0 0%, #78b6e6 60%, #cfe6f6 100%);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.showroom.hidden {
+  display: none;
+}
+
+.showroom.blueprint {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px) 0 0 / 20px 20px,
+    linear-gradient(90deg, rgba(255, 255, 255, 0.07) 1px, transparent 1px) 0 0 / 20px 20px,
+    #12355e;
+}
+
+.showroom canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.sr-info {
+  position: absolute;
+  left: 12px;
+  bottom: 10px;
+  right: 120px;
+  display: flex;
+  flex-direction: column;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+}
+
+.sr-info b {
+  font-size: 18px;
+}
+
+.sr-info small {
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.sr-modes {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 999px;
+  background: rgba(8, 14, 26, 0.6);
+}
+
+.sr-modes button {
+  font-size: 12px;
+  font-weight: 800;
+  padding: 5px 10px;
+  border-radius: 999px;
+  color: var(--ink);
+  background: transparent;
+}
+
+.sr-modes button.active {
+  background: var(--orange);
+  color: #1a0d00;
+}
+
+.hg-item.plane {
+  grid-template-columns: 92px 1fr auto;
+  cursor: pointer;
+}
+
+.hg-item.plane.focus:not(.selected) {
+  border-color: rgba(64, 224, 255, 0.6);
+}
+
+.hg-thumb {
+  grid-row: 1;
+  width: 92px;
+  height: 61px;
+  object-fit: contain;
+  border-radius: 10px;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px) 0 0 / 12px 12px,
+    linear-gradient(90deg, rgba(255, 255, 255, 0.06) 1px, transparent 1px) 0 0 / 12px 12px,
+    rgba(18, 53, 94, 0.8);
+}
+
+.hg-item.locked .hg-thumb {
+  filter: grayscale(0.7) brightness(0.75);
+}
+
+.hangar-list.with-view {
+  max-height: 38vh;
+}
+
+/* Preparar vuelo y sala: selector de avión */
+.pf-link {
+  float: right;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--cyan);
+  text-decoration: none;
+}
+
+.pf-plane {
+  position: relative;
+  height: 130px;
+  border-radius: 14px;
+  overflow: hidden;
+  background: linear-gradient(180deg, #2f6fb0 0%, #78b6e6 65%, #cfe6f6 100%);
+}
+
+.pf-plane canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.pf-plane-info {
+  position: absolute;
+  left: 10px;
+  bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.75);
+  pointer-events: none;
+}
+
+.pf-plane-info small {
+  font-size: 11px;
+}
+
+.plane-strip {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 2px 0 4px;
+  scrollbar-width: thin;
+}
+
+.plane-chip {
+  flex: 0 0 auto;
+  width: 84px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 4px 6px;
+  border-radius: 12px;
+  border: 2px solid transparent;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.plane-chip img {
+  width: 72px;
+  height: 48px;
+  object-fit: contain;
+}
+
+.plane-chip.selected {
+  border-color: var(--orange);
+  background: rgba(255, 122, 26, 0.14);
+}
+
+@media (max-width: 560px) {
+  .showroom {
+    height: 180px;
+  }
+
+  .hg-item.plane {
+    grid-template-columns: 72px 1fr auto;
+  }
+
+  .hg-thumb {
+    width: 72px;
+    height: 48px;
+  }
+}
+
+/* Flecha guía (HUD): plana, grande y solo cuando el objetivo no está a la vista */
+#guide-arrow {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 54px;
+  height: 54px;
+  margin: -27px 0 0 -27px;
+  display: none;
+  pointer-events: none !important;
+  color: #40e0ff;
+  filter: drop-shadow(0 0 6px currentColor) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
+}
+
+#guide-arrow.show {
+  display: block;
+}
+
+#guide-arrow svg {
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
+  stroke: rgba(8, 14, 26, 0.85);
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+  animation: guidePulse 1.1s ease-in-out infinite;
+}
+
+@keyframes guidePulse {
+  50% {
+    transform: translateY(-5px);
+    opacity: 0.8;
+  }
+}
+
+#hud.cockpit #guide-arrow {
+  display: none;
+}
+
+.gift-note {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 800;
+  color: #1a1200;
+  background: linear-gradient(90deg, #ffd040, #ffb02a);
+  animation: chatIn 0.3s ease-out;
+}
+
+/* Miniaturas más claras y texto del visor legible */
+.hg-thumb,
+.plane-chip img {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.12) 1px, transparent 1px) 0 0 / 12px 12px,
+    linear-gradient(90deg, rgba(255, 255, 255, 0.12) 1px, transparent 1px) 0 0 / 12px 12px,
+    linear-gradient(180deg, #8fc3ec, #5d93c6);
+  border-radius: 8px;
+}
+
+.sr-info,
+.pf-plane-info {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 18px 12px 8px;
+  background: linear-gradient(transparent, rgba(6, 12, 24, 0.7));
+}
+
+.pf-plane {
+  height: 150px;
+}

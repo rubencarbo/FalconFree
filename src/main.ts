@@ -23,12 +23,12 @@ import { Room, NetError, formatCode, normalizeCode, MAX_PLAYERS, PLAYER_COLORS, 
 import { RemotePlayers, bodyTint } from './remote';
 import { loadSettings, saveSettings, store, type Settings } from './settings';
 import { applyControlLayout, ControlsEditor } from './controls';
-import { GuideArrow, Radar, type RadarItem } from './nav';
+import { GuideArrow, Radar, RouteTrail, type RadarItem } from './nav';
 import { Weather, WEATHER_LABELS } from './weather';
 import { GhostPlayer, GhostRecorder, loadGhost, saveGhost } from './ghost';
 import { PowerUps, POWER_INFO, type PowerKind } from './powerups';
 import { Missiles, MISSILE_DAMAGE, type MissileOwner } from './missiles';
-import { Progress, ACHIEVEMENTS, PLANES, PAINTS, UPGRADES, type PlaneId, type UpgradeId } from './progress';
+import { Progress, ACHIEVEMENTS, PLANES, PAINTS, UPGRADES, WELCOME_CREDITS, type PlaneId, type UpgradeId } from './progress';
 import { dailyChallenge, dayLabel, msToNextDaily } from './daily';
 import { Bot, makeBotSpecs, TEAM_COLORS, type Team } from './bots';
 import { Battle, BATTLE_LABELS, DEFAULT_BATTLE, isPointsMode, type BattleConfig, type BattleKind, type BattleResult } from './battle';
@@ -65,6 +65,7 @@ import {
 } from './circuits';
 import type { GhostData } from './ghost';
 import type { WeatherKind } from './weather';
+import { PlanePreview, type PreviewMode } from './planePreview';
 import { AutoQuality, QUALITY_LABELS, qualityPreset, type QualityPreset } from './quality';
 import type { QualityLevel, QualitySetting } from './settings';
 
@@ -122,6 +123,7 @@ class Game {
   progress = new Progress();
   pwa = new Pwa();
   arrow: GuideArrow;
+  trail: RouteTrail;
   radar = new Radar($<HTMLCanvasElement>('radar'));
   ghostRec = new GhostRecorder();
   autoQ = new AutoQuality(isTouch);
@@ -233,6 +235,11 @@ class Game {
   private savedCircuit: Circuit | null = null;
   // Chat rápido
   private chatCooldown = 0;
+  // Visor de aviones (hangar y preparar vuelo)
+  preview = new PlanePreview();
+  private hangarFocus: PlaneId | null = null;
+  private hangarPaint: string | null = null;
+  private previewMode: PreviewMode = '3d';
 
   private timer = new THREE.Timer();
   private time = 0;
@@ -256,6 +263,8 @@ class Game {
     this.scene.add(this.jet.group);
     this.remotes = new RemotePlayers(this.scene);
     this.arrow = new GuideArrow(this.scene);
+    this.arrow.camera = this.camera;
+    this.trail = new RouteTrail(this.scene);
     this.myTarget = { id: 'me', name: 'Tú', pos: this.flight.pos, vel: new THREE.Vector3(), radius: 9, alive: true };
 
     this.settings = loadSettings();
@@ -317,6 +326,14 @@ class Game {
       void this.room?.leave();
     });
     this.handleLaunchParams();
+    if (this.progress.welcomeGranted) {
+      // El HUD no se ve en el menú: aviso en la portada
+      const gift = document.createElement('p');
+      gift.className = 'gift-note';
+      gift.textContent = `🎁 Regalo: +${WELCOME_CREDITS} créditos para estrenar aviones en el hangar`;
+      $('btn-play').before(gift);
+      setTimeout(() => gift.remove(), 15000);
+    }
 
     this.renderer.setAnimationLoop(() => this.frame());
   }
@@ -1764,8 +1781,12 @@ class Game {
     this.sun.target.updateMatrixWorld();
     show('loading', this.chunks.loadingCount >= 30 && this.screen === 'playing');
 
+    this.lastHudDt = frozen ? 0 : dt;
     if (this.screen === 'playing' || this.screen === 'crashed' || this.screen === 'results') this.updateHud();
-    else this.arrow.update(this.flight.pos, 0, null, false);
+    else {
+      this.arrow.update(this.flight.pos, 0, null, false);
+      this.trail.update(dt, null);
+    }
 
     this.render(dt);
   }
@@ -1857,6 +1878,9 @@ class Game {
       this.sendNetState();
       return;
     }
+
+    // Tirón de emergencia: choque inminente + maniobra brusca hacia arriba → subida acentuada
+    this.updatePullUp(dt, input);
 
     // Física con subpasos para no atravesar edificios
     const steps = Math.max(1, Math.ceil((f.speed * dt) / 4));
@@ -1953,6 +1977,44 @@ class Game {
     if (!f.frozen) this.contrails.update(tips);
     if (this.invuln > 0) this.jet.group.visible = Math.floor(this.time * 12) % 2 === 0 && this.rig.mode !== 'cockpit';
     this.sendNetState();
+  }
+
+  private prevInputY = 0;
+  private inputJerk = 0;
+  private pullUpShown = false;
+  /** Segundos hasta chocar si sigue igual (Infinity si no hay peligro) */
+  private timeToImpact() {
+    const f = this.flight;
+    const fwd = f.forward();
+    for (let t = 0.25; t <= 2; t += 0.25) {
+      const px = f.pos.x + fwd.x * f.speed * t;
+      const py = f.pos.y + fwd.y * f.speed * t;
+      const pz = f.pos.z + fwd.z * f.speed * t;
+      if (py < Math.max(2, this.gen.maxHeightNear(px, pz, 18)) + 8) return t;
+    }
+    return Infinity;
+  }
+
+  private updatePullUp(dt: number, input: FlightInput) {
+    const f = this.flight;
+    // Brusquedad: cuánto ha cambiado el mando hacia arriba en muy poco tiempo
+    const dy = input.climb ? 1 : input.y;
+    const rate = (dy - this.prevInputY) / Math.max(dt, 1e-3);
+    this.prevInputY = dy;
+    this.inputJerk = Math.max(rate, this.inputJerk - dt * 6);
+    const tti = f.frozen || this.mode === 'race' && !this.race?.started ? Infinity : this.timeToImpact();
+    const danger = tti < 1.6;
+    const abrupt = dy > 0.55 && (dy > 0.85 || this.inputJerk > 3);
+    const want = danger && abrupt ? THREE.MathUtils.clamp(1.9 - tti, 0.5, 1) : 0;
+    // Entra rápido y sale suave
+    f.pullUpAssist += (want - f.pullUpAssist) * Math.min(1, dt * (want > f.pullUpAssist ? 10 : 2.5));
+    if (f.pullUpAssist < 0.02) f.pullUpAssist = 0;
+    if (want > 0 && !this.pullUpShown) {
+      this.pullUpShown = true;
+      this.hud.toast('¡Tirón de emergencia!', 900);
+      Haptic.bump();
+      this.rig.addShake(1.5);
+    } else if (f.pullUpAssist === 0) this.pullUpShown = false;
   }
 
   private updateBattle(dt: number) {
@@ -2665,6 +2727,35 @@ class Game {
     this.contrails.update(tips);
   }
 
+  private lastHudDt = 0;
+  /** Camino que dibuja la estela: hasta el siguiente hito y el posterior (o el reparto) */
+  private routePoints(): THREE.Vector3[] | null {
+    const f = this.flight;
+    const fwd = f.forward();
+    const start = f.pos.clone().addScaledVector(fwd, 55);
+    if (this.race && !this.race.finished) {
+      const gates = this.race.course.gates;
+      const pts = [start];
+      let i = this.race.nextGate;
+      for (let k = 0; k < 2; k++) {
+        const g = gates[i];
+        const dir = new THREE.Vector3(-Math.sin(g.yaw), 0, -Math.cos(g.yaw));
+        // entrar de frente y salir recto por el hito
+        const before = g.pos.clone().addScaledVector(dir, -140);
+        if (before.distanceTo(start) > 160) pts.push(before);
+        pts.push(g.pos.clone(), g.pos.clone().addScaledVector(dir, 120));
+        if (i === 0) break; // la meta es el final
+        i = (i + 1) % gates.length;
+      }
+      return pts;
+    }
+    if (this.delivery && !this.delivery.over) {
+      const t = this.delivery.target;
+      return [start, t.clone().setY(Math.max(t.y + 60, (start.y + t.y) / 2)), t.clone().setY(t.y + 12)];
+    }
+    return null;
+  }
+
   private updateHud() {
     const f = this.flight;
     let scoreLabel = 'Anillos';
@@ -2869,6 +2960,7 @@ class Game {
     if (this.turbo > 0) pws.push({ name: 'Turbo', color: POWER_INFO.turbo.css, left: this.turbo, total: POWER_INFO.turbo.duration });
     this.hud.setPowerups(pws);
     this.radar.draw(f.pos, f.yaw, items, route, circles);
+    this.trail.update(this.lastHudDt, this.screen === 'playing' && this.alive ? this.routePoints() : null, this.race ? (this.race.nextGate === 0 ? 0xffd040 : 0x40e0ff) : 0xffa040);
     this.hud.combo(this.stunts.combo);
     // Etiquetas de los demás pilotos
     const tags = [];
@@ -3420,6 +3512,8 @@ class Game {
         return b;
       }),
     );
+    $('lobby-plane-name').textContent = this.progress.plane.name;
+    this.renderPlaneStrip('lobby-planes', () => this.renderLobby());
     const host = room.isHost;
     for (const id of ['lobby-mode', 'lobby-stage', 'lobby-course', 'lobby-bkind', 'lobby-bots', 'lobby-blimit', 'lobby-btime']) ($(id) as HTMLSelectElement).disabled = !host;
     $<HTMLSelectElement>('lobby-mode').value = m.mode;
@@ -3797,11 +3891,26 @@ class Game {
     });
 
     // Hangar y logros
-    $('btn-hangar').addEventListener('click', () => this.openHangar('planes'));
+    $('btn-hangar').addEventListener('click', () => {
+      this.hangarFocus = null;
+      this.openHangar('planes');
+    });
     $('btn-achievements').addEventListener('click', () => this.openAchievements());
     document.querySelectorAll<HTMLElement>('#hangar-tabs button').forEach((b) =>
       b.addEventListener('click', () => this.openHangar(b.dataset.tab as 'planes' | 'paints' | 'upgrades')),
     );
+
+    document.querySelectorAll<HTMLElement>('.sr-modes button').forEach((b) =>
+      b.addEventListener('click', () => {
+        this.previewMode = b.dataset.view as PreviewMode;
+        this.updateShowroom();
+      }),
+    );
+    $('pf-hangar').addEventListener('click', (e) => {
+      e.preventDefault();
+      this.hangarFocus = null;
+      this.openHangar('planes');
+    });
 
     // Ajustes
     $('btn-settings').addEventListener('click', () => this.openSettings());
@@ -3865,6 +3974,8 @@ class Game {
         if (ov.id === 'mp-panel') this.stopPublicList();
         if (this.screen === 'playing' && ov.id !== 'pause' && this.paused) show('pause', true);
         if (this.screen === 'menu') this.refreshMenu();
+        // Al cerrar el hangar desde «Preparar vuelo», volver a mostrar el avión elegido
+        if (ov.id === 'hangar' && !$('preflight').classList.contains('hidden')) this.renderPlanePicker();
       }),
     );
 
@@ -3972,6 +4083,11 @@ class Game {
     $('hangar-credits').textContent = `${pr.p.credits} créditos`;
     document.querySelectorAll<HTMLElement>('#hangar-tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
     const list = $('hangar-list');
+    const withView = tab !== 'upgrades';
+    show('showroom', withView);
+    list.classList.toggle('with-view', withView);
+    if (tab !== 'paints') this.hangarPaint = null;
+    if (withView) this.updateShowroom();
     const bar = (label: string, v: number) => `<div class="stat"><span>${label}</span><i style="--v:${Math.min(1, v / 1.6)}"></i></div>`;
     const refresh = () => {
       this.applyLoadout();
@@ -3991,10 +4107,20 @@ class Game {
         const owned = pr.p.planes.includes(pl.id);
         const sel = pr.p.plane === pl.id;
         const el = document.createElement('div');
-        el.className = `hg-item${sel ? ' selected' : ''}${pl.tier === 'advanced' ? ' advanced' : ''}`;
-        el.innerHTML = `<div class="hg-head"><b></b><small></small></div><div class="plane-stats">${bar('Velocidad', pl.speed)}${bar('Agilidad', pl.agility)}${bar('Blindaje', pl.armor)}</div><div class="weapon"><span class="wn"></span><span class="wd"></span></div>`;
+        const focus = (this.hangarFocus ?? pr.p.plane) === pl.id;
+        el.className = `hg-item plane${sel ? ' selected' : ''}${focus ? ' focus' : ''}${owned ? '' : ' locked'}${pl.tier === 'advanced' ? ' advanced' : ''}`;
+        el.innerHTML = `<img class="hg-thumb" alt="" /><div class="hg-head"><b></b><small></small></div><div class="plane-stats">${bar('Velocidad', pl.speed)}${bar('Agilidad', pl.agility)}${bar('Blindaje', pl.armor)}</div><div class="weapon"><span class="wn"></span><span class="wd"></span></div>`;
         (el.querySelector('b') as HTMLElement).textContent = pl.name;
         (el.querySelector('small') as HTMLElement).textContent = pl.description;
+        const img = el.querySelector('.hg-thumb') as HTMLImageElement;
+        img.src = this.preview.thumb(pl.id, pr.paint.accent, pr.paint.body);
+        img.alt = `Vista en planta del ${pl.name}`;
+        el.addEventListener('click', (e) => {
+          if ((e.target as HTMLElement).closest('button')) return;
+          this.hangarFocus = pl.id;
+          list.querySelectorAll('.hg-item.plane').forEach((x) => x.classList.toggle('focus', x === el));
+          this.updateShowroom();
+        });
         (el.querySelector('.wn') as HTMLElement).textContent = pl.weapon.name;
         const missiles = pl.weapon.missiles > 4 ? ` · ${pl.weapon.missiles} misiles` : '';
         (el.querySelector('.wd') as HTMLElement).textContent = `${pl.weapon.description}${missiles}`;
@@ -4009,6 +4135,7 @@ class Game {
         btn.addEventListener('click', () => {
           if (owned) pr.select('plane', pl.id as PlaneId);
           else if (!pr.buyPlane(pl.id)) return;
+          this.hangarFocus = pl.id;
           refresh();
         });
         el.append(btn);
@@ -4031,6 +4158,12 @@ class Game {
           (el.querySelector('b') as HTMLElement).textContent = pt.name;
           const ach = pt.achievement ? ACHIEVEMENTS.find((a) => a.id === pt.achievement) : null;
           (el.querySelector('small') as HTMLElement).textContent = owned ? 'Disponible' : ach ? `Logro: ${ach.name}` : pt.season ? `Pase de temporada · nivel ${pt.season}` : `${pt.cost} créditos`;
+          el.style.cursor = 'pointer';
+          el.addEventListener('click', (e) => {
+            if ((e.target as HTMLElement).closest('button')) return;
+            this.hangarPaint = pt.id;
+            this.updateShowroom();
+          });
           const btn = document.createElement('button');
           btn.className = sel ? 'secondary' : 'secondary strong';
           btn.textContent = sel ? 'En uso' : owned ? 'Usar' : pt.cost !== undefined ? 'Comprar' : 'Bloqueado';
@@ -4066,6 +4199,53 @@ class Game {
         }),
       );
     }
+  }
+
+  /** Escaparate del hangar: avión enfocado girando en el aire (o en planta / perfil) */
+  private updateShowroom() {
+    const pr = this.progress;
+    const pl = PLANES.find((x) => x.id === (this.hangarFocus ?? pr.p.plane)) ?? pr.plane;
+    const paint = PAINTS.find((x) => x.id === this.hangarPaint) ?? pr.paint;
+    $('sr-name').textContent = this.hangarPaint ? `${pl.name} · ${paint.name}` : pl.name;
+    $('sr-desc').textContent = `${pl.weapon.name} · ${pl.description}`;
+    $('showroom').classList.toggle('blueprint', this.previewMode !== '3d');
+    document.querySelectorAll<HTMLElement>('.sr-modes button').forEach((b) => b.classList.toggle('active', b.dataset.view === this.previewMode));
+    this.preview.show($<HTMLCanvasElement>('hangar-view'), pl.id, paint.accent, paint.body, this.previewMode);
+  }
+
+  /** Fichas de los aviones disponibles para elegir antes de jugar */
+  private renderPlaneStrip(stripId: string, onPick: () => void) {
+    const pr = this.progress;
+    const owned = PLANES.filter((pl) => pr.p.planes.includes(pl.id));
+    $(stripId).replaceChildren(
+      ...owned.map((pl) => {
+        const b = document.createElement('button');
+        b.className = `plane-chip${pr.p.plane === pl.id ? ' selected' : ''}`;
+        const img = document.createElement('img');
+        img.src = this.preview.thumb(pl.id, pr.paint.accent, pr.paint.body);
+        img.alt = '';
+        b.append(img, pl.name);
+        b.title = pl.description;
+        b.addEventListener('click', () => {
+          if (pr.p.plane === pl.id) return;
+          pr.select('plane', pl.id);
+          this.applyLoadout();
+          onPick();
+        });
+        return b;
+      }),
+    );
+  }
+
+  /** Preparar vuelo: avión elegido en 3D + selector */
+  private renderPlanePicker() {
+    const pr = this.progress;
+    const pl = pr.plane;
+    $('pf-plane-name').textContent = pl.name;
+    const sp = Math.round(pl.speed * 100);
+    $('pf-plane-weapon').textContent = `${pl.weapon.name} · velocidad ${sp} % · blindaje ${Math.round(pl.armor * 100)} %`;
+    this.renderPlaneStrip('pf-planes', () => this.renderPlanePicker());
+    this.preview.show($<HTMLCanvasElement>('pf-plane-view'), pl.id, pr.paint.accent, pr.paint.body, '3d');
   }
 
   private openAchievements() {
@@ -4158,6 +4338,7 @@ class Game {
     $('btn-go').textContent = 'Despegar';
     show('play', false);
     show('preflight', true);
+    this.renderPlanePicker();
   }
 
   private renderCourses() {

@@ -44,6 +44,7 @@
         <div id="race-split"></div>
         <div id="killfeed"></div>
         <div id="countdown"></div>
+        <div id="guide-arrow" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M24 3 L45 42 L24 32 L3 42 Z" /></svg></div>
         <div id="ring-marker"><span class="diamond"></span><span id="ring-label"></span><span id="ring-dist"></span></div>
         <div id="lock"><span id="lock-name"></span></div>
         <div id="hitmarker"></div>
@@ -151,6 +152,14 @@
           <div id="pf-stage" class="field">
             <span>Escenario</span>
             <div id="stage-list" class="stage-list compact"></div>
+          </div>
+          <div id="pf-plane" class="field">
+            <span>Avión <a id="pf-hangar" class="pf-link" href="#">Ver todos en el hangar</a></span>
+            <div class="pf-plane">
+              <canvas id="pf-plane-view" aria-label="Tu avión"></canvas>
+              <div class="pf-plane-info"><b id="pf-plane-name"></b><small id="pf-plane-weapon"></small></div>
+            </div>
+            <div id="pf-planes" class="plane-strip"></div>
           </div>
           <div id="pf-course" class="field hidden">
             <span>Circuito</span>
@@ -316,6 +325,10 @@
           <div class="lobby-head"><span>Pilotos</span><span id="lobby-count" class="muted"></span></div>
           <ul id="lobby-players" class="lobby-players"></ul>
           <button id="btn-team" class="secondary hidden">Cambiar de equipo</button>
+          <div class="field">
+            <span>Tu avión: <b id="lobby-plane-name"></b></span>
+            <div id="lobby-planes" class="plane-strip"></div>
+          </div>
           <div class="lobby-opts">
             <label class="field"><span>Modo</span>
               <select id="lobby-mode">
@@ -421,6 +434,15 @@
             <button data-tab="planes">Aviones</button>
             <button data-tab="paints">Pinturas</button>
             <button data-tab="upgrades">Mejoras</button>
+          </div>
+          <div id="showroom" class="showroom">
+            <canvas id="hangar-view" aria-label="Vista del avión"></canvas>
+            <div class="sr-info"><b id="sr-name"></b><small id="sr-desc"></small></div>
+            <div class="sr-modes" role="group" aria-label="Vista">
+              <button data-view="3d" class="active">3D</button>
+              <button data-view="top">Planta</button>
+              <button data-view="side">Perfil</button>
+            </div>
           </div>
           <div id="hangar-list" class="hangar-list"></div>
           <p class="muted">Gana créditos con anillos, drones, carreras, batallas y logros.</p>

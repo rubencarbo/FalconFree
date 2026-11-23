@@ -41,6 +41,14 @@ completa, con su icono, sin barra del navegador.
 
 ## Orientación en las carreras
 
+- **Estela en el cielo**: flechas luminosas que fluyen desde tu avión hasta el siguiente hito y el
+  posterior, entrando de frente por cada hito (dorada cuando lo siguiente es la meta). También
+  guía en Mensajero hasta la azotea de entrega.
+- **Flecha guía**: una flecha plana y grande junto al avión que solo aparece cuando el objetivo
+  no está a la vista; si está detrás, indica hacia qué lado girar.
+- **Tirón de emergencia**: si vas a chocar contra el suelo o un edificio y tiras del morro hacia
+  arriba de golpe, el avión sube con más fuerza (y nivela las alas) para librarlo.
+
 Para no perderse en un mundo abierto, sin mover los hitos (sería injusto en la clasificación):
 
 - Circuitos compactos: ~800 m entre hitos.
@@ -127,6 +135,10 @@ Cada 5 anillos recogidos se gana además 1 misil.
   creó, el modo, el escenario y los pilotos). El anfitrión puede cambiarlo desde la sala.
 
 ## Aviones
+
+En el hangar cada avión se ve en **3D girando en el aire** y en **2D** (planta y perfil, estilo
+plano). En «Preparar vuelo» y en la sala multijugador eliges el avión antes de despegar. Al
+empezar recibes **500 créditos** de regalo para estrenar el primero.
 
 | Avión | Tipo | Arma | Precio |
 | --- | --- | --- | --- |

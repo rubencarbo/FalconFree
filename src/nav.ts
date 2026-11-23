@@ -3,54 +3,157 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { drawIcon, type IconId } from './identity';
 
 /** Flecha 3D que flota delante del avión y apunta al siguiente objetivo */
+/**
+ * Flecha guía: una flecha plana y grande en el HUD, alrededor del avión.
+ * Solo aparece cuando el objetivo no está a la vista y señala hacia dónde girar.
+ */
 export class GuideArrow {
-  mesh: THREE.Mesh;
-  private mat: THREE.MeshBasicMaterial;
-  private tmp = new THREE.Vector3();
+  camera: THREE.Camera | null = null;
+  private el: HTMLElement;
+  private v = new THREE.Vector3();
+  private shown = false;
 
-  constructor(scene: THREE.Scene) {
-    // Flecha volumétrica (cabeza piramidal + cuerpo) que apunta a -Z
-    const head = new THREE.ConeGeometry(2.6, 4.5, 4);
-    head.rotateY(Math.PI / 4);
-    head.rotateX(-Math.PI / 2);
-    head.translate(0, 0, -2.2);
-    const shaft = new THREE.BoxGeometry(1.4, 1.4, 4);
-    shaft.translate(0, 0, 1.6);
-    const geo = mergeGeometries([head.toNonIndexed(), shaft.toNonIndexed()]);
-    this.mat = new THREE.MeshBasicMaterial({
-      color: new THREE.Color(0.35, 1.25, 1.5),
-      transparent: true,
-      opacity: 0.9,
-      depthWrite: false,
-      fog: false,
-    });
-    this.mesh = new THREE.Mesh(geo, this.mat);
-    this.mesh.visible = false;
-    this.mesh.renderOrder = 5;
-    scene.add(this.mesh);
+  constructor(_scene?: THREE.Scene) {
+    this.el = document.getElementById('guide-arrow')!;
+  }
+
+  private hide() {
+    if (!this.shown) return;
+    this.shown = false;
+    this.el.classList.remove('show');
   }
 
   update(planePos: THREE.Vector3, yaw: number, target: THREE.Vector3 | null, visible: boolean, color?: number) {
-    if (!target || !visible) {
-      this.mesh.visible = false;
+    const cam = this.camera;
+    if (!target || !visible || !cam) {
+      this.hide();
       return;
     }
-    const fwd = this.tmp.set(-Math.sin(yaw), 0, -Math.cos(yaw));
-    this.mesh.position.copy(planePos).addScaledVector(fwd, 22).add(new THREE.Vector3(0, 9, 0));
-    this.mesh.lookAt(target);
-    // Más tenue cuando ya vas en la buena dirección
-    const to = new THREE.Vector3().subVectors(target, planePos).normalize();
-    const facing = to.dot(new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw)));
-    this.mat.opacity = facing > 0.95 ? 0.25 : 0.9;
-    if (color !== undefined) this.mat.color.setHex(color).multiplyScalar(1.3);
-    else this.mat.color.setRGB(0.35, 1.25, 1.5);
-    this.mesh.visible = true;
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    const p = this.v.copy(target).project(cam);
+    const behind = p.z > 1;
+    // Objetivo delante y dentro de la pantalla: basta con el rombo, sin flecha
+    if (!behind && Math.abs(p.x) < 0.75 && Math.abs(p.y) < 0.7) {
+      this.hide();
+      return;
+    }
+    let ang: number;
+    if (!behind) {
+      // Dirección en pantalla hacia el objetivo (0 = arriba)
+      ang = Math.atan2(p.x * W, p.y * H);
+    } else {
+      // Detrás: girar hacia el lado más corto (izquierda o derecha)
+      const dx = target.x - planePos.x;
+      const dz = target.z - planePos.z;
+      const fwd = -Math.sin(yaw) * dx - Math.cos(yaw) * dz;
+      const side = Math.cos(yaw) * dx - Math.sin(yaw) * dz;
+      const bearing = Math.atan2(side, fwd);
+      ang = Math.sign(bearing || 1) * Math.min(Math.abs(bearing), Math.PI * 0.62);
+    }
+    const R = Math.min(W, H) * 0.2;
+    const cx = W / 2 + Math.sin(ang) * R;
+    const cy = H * 0.52 - Math.cos(ang) * R;
+    this.el.style.transform = `translate(${cx.toFixed(1)}px, ${cy.toFixed(1)}px) rotate(${ang.toFixed(3)}rad)`;
+    this.el.style.color = color !== undefined ? `#${color.toString(16).padStart(6, '0')}` : '#40e0ff';
+    if (!this.shown) {
+      this.shown = true;
+      this.el.classList.add('show');
+    }
   }
 
-  dispose(scene: THREE.Scene) {
-    scene.remove(this.mesh);
-    this.mesh.geometry.dispose();
-    this.mat.dispose();
+  dispose(_scene?: THREE.Scene) {
+    this.hide();
+  }
+}
+
+const TRAIL_MAX = 110;
+const TRAIL_GAP = 34;
+
+/**
+ * Estela en el cielo: chevrones luminosos que fluyen por el camino a seguir
+ * (del avión al siguiente hito y al posterior), entrando de frente por cada hito.
+ */
+export class RouteTrail {
+  private mesh: THREE.InstancedMesh;
+  private curve: THREE.CatmullRomCurve3 | null = null;
+  private len = 0;
+  private phase = 0;
+  private refreshT = 0;
+  private m = new THREE.Matrix4();
+  private q = new THREE.Quaternion();
+  private s = new THREE.Vector3(1, 1, 1);
+  private c = new THREE.Color();
+  private base = new THREE.Color();
+  private look = new THREE.Matrix4();
+  private up = new THREE.Vector3(0, 1, 0);
+  private p = new THREE.Vector3();
+  private t = new THREE.Vector3();
+
+  constructor(scene: THREE.Scene) {
+    const arm = (side: number) => {
+      const g = new THREE.BoxGeometry(1.8, 0.9, 10);
+      g.rotateY(side * 0.62);
+      g.translate(side * 2.9, 0, 2.2);
+      return g.toNonIndexed();
+    };
+    const geo = mergeGeometries([arm(1), arm(-1)]);
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
+    this.mesh = new THREE.InstancedMesh(geo, mat, TRAIL_MAX);
+    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(TRAIL_MAX * 3), 3);
+    this.mesh.frustumCulled = false;
+    this.mesh.count = 0;
+    this.mesh.renderOrder = 4;
+    scene.add(this.mesh);
+  }
+
+  /** points: camino a seguir (null para ocultar). color: hex del camino. */
+  update(dt: number, points: THREE.Vector3[] | null, color = 0x40e0ff) {
+    if (!points || points.length < 2) {
+      this.mesh.count = 0;
+      this.curve = null;
+      return;
+    }
+    this.refreshT -= dt;
+    if (!this.curve || this.refreshT <= 0) {
+      this.refreshT = 0.15;
+      this.curve = new THREE.CatmullRomCurve3(points, false, 'centripetal');
+      this.len = this.curve.getLength();
+    }
+    const curve = this.curve;
+    const L = this.len;
+    if (L < 20) {
+      this.mesh.count = 0;
+      return;
+    }
+    this.phase = (this.phase + dt * 70) % TRAIL_GAP;
+    this.base.setHex(color).multiplyScalar(1.6);
+    const n = Math.min(TRAIL_MAX, Math.floor(L / TRAIL_GAP));
+    let k = 0;
+    for (let i = 0; i < n; i++) {
+      const d = i * TRAIL_GAP + this.phase;
+      if (d > L) break;
+      const u = d / L;
+      curve.getPointAt(u, this.p);
+      curve.getTangentAt(u, this.t);
+      this.look.lookAt(this.p, this.t.add(this.p), this.up);
+      this.q.setFromRotationMatrix(this.look);
+      const scale = 1.1 + Math.min(3.2, d / 260);
+      this.s.setScalar(scale);
+      this.m.compose(this.p, this.q, this.s);
+      this.mesh.setMatrixAt(k, this.m);
+      // Aparece suave cerca del avión y se apaga al final
+      const fadeIn = Math.min(1, d / 120);
+      const fadeOut = Math.min(1, (L - d) / 80);
+      const pulse = 0.75 + 0.25 * Math.sin(i * 0.9 - this.phase * 0.18);
+      this.c.copy(this.base).multiplyScalar(fadeIn * fadeOut * pulse);
+      this.mesh.setColorAt(k, this.c);
+      k++;
+    }
+    this.mesh.count = k;
+    this.mesh.instanceMatrix.needsUpdate = true;
+    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
   }
 }
 

@@ -210,7 +210,12 @@ export interface Profile {
   upgrades: Record<UpgradeId, number>;
   daily: Record<string, number>;
   season: SeasonState;
+  /** regalo de bienvenida ya entregado */
+  welcome?: number;
 }
+
+/** Créditos de regalo para empezar a comprar (una sola vez por perfil) */
+export const WELCOME_CREDITS = 500;
 
 export interface SeasonState {
   /** año*12+mes */
@@ -276,10 +281,20 @@ export class Progress {
     } catch {
       this.p = d;
     }
+    // Regalo de bienvenida (también para perfiles que ya existían)
+    if (!this.p.welcome) {
+      this.p.welcome = 1;
+      this.p.credits += WELCOME_CREDITS;
+      this.welcomeGranted = true;
+      this.dirty = true;
+    }
     // Guardado periódico
     setInterval(() => this.flush(), 4000);
     window.addEventListener('pagehide', () => this.flush());
   }
+
+  /** true si en esta carga se ha entregado el regalo de bienvenida */
+  welcomeGranted = false;
 
   /** Bloquea el guardado (tras recuperar un perfil de la nube, hasta recargar) */
   locked = false;
