@@ -436,17 +436,18 @@ export class JetModel {
     const boost = THREE.MathUtils.clamp((t - 0.6) / 0.4, 0, 1);
     for (let i = 0; i < this.flames.length; i++) {
       const flicker = 0.85 + Math.sin(time * 60 + i * 2.1) * 0.08 + Math.random() * (0.1 + boost * 0.25);
-      const len = (0.35 + t * 1.3) * (1 + boost * 1.8) * flicker;
-      const wid = (0.8 + t * 0.4) * (1 + boost * 0.45);
+      const len = (0.35 + t * 1.3) * (1 + boost * 1.1) * flicker;
+      const wid = (0.8 + t * 0.4) * (1 + boost * 0.3);
       const fl = this.flames[i];
       fl.scale.set(wid, wid, len);
       const outer = fl.material as THREE.MeshBasicMaterial;
-      outer.opacity = 0.85 + boost * 0.15;
+      outer.opacity = 0.45 + boost * 0.1;
       const core = fl.children[0] as THREE.Mesh | undefined;
       if (core) {
         // Núcleo azul-blanco con anillos de choque al ir a tope
         const cm = core.material as THREE.MeshBasicMaterial;
-        cm.color.setRGB(1 + boost * 0.6, 0.94 + boost * 0.5, 0.82 + boost * 1.6);
+        // Sin pasar de 1: así el resplandor (bloom) no lo convierte en un fogonazo
+        cm.color.setRGB(0.6 + boost * 0.15, 0.5 + boost * 0.15, 0.36 + boost * 0.3);
         core.scale.set(1, 1, 1 + boost * 0.4 + (boost > 0.5 ? Math.sin(time * 90 + i) * 0.15 : 0));
       }
     }

@@ -388,23 +388,26 @@ export class Fx {
 
   /** Turbo: llamaradas y chispas detrás de cada tobera */
   afterburner(nozzle: THREE.Vector3, back: THREE.Vector3, vel: THREE.Vector3) {
-    const n = this.high ? 3 : 2;
+    // Fuego del turbo suave: pocas partículas y colores apagados (con mezcla aditiva
+    // los colores claros se suman y el resplandor deslumbraba)
+    const n = this.high ? 2 : 1;
     for (let i = 0; i < n; i++) {
-      const s = rnd(40, 110);
+      const s = rnd(40, 100);
       this.glow.spawn({
-        x: nozzle.x + back.x * rnd(2, 6),
-        y: nozzle.y + back.y * rnd(2, 6),
-        z: nozzle.z + back.z * rnd(2, 6),
-        vx: vel.x * 0.85 + back.x * s + rnd(-6, 6),
-        vy: vel.y * 0.85 + back.y * s + rnd(-6, 6),
-        vz: vel.z * 0.85 + back.z * s + rnd(-6, 6),
-        life: rnd(0.12, 0.3),
-        size0: rnd(1.4, 2.6),
+        x: nozzle.x + back.x * rnd(2, 5),
+        y: nozzle.y + back.y * rnd(2, 5),
+        z: nozzle.z + back.z * rnd(2, 5),
+        vx: vel.x * 0.85 + back.x * s + rnd(-5, 5),
+        vy: vel.y * 0.85 + back.y * s + rnd(-5, 5),
+        vz: vel.z * 0.85 + back.z * s + rnd(-5, 5),
+        life: rnd(0.1, 0.22),
+        size0: rnd(1.1, 1.9),
         size1: 0.3,
-        color: pick([0xffffff, 0xfff2b0, 0xffd040, 0xff9a20, 0x9fd0ff]),
+        color: pick([0x7a5a30, 0x80602a, 0x7a4418, 0x5a3010, 0x3a4a66]),
       });
     }
   }
+
 
   /** Humo de colores de la formación (sale de la cola) */
   formationSmoke(pos: THREE.Vector3, back: THREE.Vector3, color: number) {

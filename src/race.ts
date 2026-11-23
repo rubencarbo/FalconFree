@@ -370,10 +370,11 @@ export class Race {
       v.beam.visible = active || after;
       const bm = v.beam.material as THREE.MeshBasicMaterial;
       bm.color.setHex(active ? (i === 0 ? 0xffd040 : 0x40e0ff) : 0xffffff);
-      bm.opacity = active ? 0.4 : 0.12;
+      bm.opacity = active ? 0.2 : 0.07;
       const done = !this.finished && i !== 0 && i < this.nextGate;
       v.field.visible = active;
-      v.frameMat.emissive.setRGB(active ? 0.2 : 0, active ? 1.4 : 0, active ? 1.8 : 0);
+      // Marco del hito activo iluminado, pero sin deslumbrar (por debajo del umbral del bloom)
+      v.frameMat.emissive.setRGB(active ? 0.05 : 0, active ? 0.4 : 0, active ? 0.55 : 0);
       v.frameMat.color.setHex(done ? 0x556070 : 0xffffff);
       v.group.visible = !done;
     });
@@ -401,7 +402,7 @@ export class Race {
     const v = this.gateVis[this.nextGate];
     if (v && !this.finished) {
       const pulse = 0.5 + 0.5 * Math.sin(time * 6);
-      (v.field.material as THREE.MeshBasicMaterial).opacity = 0.08 + pulse * 0.1;
+      (v.field.material as THREE.MeshBasicMaterial).opacity = 0.04 + pulse * 0.05;
     }
     for (const m of this.bonusMeshes.values()) m.rotation.z += dt * 1.5;
 
