@@ -95,8 +95,8 @@ Para no perderse en un mundo abierto, sin mover los hitos (sería injusto en la 
 
 ## Multijugador: mensajes de voz
 
-Botón **🎙️ HABLAR** (o tecla V) en la sala y en partida: tocas, hablas hasta 5 segundos y tocas
-otra vez (o se envía solo). Solo puede hablar **un piloto a la vez**: mientras alguien habla, el
+Botón **🎙️ HABLAR** (o tecla V) en la sala y en partida: con **un solo toque** graba 5 segundos
+(cuenta atrás en el botón) y se envía solo; no hace falta mantenerlo pulsado. Solo puede hablar **un piloto a la vez**: mientras alguien habla, el
 botón de los demás muestra «🔊 Habla …» y queda bloqueado (el turno lo reparte Realtime Database
 con la hora del servidor). El audio va en calidad telefónica (~40 KB por mensaje) y se borra a
 los 20 s. En Ajustes puedes desactivar la voz de los demás.

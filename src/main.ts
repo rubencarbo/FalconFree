@@ -1279,9 +1279,21 @@ class Game {
     this.layoutControls();
   }
 
+  private pauseStart = 0;
   setPaused(p: boolean) {
     if (this.screen !== 'playing') return;
+    if (p && !this.paused) {
+      this.pauseStart = performance.now();
+      // Silencio total: el motor dejaba de actualizarse pero seguía sonando
+      this.audio.engine(0, 0, false);
+    } else if (!p && this.paused) {
+      if (!this.room) {
+        // En solitario la pausa detiene también los relojes (batalla, cuenta atrás de carrera)
+        this.goAt += performance.now() - this.pauseStart;
+      } else if (!this.race || this.race.started) this.flight.frozen = false;
+    }
     this.paused = p;
+    show('pause-note', !!this.room);
     show('pause', p);
     $('btn-leave-room').classList.toggle('hidden', !this.room);
     $('btn-room-lobby').classList.toggle('hidden', !this.room?.isHost);
@@ -1966,6 +1978,11 @@ class Game {
     this.shield = Math.max(0, this.shield - dt);
     this.doubleDamage = Math.max(0, this.doubleDamage - dt);
     this.turbo = Math.max(0, this.turbo - dt);
+    // Multijugador: la partida sigue para los demás, pero tu avión queda quieto y protegido
+    if (this.paused && this.room) {
+      f.frozen = true;
+      this.invuln = Math.max(this.invuln, 0.5);
+    }
     this.guns.damageMul = (this.doubleDamage > 0 ? 2 : 1) * (1 + 0.25 * (this.waveLevels.damage ?? 0));
     this.tagImmune = Math.max(0, this.tagImmune - dt);
     const input = this.paused ? { x: 0, y: 0, boost: false, climb: false, fire: false } : this.input.read();
@@ -2834,15 +2851,12 @@ class Game {
   }
 
   // ================================================================ Mensajes de voz
-  /** Tocar: empieza a grabar · tocar otra vez: envía (o se envía solo a los 5 s) */
+  /** Un toque: graba 5 segundos y se envía solo (no hace falta mantener pulsado) */
   private async toggleTalk() {
     const room = this.room;
     if (!room) return;
     this.voicePlayer.unlock();
-    if (this.voiceRec.recording) {
-      this.voiceRec.stop();
-      return;
-    }
+    if (this.voiceRec.recording) return;
     if (this.talkPending) return;
     if (!VoiceRecorder.supported) {
       this.hud.toast('Este navegador no permite grabar audio', 1800);
@@ -2905,7 +2919,7 @@ class Game {
       b.classList.toggle('rec', rec);
       b.classList.toggle('busy', !!other);
       b.disabled = !!other || this.talkPending;
-      b.querySelector('b')!.textContent = rec ? `■ ENVIAR · ${Math.ceil(left / 1000)} s` : other ? `🔊 Habla ${other.n}` : this.talkPending ? '…' : '🎙️ HABLAR';
+      b.querySelector('b')!.textContent = rec ? `🔴 GRABANDO · ${Math.ceil(left / 1000)} s` : other ? `🔊 Habla ${other.n}` : this.talkPending ? '…' : '🎙️ HABLAR';
       (b.querySelector('.tk-bar') as HTMLElement).style.transform = `scaleX(${rec ? 1 - left / VOICE_MAX_MS : 0})`;
     }
   }
