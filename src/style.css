@@ -2919,3 +2919,287 @@ html.standalone .install {
 .home-season .sb-bar {
   margin-top: 4px;
 }
+
+/* ================================================================ Modos nuevos */
+.mode-card.circuits { --mc: #2ac0c8; }
+.mode-card.royale { --mc: #7a3cff; }
+.mode-card.boss { --mc: #e0562a; }
+
+/* Ajustes agrupados */
+.set-group {
+  margin: 10px 0 0;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--cyan);
+}
+
+.toggle span small {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.code-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.code-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.code-row code {
+  flex: 1;
+  font: 800 18px/1.2 ui-monospace, Menlo, monospace;
+  letter-spacing: 0.08em;
+  user-select: all;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.cloud-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#cloud-code-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#cloud-code-row.hidden {
+  display: none;
+}
+
+.cloud-restore summary {
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 6px 0;
+}
+
+.cloud-restore .code-row {
+  margin-top: 6px;
+}
+
+/* Mis circuitos */
+.cc-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cc-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.cc-list li.empty {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.cc-list .cc-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.cc-list .cc-info b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cc-list .cc-info small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.cc-list button {
+  padding: 7px 10px;
+  font-size: 13px;
+}
+
+/* HUD: barra del jefe */
+#boss-bar {
+  position: absolute;
+  top: calc(130px + var(--safe-top));
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(420px, 70vw);
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  pointer-events: none !important;
+}
+
+#boss-bar.show {
+  display: flex;
+}
+
+#boss-bar .bb-name {
+  font-size: 12px;
+  font-weight: 800;
+  text-shadow: 0 1px 3px #000;
+}
+
+#boss-bar .bb-track {
+  width: 100%;
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  overflow: hidden;
+}
+
+#boss-bar .bb-track i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #ff4a2a, #ffb02a);
+  transform-origin: left;
+  transition: transform 0.2s;
+}
+
+/* HUD: chat rápido */
+#chat-feed {
+  position: absolute;
+  left: calc(12px + var(--safe-left));
+  bottom: calc(210px + var(--safe-bottom));
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 4px;
+  max-width: 60vw;
+  pointer-events: none !important;
+}
+
+#chat-feed div {
+  font-size: 13px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 10px;
+  background: rgba(10, 14, 26, 0.72);
+  animation: chatIn 0.2s ease-out;
+}
+
+#chat-feed div b {
+  margin-right: 4px;
+}
+
+@keyframes chatIn {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+}
+
+#chat-wheel {
+  position: absolute;
+  top: calc(60px + var(--safe-top));
+  right: calc(12px + var(--safe-right));
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 14px;
+  background: rgba(10, 14, 26, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  z-index: 5;
+}
+
+#chat-wheel.hidden {
+  display: none;
+}
+
+#chat-wheel button {
+  font-size: 13px;
+  font-weight: 700;
+  padding: 8px 10px;
+  border-radius: 10px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+#chat-wheel button small {
+  opacity: 0.6;
+  margin-right: 4px;
+}
+
+/* HUD: espectador y editor */
+#spectate,
+#editor-bar {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(24px + var(--safe-bottom));
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 14px;
+  background: rgba(10, 14, 26, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  font-size: 14px;
+  white-space: nowrap;
+  z-index: 4;
+}
+
+#spectate.hidden,
+#editor-bar.hidden {
+  display: none;
+}
+
+#editor-bar {
+  bottom: auto;
+  top: calc(96px + var(--safe-top));
+}
+
+#ed-count {
+  font-weight: 800;
+}
+
+@media (max-width: 560px) {
+  #editor-bar {
+    flex-wrap: wrap;
+    justify-content: center;
+    white-space: normal;
+    width: calc(100vw - 24px);
+  }
+
+  #boss-bar {
+    top: calc(172px + var(--safe-top));
+  }
+}
+
+.code-box b.long {
+  font-size: 13px;
+  letter-spacing: 0;
+  word-break: break-all;
+  text-align: center;
+  max-width: 100%;
+}
+
+@media (max-width: 560px) {
+  #editor-bar {
+    top: calc(250px + var(--safe-top));
+  }
+}

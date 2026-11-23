@@ -85,7 +85,7 @@ export class Radar {
     this.ctx = canvas.getContext('2d')!;
   }
 
-  draw(me: THREE.Vector3, yaw: number, items: RadarItem[], route: THREE.Vector3[] = []) {
+  draw(me: THREE.Vector3, yaw: number, items: RadarItem[], route: THREE.Vector3[] = [], circles: { pos: THREE.Vector3; r: number; color: string }[] = []) {
     const c = this.canvas;
     const css = c.clientWidth || 120;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -129,6 +129,23 @@ export class Radar {
       const rz = dx * sin + dz * cos;
       return { x: rx * scale, y: rz * scale, dist: Math.hypot(dx, dz) };
     };
+
+    // Zonas (tormenta de Supervivencia)
+    if (circles.length) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(R, R, R - 2, 0, Math.PI * 2);
+      ctx.clip();
+      for (const c of circles) {
+        const q = toRadar(c.pos);
+        ctx.strokeStyle = c.color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(R + q.x, R + q.y, Math.max(2, c.r * scale), 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
 
     // Ruta
     if (route.length > 1) {

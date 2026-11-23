@@ -1,5 +1,8 @@
 /** Ajustes del jugador, guardados en el navegador */
 
+export type QualityLevel = 'low' | 'medium' | 'high';
+export type QualitySetting = 'auto' | QualityLevel;
+
 export type ControlId = 'joy' | 'boost' | 'fire' | 'missile';
 
 export interface ControlLayout {
@@ -19,8 +22,8 @@ export interface Settings {
   /** 0.5 .. 1.5 */
   sensitivity: number;
   aimAssist: boolean;
-  /** Bloom y partículas extra */
-  effects: 'high' | 'low';
+  /** Calidad gráfica: automática o fija */
+  quality: QualitySetting;
   /** Clima variable (lluvia, niebla, tormenta…) */
   weather: boolean;
   vibration: boolean;
@@ -55,7 +58,6 @@ export function defaultControls(): Record<ControlId, ControlLayout> {
   };
 }
 
-const isTouch = typeof matchMedia !== 'undefined' && matchMedia('(hover: none), (pointer: coarse)').matches;
 
 function defaults(): Settings {
   return {
@@ -64,7 +66,7 @@ function defaults(): Settings {
     muted: false,
     sensitivity: 1,
     aimAssist: true,
-    effects: isTouch ? 'low' : 'high',
+    quality: 'auto',
     weather: true,
     vibration: true,
     ghost: true,
@@ -99,7 +101,7 @@ export function loadSettings(): Settings {
       muted: !!s.muted,
       sensitivity: clamp(Number(s.sensitivity ?? 1), 0.5, 1.5),
       aimAssist: s.aimAssist ?? true,
-      effects: s.effects === 'low' || s.effects === 'high' ? s.effects : d.effects,
+      quality: (['auto', 'low', 'medium', 'high'] as const).includes(s.quality as QualitySetting) ? (s.quality as QualitySetting) : d.quality,
       weather: s.weather ?? true,
       vibration: s.vibration ?? true,
       ghost: s.ghost ?? true,

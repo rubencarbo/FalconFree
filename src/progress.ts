@@ -153,6 +153,10 @@ export interface Stats {
   stuntPoints: number;
   bestCombo: number;
   seaRings: number;
+  royaleWins: number;
+  bossWins: number;
+  cityEvents: number;
+  circuitsMade: number;
 }
 
 export interface Achievement {
@@ -188,6 +192,10 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'rey', name: 'Rey del cielo', description: 'Gana una partida de Rey del cielo.', reward: 250, done: (s) => s.kothWins >= 1 },
   { id: 'escurridizo', name: 'Escurridizo', description: 'Aguanta 180 s sin llevarla en Pilla-pilla.', reward: 200, done: (s) => s.tagFree >= 180 },
   { id: 'acrobata', name: 'Acróbata', description: 'Haz un combo ×8.', reward: 300, done: (s) => s.bestCombo >= 8 },
+  { id: 'ultimo', name: 'Último en pie', description: 'Gana una partida de Supervivencia.', reward: 300, done: (s) => s.royaleWins >= 1 },
+  { id: 'dirigible', name: 'Matagigantes', description: 'Derriba el dirigible del Jefe final.', reward: 400, done: (s) => s.bossWins >= 1 },
+  { id: 'heroe', name: 'Héroe de la ciudad', description: 'Completa 5 eventos en la ciudad.', reward: 250, done: (s) => s.cityEvents >= 5 },
+  { id: 'arquitecto', name: 'Arquitecto', description: 'Crea y guarda un circuito propio.', reward: 150, done: (s) => s.circuitsMade >= 1 },
   { id: 'formacion', name: 'Patrulla', description: 'Vuela 120 s en formación con tu equipo.', reward: 300, done: (s) => s.formationTime >= 120 },
 ];
 
@@ -222,6 +230,7 @@ function emptyStats(): Stats {
     rings: 0, drones: 0, kills: 0, deaths: 0, races: 0, battlesWon: 0, battles: 0, missileHits: 0, flaresDodged: 0,
     scrapes: 0, powerups: 0, ghostBeaten: 0, dailies: 0, mpGames: 0, bestStreak: 0, maxSpeed: 0, lowFlight: 0, timeBonuses: 0,
     deliveries: 0, wavesBest: 0, kothWins: 0, tagFree: 0, formationTime: 0, stuntPoints: 0, bestCombo: 0, seaRings: 0,
+    royaleWins: 0, bossWins: 0, cityEvents: 0, circuitsMade: 0,
   };
 }
 
@@ -272,8 +281,11 @@ export class Progress {
     window.addEventListener('pagehide', () => this.flush());
   }
 
+  /** Bloquea el guardado (tras recuperar un perfil de la nube, hasta recargar) */
+  locked = false;
+
   flush() {
-    if (!this.dirty) return;
+    if (!this.dirty || this.locked) return;
     this.dirty = false;
     store.set('profile', JSON.stringify(this.p));
   }

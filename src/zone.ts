@@ -85,3 +85,82 @@ export class KothZone {
     });
   }
 }
+
+/** Radio inicial y mínimo de la zona segura de Supervivencia */
+export const STORM_START = 2600;
+export const STORM_MIN = 150;
+/** Segundos antes de empezar a cerrarse */
+export const STORM_GRACE = 20;
+
+/**
+ * Supervivencia: zona segura que se encoge. Fuera de ella la tormenta hace daño.
+ * Determinista a partir de la semilla y el tiempo, igual para todos los jugadores.
+ */
+export class StormZone {
+  center = new THREE.Vector3();
+  radius = STORM_START;
+  private group = new THREE.Group();
+  private wall: THREE.Mesh;
+  private wallMat: THREE.MeshBasicMaterial;
+  private edgeMat: THREE.MeshBasicMaterial;
+  private edge: THREE.Mesh;
+
+  constructor(
+    private scene: THREE.Scene,
+    seed: number,
+    private duration: number,
+  ) {
+    const a = hash3(seed, 11, 4, 1) * Math.PI * 2;
+    const r = hash3(seed, 2, 8, 1) * 600;
+    this.center.set(Math.cos(a) * r, 0, Math.sin(a) * r);
+    this.wallMat = new THREE.MeshBasicMaterial({ color: 0x7a3cff, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+    this.wall = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 2400, 96, 1, true), this.wallMat);
+    this.wall.position.y = 1200;
+    this.edgeMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.6, 0.6, 3), fog: false });
+    this.edge = new THREE.Mesh(new THREE.TorusGeometry(1, 0.004, 4, 128), this.edgeMat);
+    this.edge.rotation.x = Math.PI / 2;
+    this.edge.position.y = 6;
+    this.group.add(this.wall, this.edge);
+    this.group.position.copy(this.center);
+    scene.add(this.group);
+  }
+
+  /** Radio de la zona segura en el segundo t de partida */
+  radiusAt(t: number) {
+    const k = THREE.MathUtils.clamp((t - STORM_GRACE) / Math.max(1, this.duration - STORM_GRACE), 0, 1);
+    const r = STORM_START + (STORM_MIN - STORM_START) * k;
+    // Prórroga: tras el tiempo límite se cierra del todo en 30 s
+    const over = THREE.MathUtils.clamp((t - this.duration) / 30, 0, 1);
+    return Math.max(5, r * (1 - over));
+  }
+
+  /** Daño por segundo fuera de la zona */
+  damageAt(t: number) {
+    return t >= this.duration ? 22 : 6 + (t / 60) * 4;
+  }
+
+  /** Segundos para que empiece a cerrarse (0 si ya lo hace) */
+  graceLeft(t: number) {
+    return Math.max(0, STORM_GRACE - t);
+  }
+
+  update(t: number, time: number) {
+    this.radius = this.radiusAt(Math.max(0, t));
+    this.wall.scale.set(this.radius, 1, this.radius);
+    this.edge.scale.setScalar(this.radius);
+    this.wallMat.opacity = 0.16 + 0.06 * Math.sin(time * 2.4);
+  }
+
+  /** Distancia horizontal al borde: negativa dentro, positiva fuera */
+  outside(p: THREE.Vector3) {
+    return Math.hypot(p.x - this.center.x, p.z - this.center.z) - this.radius;
+  }
+
+  dispose() {
+    this.scene.remove(this.group);
+    this.wall.geometry.dispose();
+    this.edge.geometry.dispose();
+    this.wallMat.dispose();
+    this.edgeMat.dispose();
+  }
+}

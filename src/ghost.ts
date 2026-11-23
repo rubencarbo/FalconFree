@@ -63,8 +63,10 @@ export class GhostPlayer {
   constructor(
     private scene: THREE.Scene,
     public data: GhostData,
+    accent = 0x8fd0ff,
+    body = 0x8fa8d0,
   ) {
-    this.jet = new JetModel(0x8fd0ff, 0x8fa8d0);
+    this.jet = new JetModel(accent, body);
     this.jet.group.traverse((o) => {
       const m = (o as THREE.Mesh).material as THREE.Material | undefined;
       if (m && 'opacity' in m) {

@@ -373,6 +373,11 @@ Cada vez que haya cambios en el código:
 
 Quien tenga la app instalada verá el aviso **«Hay una nueva versión — Actualizar»**.
 
+> `npm run deploy` publica también las **reglas** de Firestore y de Realtime Database. Es
+> importante: las versiones nuevas añaden colecciones (perfil en la nube, fantasmas del récord
+> mundial, circuitos) y modos de sala (Supervivencia, Jefe final) que sin las reglas nuevas
+> darían «permission denied».
+
 > Si solo cambias reglas de seguridad, basta con:
 > ```
 > npx firebase deploy --only firestore,database

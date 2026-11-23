@@ -32,6 +32,9 @@ const POOL: MissionDef[] = [
   { id: 'sea', text: 'Atraviesa 3 aros marinos', stat: 'seaRings', target: 3, xp: 500 },
   { id: 'daily', text: 'Completa 2 desafíos diarios', stat: 'dailies', target: 2, xp: 600 },
   { id: 'combo', text: 'Haz un combo ×5', stat: 'bestCombo', target: 5, xp: 600, max: true },
+  { id: 'events', text: 'Completa 2 eventos en la ciudad', stat: 'cityEvents', target: 2, xp: 600 },
+  { id: 'royale', text: 'Gana una partida de Supervivencia', stat: 'royaleWins', target: 1, xp: 700 },
+  { id: 'boss', text: 'Derriba el dirigible del Jefe final', stat: 'bossWins', target: 1, xp: 800 },
 ];
 
 const MONTHS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];

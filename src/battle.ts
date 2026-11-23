@@ -1,6 +1,6 @@
 import type { Team } from './bots';
 
-export type BattleKind = 'ffa' | 'teams' | 'coop' | 'koth' | 'tag';
+export type BattleKind = 'ffa' | 'teams' | 'coop' | 'koth' | 'tag' | 'royale' | 'boss';
 
 export const BATTLE_LABELS: Record<BattleKind, string> = {
   ffa: 'Todos contra todos',
@@ -8,11 +8,13 @@ export const BATTLE_LABELS: Record<BattleKind, string> = {
   coop: 'Todos contra la máquina',
   koth: 'Rey del cielo',
   tag: 'Pilla-pilla',
+  royale: 'Supervivencia',
+  boss: 'Jefe final: el dirigible',
 };
 
 /** Modos de puntos (no de derribos) */
 export function isPointsMode(k: BattleKind) {
-  return k === 'koth' || k === 'tag';
+  return k === 'koth' || k === 'tag' || k === 'boss';
 }
 
 export interface BattleConfig {
@@ -58,6 +60,13 @@ export class Battle {
 
   /** Pilla-pilla: quién la lleva */
   it: string | null = null;
+  /** Jefe final: resultado cuando se decide */
+  bossOutcome: 'win' | 'lose' | null = null;
+
+  /** Supervivencia: pilotos que siguen en pie */
+  get survivors() {
+    return [...this.fighters.values()].filter((f) => f.deaths === 0);
+  }
 
   add(f: Omit<Fighter, 'kills' | 'deaths' | 'points'> & { kills?: number; deaths?: number; points?: number }) {
     const prev = this.fighters.get(f.id);
@@ -85,7 +94,7 @@ export class Battle {
   enemies(a: string, b: string) {
     if (a === b) return false;
     if (this.config.kind === 'tag') return false;
-    if (this.config.kind === 'ffa' || this.config.kind === 'koth') return true;
+    if (this.config.kind === 'ffa' || this.config.kind === 'koth' || this.config.kind === 'royale') return true;
     const ta = this.teamOf(a);
     const tb = this.teamOf(b);
     return !ta || !tb || ta !== tb;
@@ -137,6 +146,8 @@ export class Battle {
   /** Línea corta para el HUD */
   scoreLine(): string {
     const c = this.config;
+    if (c.kind === 'royale') return `Quedan ${this.survivors.length} · Tus derribos ${this.me?.kills ?? 0}`;
+    if (c.kind === 'boss') return `Daño causado ${Math.floor(this.me?.points ?? 0)}`;
     if (this.pointsMode) {
       const top = [...this.fighters.values()].sort((a, b) => b.points - a.points)[0];
       const me = this.me;
@@ -156,6 +167,23 @@ export class Battle {
   check(): BattleResult | null {
     if (this.finished) return null;
     const c = this.config;
+    if (c.kind === 'boss') {
+      if (!this.bossOutcome && this.elapsed >= c.timeLimit) this.bossOutcome = 'lose';
+      if (!this.bossOutcome) return null;
+      this.finished = true;
+      const win = this.bossOutcome === 'win';
+      const rows = [...this.fighters.values()].filter((f) => f.team !== 'B').sort((a, b) => b.points - a.points);
+      return { winnerLabel: win ? '¡Dirigible derribado!' : 'El dirigible ha escapado', iWon: win, rows, teams: null };
+    }
+    if (c.kind === 'royale') {
+      const alive = this.survivors;
+      const done = (this.fighters.size > 1 && alive.length <= 1) || this.elapsed >= c.timeLimit + 45;
+      if (!done) return null;
+      this.finished = true;
+      const rows = [...this.fighters.values()].sort((a, b) => (a.deaths === 0 ? 0 : 1) - (b.deaths === 0 ? 0 : 1) || b.kills - a.kills);
+      const top = alive.sort((a, b) => b.kills - a.kills)[0] ?? null;
+      return { winnerLabel: top ? `Último en pie: ${top.name}` : 'No queda nadie en pie', iWon: !!top && top.id === this.myId, rows, teams: null };
+    }
     if (this.pointsMode) {
       const rows = [...this.fighters.values()].sort((a, b) => b.points - a.points);
       const done = this.elapsed >= c.timeLimit || (c.kind === 'koth' && (rows[0]?.points ?? 0) >= this.pointsGoal);

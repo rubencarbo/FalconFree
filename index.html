@@ -34,6 +34,7 @@
         </div>
         <div class="top-right">
           <button id="btn-stage" class="pill">Cambiar escenario</button>
+          <button id="btn-chat" class="pill icon hidden" aria-label="Chat rápido">💬</button>
           <button id="btn-view" class="pill">Vista: Básica</button>
           <button id="btn-pause" class="pill icon" aria-label="Pausa">❚❚</button>
           <canvas id="radar" aria-label="Radar"></canvas>
@@ -50,6 +51,16 @@
         <div id="warning">¡ASCIENDE!</div>
         <div id="missile-warning"><span class="mw-arrow"></span><b>MISIL</b><small>Bengalas: G / botón</small></div>
         <div id="mode-banner"></div>
+        <div id="boss-bar"><span class="bb-name"></span><span class="bb-track"><i></i></span></div>
+        <div id="chat-feed"></div>
+        <div id="chat-wheel" class="hidden"></div>
+        <div id="spectate" class="hidden"><span>Espectador · <b id="spectate-name"></b></span><button id="btn-spectate-next" class="pill">Siguiente piloto</button></div>
+        <div id="editor-bar" class="hidden">
+          <span id="ed-count">Hitos 0/20</span>
+          <button id="btn-ed-place" class="pill strong">Colocar hito · H</button>
+          <button id="btn-ed-undo" class="pill">Deshacer</button>
+          <button id="btn-ed-save" class="pill">Guardar</button>
+        </div>
         <div id="formation"></div>
         <div id="combo"><span class="cb-name"></span><b class="cb-mult"></b><span class="cb-pts"></span><span class="cb-bar"><i></i></span></div>
         <div id="pilots"></div>
@@ -63,7 +74,7 @@
         <button id="btn-fire" class="round">Disparo</button>
         <button id="btn-missile" class="round">Misil</button>
         <button id="btn-boost" class="round">Turbo</button>
-        <div id="keys-hint">W/S/A/D vuelo · Espacio turbo · F/clic disparo · Q/clic dcho. misil · G bengalas · E subir · C vista · P pausa</div>
+        <div id="keys-hint">W/S/A/D vuelo · Espacio turbo · F/clic disparo · Q/clic dcho. misil · G bengalas · E subir · C vista · P pausa · T chat (en sala) · H hito (editor)</div>
       </div>
 
       <div id="replay-ui" class="hidden">
@@ -116,6 +127,7 @@
             <div class="mode-grid">
               <button class="mode-card race" data-mode="race"><b>Competición</b><small>Circuitos por hitos con fantasma</small><em data-best="race"></em></button>
               <button class="mode-card daily" data-mode="daily"><b>Desafío diario</b><small>El mismo circuito para todos hoy</small><em data-best="daily"></em></button>
+              <button class="mode-card circuits" data-mode="circuits"><b>Mis circuitos</b><small>Crea el tuyo y compártelo con un código</small></button>
             </div>
           </section>
           <section class="mode-group">
@@ -125,6 +137,8 @@
               <button class="mode-card koth" data-mode="koth"><b>Rey del cielo</b><small>Domina la zona dorada</small></button>
               <button class="mode-card tagm" data-mode="tag"><b>Pilla-pilla</b><small>Sin disparos: ¡que no te pillen!</small></button>
               <button class="mode-card waves" data-mode="waves"><b>Oleadas</b><small>Sobrevive y mejora tu avión</small><em data-best="waves"></em></button>
+              <button class="mode-card royale" data-mode="royale"><b>Supervivencia</b><small>La tormenta se cierra: último en pie</small></button>
+              <button class="mode-card boss" data-mode="boss"><b>Jefe final</b><small>Derriba el dirigible gigante</small></button>
             </div>
           </section>
         </div>
@@ -150,20 +164,65 @@
                 <option value="coop">Tú contra la máquina</option>
                 <option value="koth">Rey del cielo</option>
                 <option value="tag">Pilla-pilla</option>
+                <option value="royale">Supervivencia</option>
+                <option value="boss">Jefe final</option>
               </select>
             </label>
             <p id="bp-help" class="muted left"></p>
-            <label class="field slider"><span>Bots <b id="bp-bots-val">4</b></span><input id="bp-bots" type="range" min="1" max="7" step="1" value="4" /></label>
+            <label class="field slider"><span id="bp-bots-label">Bots <b id="bp-bots-val">4</b></span><input id="bp-bots" type="range" min="1" max="7" step="1" value="4" /></label>
             <div class="two">
               <label class="field"><span id="bp-limit-label">Derribos para ganar</span>
                 <select id="bp-blimit"><option value="5">5</option><option value="10" selected>10</option><option value="20">20</option></select>
               </label>
               <label class="field"><span>Tiempo</span>
-                <select id="bp-btime"><option value="180">3 min</option><option value="300" selected>5 min</option><option value="600">10 min</option></select>
+                <select id="bp-btime"><option value="180">3 min</option><option value="300" selected>5 min</option><option value="480">8 min</option><option value="600">10 min</option></select>
               </label>
             </div>
           </div>
           <button id="btn-go" class="primary">Despegar</button>
+        </div>
+      </div>
+
+      <div id="circuits" class="overlay hidden">
+        <div class="panel">
+          <div class="menu-head"><button id="cc-back" class="icon-close" aria-label="Volver a los modos">←</button><h2>Mis circuitos</h2><span></span></div>
+          <p class="muted left">Vuela por la ciudad y coloca los hitos donde quieras. Guarda el circuito y comparte su código para que tus amigos compitan en él.</p>
+          <div class="field">
+            <span>Escenario del circuito nuevo</span>
+            <div id="cc-stage" class="stage-list compact"></div>
+          </div>
+          <button id="btn-cc-new" class="primary">Crear circuito nuevo</button>
+          <div class="field">
+            <span>Correr el circuito de un amigo</span>
+            <div class="code-row"><input id="cc-code" maxlength="200" placeholder="Código (p. ej. K7M-Q2P)" autocomplete="off" /><button id="btn-cc-load" class="secondary strong">Correr</button></div>
+            <small id="cc-msg" class="muted left"></small>
+          </div>
+          <div class="field"><span>Guardados</span><ul id="cc-list" class="cc-list"></ul></div>
+        </div>
+      </div>
+
+      <div id="circuit-save" class="overlay hidden">
+        <div class="panel">
+          <h2 id="cs-title">Guardar circuito</h2>
+          <div id="cs-form">
+            <label class="field"><span>Nombre del circuito</span><input id="cs-name" maxlength="28" autocomplete="off" /></label>
+            <button id="btn-cs-save" class="primary">Guardar y obtener código</button>
+            <button id="btn-cs-cancel" class="secondary">Seguir colocando hitos</button>
+          </div>
+          <div id="cs-done" class="hidden">
+            <p class="muted left">Comparte este código: en «Un jugador → Mis circuitos» tus amigos pueden escribirlo y correr en tu circuito.</p>
+            <div class="code-box">
+              <span class="muted">Código del circuito</span>
+              <b id="cs-code">---</b>
+              <small id="cs-note" class="muted"></small>
+              <div class="share-row">
+                <button id="btn-cs-copy" class="secondary">Copiar código</button>
+                <button id="btn-cs-wa" class="whatsapp">WhatsApp</button>
+              </div>
+            </div>
+            <button id="btn-cs-race" class="primary">Correr ahora</button>
+            <button id="btn-cs-menu" class="secondary">Volver a Mis circuitos</button>
+          </div>
         </div>
       </div>
 
@@ -202,12 +261,14 @@
                     <option value="coop">Todos contra la máquina</option>
                     <option value="koth">Rey del cielo</option>
                     <option value="tag">Pilla-pilla</option>
+                    <option value="royale">Supervivencia</option>
+                    <option value="boss">Jefe final: el dirigible</option>
                   </select>
                 </label>
                 <label class="field slider"><span>Bots <b id="mp-bots-val">2</b></span><input id="mp-bots" type="range" min="0" max="6" step="1" value="2" /></label>
                 <div class="two">
                   <label class="field"><span>Derribos</span><select id="mp-blimit"><option value="5">5</option><option value="10" selected>10</option><option value="20">20</option></select></label>
-                  <label class="field"><span>Tiempo</span><select id="mp-btime"><option value="180">3 min</option><option value="300" selected>5 min</option><option value="600">10 min</option></select></label>
+                  <label class="field"><span>Tiempo</span><select id="mp-btime"><option value="180">3 min</option><option value="300" selected>5 min</option><option value="480">8 min</option><option value="600">10 min</option></select></label>
                 </div>
               </div>
               <button id="mp-visibility" class="visibility" aria-pressed="false" type="button">
@@ -274,12 +335,14 @@
                 <option value="coop">Todos contra la máquina</option>
                     <option value="koth">Rey del cielo</option>
                     <option value="tag">Pilla-pilla</option>
+                    <option value="royale">Supervivencia</option>
+                    <option value="boss">Jefe final: el dirigible</option>
               </select>
             </label>
             <label class="field slider"><span>Bots <b id="lobby-bots-val">2</b></span><input id="lobby-bots" type="range" min="0" max="6" step="1" value="2" /></label>
             <div class="two">
               <label class="field"><span>Derribos</span><select id="lobby-blimit"><option value="5">5</option><option value="10">10</option><option value="20">20</option></select></label>
-              <label class="field"><span>Tiempo</span><select id="lobby-btime"><option value="180">3 min</option><option value="300">5 min</option><option value="600">10 min</option></select></label>
+              <label class="field"><span>Tiempo</span><select id="lobby-btime"><option value="180">3 min</option><option value="300">5 min</option><option value="480">8 min</option><option value="600">10 min</option></select></label>
             </div>
           </div>
           <button id="btn-lobby-start" class="primary">Empezar</button>
@@ -312,22 +375,41 @@
       <div id="settings" class="overlay hidden">
         <div class="panel">
           <h2>Ajustes</h2>
+          <h3 class="set-group">Piloto</h3>
           <label class="field">
             <span>Nombre de piloto</span>
             <input id="pilot-name" maxlength="16" placeholder="Piloto" autocomplete="off" />
           </label>
+          <h3 class="set-group">Controles</h3>
           <button id="btn-customize" class="secondary strong">Personalizar controles táctiles</button>
           <label class="field slider">
             <span>Sensibilidad <b id="set-sensitivity-val">100 %</b></span>
             <input id="set-sensitivity" type="range" min="50" max="150" step="5" value="100" />
           </label>
           <button id="set-aim" class="toggle" aria-pressed="true"><span>Apuntado asistido</span><b>Activado</b></button>
-          <button id="set-weather" class="toggle" aria-pressed="true"><span>Clima</span><b>Variable</b></button>
-          <button id="set-vibration" class="toggle" aria-pressed="true"><span>Vibración</span><b>Sí</b></button>
-          <button id="set-ghost" class="toggle" aria-pressed="true"><span>Fantasma en carreras</span><b>Sí</b></button>
           <button id="set-invert" class="toggle" aria-pressed="false"><span>Eje vertical</span><b>Normal</b></button>
+          <button id="set-vibration" class="toggle" aria-pressed="true"><span>Vibración</span><b>Sí</b></button>
+          <h3 class="set-group">Juego</h3>
+          <button id="set-weather" class="toggle" aria-pressed="true"><span>Clima</span><b>Variable</b></button>
+          <button id="set-ghost" class="toggle" aria-pressed="true"><span>Fantasmas en carreras<small>El tuyo y el del récord mundial</small></span><b>Sí</b></button>
+          <h3 class="set-group">Imagen y sonido</h3>
+          <button id="set-quality" class="toggle" aria-pressed="true"><span>Calidad gráfica<small>Baja va más fluida en móviles modestos</small></span><b>Automática</b></button>
           <button id="set-sound" class="toggle" aria-pressed="true"><span>Sonido</span><b>Sí</b></button>
-          <button id="set-effects" class="toggle" aria-pressed="true"><span>Efectos visuales (brillo)</span><b>Altos</b></button>
+          <h3 class="set-group">Perfil en la nube</h3>
+          <div id="cloud-box" class="cloud-box">
+            <p id="cloud-info" class="muted left"></p>
+            <button id="set-cloud" class="toggle" aria-pressed="false"><span>Copia automática</span><b>No</b></button>
+            <div id="cloud-code-row" class="hidden">
+              <span class="muted">Tu código de recuperación (guárdalo, es tu llave):</span>
+              <div class="code-row"><code id="cloud-code"></code><button id="btn-cloud-copy" class="pill">Copiar</button></div>
+              <button id="btn-cloud-save" class="secondary strong">Guardar ahora</button>
+            </div>
+            <details class="cloud-restore">
+              <summary>Recuperar mi progreso de otro dispositivo</summary>
+              <div class="code-row"><input id="cloud-restore-code" maxlength="20" placeholder="XXXX-XXXX-XXXX" autocomplete="off" /><button id="btn-cloud-restore" class="secondary strong">Recuperar</button></div>
+            </details>
+            <small id="cloud-msg" class="muted left"></small>
+          </div>
           <button class="primary" data-close>Listo</button>
         </div>
       </div>

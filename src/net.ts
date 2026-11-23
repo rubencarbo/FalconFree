@@ -24,6 +24,7 @@ import type { Team } from './bots';
 import type { BattleKind } from './battle';
 import { ICONS, type IconId } from './identity';
 import type { PlaneVariant } from './jet';
+import type { BossNet } from './boss';
 
 export type RoomMode = 'free' | 'race' | 'battle';
 export type RoomState = 'lobby' | 'countdown' | 'running';
@@ -99,7 +100,7 @@ export interface NetState {
   sm?: 0 | 1;
 }
 
-export type NetEventType = 'hit' | 'bump' | 'crash' | 'kill' | 'bhit' | 'mlaunch';
+export type NetEventType = 'hit' | 'bump' | 'crash' | 'kill' | 'bhit' | 'mlaunch' | 'chat';
 
 export interface NetEvent {
   from: string;
@@ -147,6 +148,8 @@ export class Room {
   bots = new Map<string, BotNet>();
   scores = new Map<string, { k: number; d: number }>();
   onBots?: () => void;
+  /** Jefe final: estado del dirigible (lo publica el anfitrión) */
+  onBoss?: (s: BossNet | null) => void;
   /** Pilla-pilla: quién la lleva */
   onTagIt?: (id: string, seq: number) => void;
   onScores?: () => void;
@@ -323,6 +326,9 @@ export class Room {
         for (const [k, b] of Object.entries(v)) this.bots.set(k, b);
         this.onBots?.();
       }),
+      onValue(ref(db, `rooms/${this.code}/boss`), (s) => {
+        this.onBoss?.((s.val() as BossNet | null) ?? null);
+      }),
       onValue(ref(db, `rooms/${this.code}/tagit`), (s) => {
         const v = s.val() as { id: string; s: number } | null;
         if (v) this.onTagIt?.(v.id, v.s);
@@ -406,6 +412,18 @@ export class Room {
     set(ref(firebase.database()!, `rooms/${this.code}/bots`), out).catch(() => undefined);
   }
 
+  /** El anfitrión publica el estado del dirigible */
+  sendBoss(b: Omit<BossNet, 't'> | null) {
+    if (this.closed || !this.isHost) return;
+    const r = ref(firebase.database()!, `rooms/${this.code}/boss`);
+    if (!b) {
+      remove(r).catch(() => undefined);
+      return;
+    }
+    const q = (v: number) => Math.round(v * 10) / 10;
+    set(r, { x: q(b.x), y: q(b.y), z: q(b.z), yaw: Math.round(b.yaw * 1000) / 1000, ph: b.ph, hp: b.hp, f: b.f, t: Math.round(this.serverNow()) }).catch(() => undefined);
+  }
+
   async clearBots() {
     if (!this.isHost) return;
     await remove(ref(firebase.database()!, `rooms/${this.code}/bots`)).catch(() => undefined);
@@ -480,6 +498,7 @@ export class Room {
     await remove(ref(db, `rooms/${this.code}/rings`)).catch(() => undefined);
     await remove(ref(db, `rooms/${this.code}/score`)).catch(() => undefined);
     await remove(ref(db, `rooms/${this.code}/tagit`)).catch(() => undefined);
+    await remove(ref(db, `rooms/${this.code}/boss`)).catch(() => undefined);
     await this.setMeta({ state: 'countdown', startAt: Math.round(this.serverNow() + 5000), round: this.meta.round + 1 });
   }
 

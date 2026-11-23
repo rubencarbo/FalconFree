@@ -34,12 +34,62 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Fantasma del récord mundial de cada circuito: ghosts/{courseId}
+    match /ghosts/{course} {
+      allow read: if true;
+      allow create: if request.auth != null && validGhost(request.resource.data, course);
+      // Solo se sustituye si el tiempo es mejor
+      allow update: if request.auth != null && validGhost(request.resource.data, course)
+        && request.resource.data.timeMs < resource.data.timeMs;
+      allow delete: if false;
+    }
+
+    // Circuitos creados por los jugadores: circuits/{código de 6}
+    match /circuits/{code} {
+      allow get: if true;
+      allow list: if false;
+      allow create: if request.auth != null
+        && code.matches('^[A-HJ-NP-Z2-9]{6}$')
+        && request.resource.data.keys().hasOnly(['uid', 'author', 'name', 'stage', 'g', 'createdAt'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.author is string && request.resource.data.author.size() <= 16
+        && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 28
+        && request.resource.data.stage in ['metropolis', 'archipelago', 'dusk']
+        && request.resource.data.g is string && request.resource.data.g.size() <= 400
+        && request.resource.data.createdAt == request.time;
+      allow update, delete: if false;
+    }
+
+    // Copia del perfil en la nube: saves/{código de recuperación de 12}
+    // El código es secreto (como una contraseña): sin él no se puede leer ni escribir.
+    match /saves/{code} {
+      allow get: if request.auth != null && code.matches('^[A-HJ-NP-Z2-9]{12}$');
+      allow list: if false;
+      allow create, update: if request.auth != null
+        && code.matches('^[A-HJ-NP-Z2-9]{12}$')
+        && request.resource.data.keys().hasOnly(['data', 'name', 'v', 'updatedAt'])
+        && request.resource.data.data is string && request.resource.data.data.size() < 400000
+        && request.resource.data.name is string && request.resource.data.name.size() <= 16
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    function validGhost(d, course) {
+      return d.keys().hasOnly(['uid', 'name', 'course', 'timeMs', 'f', 'updatedAt'])
+        && d.uid == request.auth.uid
+        && d.course == course
+        && d.name is string && d.name.size() > 0 && d.name.size() <= 16
+        && d.timeMs is int && d.timeMs >= 5000 && d.timeMs <= 3600000
+        && d.f is string && d.f.size() <= 450000
+        && d.updatedAt == request.time;
+    }
+
     function validTime(d) {
       return d.keys().hasOnly(['uid', 'name', 'course', 'timeMs', 'updatedAt'])
         && d.uid == request.auth.uid
         && d.name is string && d.name.size() > 0 && d.name.size() <= 16
         && d.course is string && d.course.size() <= 40
-        && d.timeMs is int && d.timeMs >= 10000 && d.timeMs <= 3600000
+        && d.timeMs is int && d.timeMs >= 5000 && d.timeMs <= 3600000
         && d.updatedAt == request.time;
     }
 

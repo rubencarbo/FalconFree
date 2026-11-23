@@ -283,6 +283,13 @@ export class ChunkManager {
     };
   }
 
+  /** Cambia la distancia de dibujado (calidad gráfica) */
+  setRadius(r: number) {
+    if (r === this.radius) return;
+    this.radius = r;
+    this.lastCx = this.lastCz = Infinity;
+  }
+
   /** Llamar cada frame con la posición del jugador */
   update(x: number, z: number, budgetMs = 6) {
     // Balizas rojas parpadeantes

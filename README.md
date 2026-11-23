@@ -61,6 +61,34 @@ Para no perderse en un mundo abierto, sin mover los hitos (sería injusto en la 
   mejoras (daño, cadencia, blindaje, autorreparación, vampiro, escudo pulsante…). Una sola vida.
 - **Pilla-pilla** (contra bots o en multijugador): sin disparos. Quien la lleva (rótulo rojo)
   tiene que tocar a otro avión; sumas 1 punto por segundo sin llevarla.
+- **Supervivencia** (contra bots o en multijugador): una sola vida. Una tormenta violeta cierra
+  el cielo poco a poco (partidas de 3 minutos); fuera de la zona pierdes blindaje. Gana el último
+  en pie. Al caer pasas a **modo espectador** y puedes ir cambiando de piloto.
+- **Jefe final** (solo con bots aliados o cooperativo en multijugador): un dirigible gigante con
+  tres fases: 4 torretas, 2 motores (lanza misiles y cazas de escolta) y el núcleo. En
+  multijugador lo simula el anfitrión y todos ven lo mismo.
+- **Eventos en la ciudad** (vuelo libre en solitario): cada minuto y medio aparece un globo con
+  premio, una tormenta eléctrica con esferas de energía y rayos, o un convoy que escoltar.
+- **Mis circuitos** (Carreras): vuela y coloca hitos donde quieras (botón o tecla H), guarda y
+  comparte el código corto (o un código largo si no hay conexión). Tus amigos lo escriben en
+  «Mis circuitos» o con el enlace `?circuito=CODIGO`. En las salas de carrera, el anfitrión puede
+  elegir sus circuitos publicados (★).
+
+## Multijugador: chat rápido
+
+En partida multijugador, el botón 💬 (o la tecla T y luego 1–8) envía frases predefinidas:
+«¡Sígueme!», «¡Buena!», «¡Ayuda!»… Sin texto libre, así no hace falta moderación.
+
+## Calidad gráfica y perfil en la nube
+
+- **Calidad gráfica** (Ajustes): Automática, Baja, Media o Alta. Cambia resolución, brillo
+  (bloom), partículas y distancia de dibujado. En Automática mide los FPS y baja (o sube) un nivel
+  si hace falta.
+- **Perfil en la nube** (Ajustes): copia de créditos, aviones, logros, récords y circuitos en
+  Firestore. Se identifica con un **código de recuperación** de 12 caracteres: escríbelo en otro
+  móvil («Recuperar mi progreso») y tendrás todo allí.
+- **Fantasma dorado**: en las carreras compites también contra la vuelta del récord mundial de
+  ese circuito (se guarda en Firestore cuando alguien lo bate).
 
 ## Acrobacias, formación y pase de temporada
 
@@ -240,6 +268,12 @@ Firestore:
 
 - `scores/{stageId}_{uid}` → `{ uid, name, stage, rings, maxSpeed, updatedAt }`
 - `times/{courseId}_{uid}` → `{ uid, name, course, timeMs, updatedAt }`
+- `ghosts/{courseId}` → fantasma del récord mundial `{ uid, name, course, timeMs, f, updatedAt }`
+  (solo se sustituye por un tiempo mejor)
+- `circuits/{CODE}` → circuito de un jugador `{ uid, author, name, stage, g, createdAt }` (no se
+  puede modificar ni listar)
+- `saves/{CÓDIGO DE RECUPERACIÓN}` → copia del perfil `{ data, name, v, updatedAt }` (sin el
+  código no se puede leer ni listar)
 
 Realtime Database (`rooms/{CODE}`):
 
@@ -248,6 +282,7 @@ Realtime Database (`rooms/{CODE}`):
 - `events/{id}` → impactos, choques y derribos dirigidos a un jugador
 - `results/{uid}` → tiempo de carrera · `rings/{id}` → anillos recogidos por el equipo
 - `bots/{botId}` → estado de los bots (solo escribe el anfitrión) · `score/{id}` → derribos y caídas
+- `boss` → estado del dirigible del Jefe final (solo escribe el anfitrión)
 
 Y `lobbies/{CODE}`: ficha de las partidas públicas (solo la escribe el anfitrión).
 

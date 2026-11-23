@@ -25,7 +25,7 @@ class RemotePlayer {
   firing = false;
   /** vuela en formación (humo de colores) */
   smoke = false;
-  private flight = new Flight();
+  readonly flight = new Flight();
   private shotTimer = 0;
   private wasAlive = true;
 

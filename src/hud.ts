@@ -245,6 +245,35 @@ export class Hud {
     el.className = `show ${kind}`;
   }
 
+  /** Barra de vida del jefe final */
+  bossBar(label: string | null, frac = 1) {
+    const el = $('boss-bar');
+    el.classList.toggle('show', label !== null);
+    if (label === null) return;
+    const name = el.querySelector('.bb-name') as HTMLElement;
+    if (name.textContent !== label) name.textContent = label;
+    (el.querySelector('.bb-track i') as HTMLElement).style.transform = `scaleX(${Math.max(0, Math.min(1, frac))})`;
+  }
+
+  /** Mensaje del chat rápido */
+  chat(name: string, color: string, text: string) {
+    const el = $('chat-feed');
+    const row = document.createElement('div');
+    const b = document.createElement('b');
+    b.textContent = `${name}:`;
+    b.style.color = color;
+    row.append(b, document.createTextNode(text));
+    el.prepend(row);
+    while (el.childElementCount > 5) el.lastElementChild?.remove();
+    setTimeout(() => row.remove(), 6000);
+  }
+
+  /** Modo espectador (null para ocultar) */
+  spectate(name: string | null) {
+    $('spectate').classList.toggle('hidden', name === null);
+    if (name !== null) $('spectate-name').textContent = name;
+  }
+
   private comboShown = false;
   /** Contador de combo de acrobacias */
   combo(c: { last: string; mult: number; points: number; timeLeft: number } | null) {

@@ -33,6 +33,26 @@ export interface TimeEntry {
   timeMs: number;
 }
 
+/** Fantasma del récord mundial de un circuito */
+export interface WorldGhost {
+  uid: string;
+  name: string;
+  course: string;
+  timeMs: number;
+  /** GhostData en JSON */
+  f: string;
+}
+
+/** Circuito creado por un jugador */
+export interface SharedCircuit {
+  uid: string;
+  author: string;
+  name: string;
+  stage: StageId;
+  /** hitos codificados */
+  g: string;
+}
+
 const env = import.meta.env;
 const useEmulators = env.VITE_USE_EMULATORS === '1';
 const config = {
@@ -172,6 +192,69 @@ class FirebaseService {
     const q = query(collection(this.db, 'times'), where('course', '==', course), orderBy('timeMs', 'asc'), limit(n));
     const res = await getDocs(q);
     return res.docs.map((d) => d.data() as TimeEntry);
+  }
+
+  // ------------------------------------------------------------ Perfil en la nube
+  /** Sube la copia del perfil con el código de recuperación (secreto) */
+  async saveCloud(code: string, data: string, name: string): Promise<boolean> {
+    const u = await this.user();
+    if (!u || !this.db) return false;
+    await setDoc(doc(this.db, 'saves', code), { data, name: name.slice(0, 16) || 'Piloto', v: 1, updatedAt: serverTimestamp() });
+    return true;
+  }
+
+  /** Descarga la copia del perfil (null si no existe) */
+  async loadCloud(code: string): Promise<{ data: string; name: string } | null> {
+    const u = await this.user();
+    if (!u || !this.db) return null;
+    const snap = await getDoc(doc(this.db, 'saves', code));
+    if (!snap.exists()) return null;
+    const d = snap.data() as { data?: string; name?: string };
+    return typeof d.data === 'string' ? { data: d.data, name: d.name ?? '' } : null;
+  }
+
+  // ------------------------------------------------------------ Fantasmas del récord mundial
+  async worldGhost(course: string): Promise<WorldGhost | null> {
+    if (!this.enabled) return null;
+    this.init();
+    if (!this.db) return null;
+    await this.user();
+    const snap = await getDoc(doc(this.db, 'ghosts', course));
+    return snap.exists() ? (snap.data() as WorldGhost) : null;
+  }
+
+  /** Sube el fantasma si bate el récord mundial. Devuelve true si se guardó. */
+  async submitWorldGhost(course: string, name: string, timeSec: number, ghostJson: string): Promise<boolean> {
+    if (!this.enabled || ghostJson.length > 450000) return false;
+    const u = await this.user();
+    if (!u || !this.db) return false;
+    const timeMs = Math.round(timeSec * 1000);
+    try {
+      const cur = await this.worldGhost(course);
+      if (cur && cur.timeMs <= timeMs) return false;
+      await setDoc(doc(this.db, 'ghosts', course), { uid: u.uid, name: name.slice(0, 16) || 'Piloto', course, timeMs, f: ghostJson, updatedAt: serverTimestamp() });
+      return true;
+    } catch (e) {
+      console.warn('[firebase] error guardando fantasma mundial', e);
+      return false;
+    }
+  }
+
+  // ------------------------------------------------------------ Circuitos compartidos
+  async publishCircuit(code: string, c: Omit<SharedCircuit, 'uid'>): Promise<boolean> {
+    const u = await this.user();
+    if (!u || !this.db) return false;
+    await setDoc(doc(this.db, 'circuits', code), { ...c, uid: u.uid, createdAt: serverTimestamp() });
+    return true;
+  }
+
+  async loadCircuit(code: string): Promise<SharedCircuit | null> {
+    if (!this.enabled) return null;
+    this.init();
+    if (!this.db) return null;
+    await this.user();
+    const snap = await getDoc(doc(this.db, 'circuits', code));
+    return snap.exists() ? (snap.data() as SharedCircuit) : null;
   }
 }
 

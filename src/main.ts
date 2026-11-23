@@ -41,15 +41,41 @@ import { KothZone } from './zone';
 import { Season, SEASON_TIERS, XP_PER_TIER, seasonName, tierReward } from './season';
 import { hash2 } from './world/noise';
 import { Haptic, setHaptics } from './haptics';
+import { Boss, PHASE_LABELS } from './boss';
+import { CityEvents } from './events';
+import { StormZone } from './zone';
+import { CloudSave, formatRecovery } from './cloud';
+import { QUICK_CHAT, CHAT_ICONS } from './chat';
+import {
+  MAX_GATES,
+  MIN_GATES,
+  MIN_GATE_GAP,
+  circuitCourse,
+  cleanCode,
+  decodeGates,
+  deleteCircuit,
+  encodeGates,
+  loadCircuits,
+  longCode,
+  parseLongCode,
+  randomCode,
+  upsertCircuit,
+  type Circuit,
+  type CircuitGate,
+} from './circuits';
+import type { GhostData } from './ghost';
+import type { WeatherKind } from './weather';
+import { AutoQuality, QUALITY_LABELS, qualityPreset, type QualityPreset } from './quality';
+import type { QualityLevel, QualitySetting } from './settings';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const show = (id: string, v: boolean) => $(id).classList.toggle('hidden', !v);
 const hex = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
 
 type Screen = 'menu' | 'playing' | 'crashed' | 'results' | 'lobby';
-type Mode = 'free' | 'race' | 'battle' | 'delivery' | 'waves';
+type Mode = 'free' | 'race' | 'battle' | 'delivery' | 'waves' | 'editor';
 /** Modos que se eligen en la pantalla «Un jugador» */
-type PfMode = 'free' | 'delivery' | 'race' | 'daily' | 'battle' | 'koth' | 'tag' | 'waves';
+type PfMode = 'free' | 'delivery' | 'race' | 'daily' | 'battle' | 'koth' | 'tag' | 'waves' | 'royale' | 'boss' | 'circuits';
 
 const PF_INFO: Record<PfMode, { title: string; desc: string }> = {
   free: { title: 'Vuelo libre', desc: 'Explora la ciudad, atraviesa aros de colores, derriba drones y recoge recompensas. Sin prisa.' },
@@ -60,6 +86,9 @@ const PF_INFO: Record<PfMode, { title: string; desc: string }> = {
   koth: { title: 'Rey del cielo', desc: 'Quédate solo dentro de la zona dorada para sumar 1 punto por segundo. La zona cambia de sitio cada minuto.' },
   tag: { title: 'Pilla-pilla', desc: 'Sin disparos. Quien «la lleva» tiene que tocar a otro avión. Sumas 1 punto por cada segundo sin llevarla.' },
   waves: { title: 'Oleadas', desc: 'Oleadas de drones y cazas cada vez más duras. Entre oleadas eliges una mejora. Una sola vida.' },
+  royale: { title: 'Supervivencia', desc: 'Una sola vida. La tormenta violeta cierra el cielo poco a poco y fuera de la zona pierdes blindaje. Gana el último avión en pie.' },
+  boss: { title: 'Jefe final', desc: 'Un dirigible gigante patrulla la ciudad. Fase 1: destruye sus 4 torretas. Fase 2: sus 2 motores (lanza misiles y cazas de escolta). Fase 3: el núcleo queda expuesto. Puedes llevar bots aliados.' },
+  circuits: { title: 'Mis circuitos', desc: '' },
 };
 
 const isTouch = matchMedia('(hover: none), (pointer: coarse)').matches;
@@ -95,6 +124,8 @@ class Game {
   arrow: GuideArrow;
   radar = new Radar($<HTMLCanvasElement>('radar'));
   ghostRec = new GhostRecorder();
+  autoQ = new AutoQuality(isTouch);
+  gfx: QualityPreset = qualityPreset('medium', isTouch);
   recorder = new ReplayRecorder();
 
   stage!: Stage;
@@ -183,6 +214,26 @@ class Game {
   private leashT = 0;
   private leashTarget: THREE.Vector3 | null = null;
 
+  // Modos nuevos
+  storm: StormZone | null = null;
+  boss: Boss | null = null;
+  private bossWinAt = 0;
+  cityEvents: CityEvents | null = null;
+  private prevWeather: WeatherKind = 'clear';
+  cloud = new CloudSave();
+  worldGhost: GhostPlayer | null = null;
+  private wgToken = 0;
+  customCircuit: Circuit | null = null;
+  /** Espectador: id del avión que se sigue */
+  spectating: string | null = null;
+  // Editor de circuitos
+  private editGates: CircuitGate[] = [];
+  private editPreview: Race | null = null;
+  private editId = '';
+  private savedCircuit: Circuit | null = null;
+  // Chat rápido
+  private chatCooldown = 0;
+
   private timer = new THREE.Timer();
   private time = 0;
   private crashTimer = 0;
@@ -196,7 +247,6 @@ class Game {
   constructor() {
     const canvas = $<HTMLCanvasElement>('scene');
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: !isTouch, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isTouch ? 1.5 : 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
@@ -209,6 +259,12 @@ class Game {
     this.myTarget = { id: 'me', name: 'Tú', pos: this.flight.pos, vel: new THREE.Vector3(), radius: 9, alive: true };
 
     this.settings = loadSettings();
+    this.gfx = qualityPreset(this.qualityLevel, isTouch);
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.gfx.maxPixelRatio));
+    this.autoQ.onChange = (level, why) => {
+      this.applyQuality();
+      this.hud.toast(`Calidad gráfica ${why === 'down' ? 'reducida' : 'aumentada'}: ${QUALITY_LABELS[level]}`, 1600);
+    };
     this.input = new Input(
       $('joy-zone'),
       $('joy-base'),
@@ -275,8 +331,7 @@ class Game {
     this.stage = stage;
     store.set('stage', stage.id);
     this.gen = new CityGen(stage);
-    const radius = isTouch ? 5 : 7;
-    this.chunks = new ChunkManager(this.scene, this.gen, radius);
+    this.chunks = new ChunkManager(this.scene, this.gen, this.gfx.radius);
     this.rings = new Rings(this.scene, this.gen);
     this.powerups = new PowerUps(this.scene, this.gen);
     this.chunks.onChunkAdded = (cx, cz) => {
@@ -302,7 +357,7 @@ class Game {
     this.scene.add(this.hemi, this.sun);
     this.contrails = new Contrails(this.scene);
     this.fx = new Fx(this.scene);
-    this.fx.high = this.settings.effects === 'high';
+    this.fx.high = this.gfx.fxHigh;
     this.guns = new Guns(this.scene, this.gen, this.fx);
     this.drones = new Drones(this.scene, this.gen, 14);
     this.stunts = new Stunts(this.gen, {
@@ -355,8 +410,7 @@ class Game {
     this.endBattle();
     this.race?.dispose();
     this.race = null;
-    this.ghost?.dispose();
-    this.ghost = null;
+    this.clearGhosts();
     this.replayer?.stop();
     this.chunks.dispose();
     this.rings.dispose();
@@ -377,6 +431,12 @@ class Game {
   private endModes() {
     this.delivery?.dispose();
     this.delivery = null;
+    this.cityEvents?.dispose();
+    this.cityEvents = null;
+    this.endEditor();
+    this.stopSpectating();
+    this.hud.bossBar(null);
+    show('chat-wheel', false);
     this.zone?.dispose();
     this.zone = null;
     this.waveChoosing = false;
@@ -425,6 +485,7 @@ class Game {
     this.jet.group.visible = true;
     this.contrails.reset();
     this.rig.snap();
+    if (this.spectating) this.stopSpectating();
   }
 
   // ================================================================ Sesiones
@@ -441,8 +502,8 @@ class Game {
     this.missiles.reset();
     this.race?.dispose();
     this.race = null;
-    this.ghost?.dispose();
-    this.ghost = null;
+    this.clearGhosts();
+    this.customCircuit = null;
     this.isDaily = false;
     this.endBattle();
     this.paused = false;
@@ -476,27 +537,67 @@ class Game {
     this.rings.respawnAll(this.chunks.loaded());
     this.powerups.setEnabled(true, this.chunks.loaded());
     this.drones.setActive(true);
+    this.startCityEvents();
     this.setScreen('playing');
     this.hud.toast('¡Despegue!');
   }
 
+  /** Eventos dinámicos de la ciudad (vuelo libre en solitario) */
+  private startCityEvents() {
+    this.cityEvents = new CityEvents(this.scene, this.gen, this.fx, {
+      toast: (t, ms) => this.hud.toast(t, ms),
+      reward: (credits, completed) => {
+        if (credits) this.earn(credits);
+        if (completed) {
+          this.progress.add('cityEvents');
+          this.stunts.trick('Evento', 300);
+          this.recorder.highlight('Evento completado');
+        }
+      },
+      damage: (amount) => {
+        if (!this.alive || this.invuln > 0) return;
+        this.fx.hit(this.flight.pos, this.myTarget.vel);
+        this.audio.damaged();
+        this.rig.addShake(5);
+        this.hud.toast('¡Rayo!', 900);
+        this.takeDamage(amount, undefined, true);
+      },
+      weather: (kind) => {
+        if (kind) {
+          this.prevWeather = this.weather.kind;
+          this.weather.set(kind);
+        } else this.weather.set(this.prevWeather);
+      },
+      sound: (k) => {
+        if (k === 'start') this.audio.countdown(true);
+        else if (k === 'pickup') this.audio.ring();
+        else if (k === 'thunder') this.audio.thunder(0.1);
+        else if (k === 'win') this.audio.gate(true);
+        else this.audio.empty();
+      },
+    });
+  }
+
   /** Carrera contrarreloj (solo o multijugador) */
-  startRace(def: CourseDef, gridIndex = 0, gridSize = 1, goAt?: number, daily?: string) {
+  startRace(def: CourseDef, gridIndex = 0, gridSize = 1, goAt?: number, daily?: string, custom?: Circuit) {
     this.audio.init();
+    if (custom && custom.stage !== this.stage.id) this.loadStage(getStage(custom.stage));
     this.mode = 'race';
     this.courseDef = def;
     this.resetSession();
+    this.customCircuit = custom ?? null;
     this.isDaily = !!daily;
     this.dailyKey = daily ?? '';
     this.drones.setActive(false);
     this.rings.enabled = false;
     this.rings.respawnAll([]);
     this.powerups.setEnabled(false, []);
-    const course = buildCourse(this.gen, def);
+    const course = custom ? circuitCourse(custom) : buildCourse(this.gen, def);
     this.race = new Race(this.scene, course);
     if (this.settings.ghost && !this.room) {
       const g = loadGhost(course.id);
       if (g) this.ghost = new GhostPlayer(this.scene, g);
+      this.loadWorldGhost(course.id);
     }
     this.ghostRec.reset();
     const right = new THREE.Vector3(Math.cos(course.start.yaw), 0, -Math.sin(course.start.yaw));
@@ -507,6 +608,30 @@ class Game {
     this.goAt = goAt ?? this.now() + 3500;
     this.lastCountdown = -1;
     this.setScreen('playing');
+  }
+
+  private clearGhosts() {
+    this.wgToken++;
+    this.ghost?.dispose();
+    this.ghost = null;
+    this.worldGhost?.dispose();
+    this.worldGhost = null;
+  }
+
+  /** Fantasma del récord mundial (Firestore), en dorado */
+  private loadWorldGhost(id: string) {
+    if (!firebase.enabled) return;
+    const token = ++this.wgToken;
+    Promise.all([firebase.worldGhost(id), firebase.uid()])
+      .then(([g, uid]) => {
+        if (token !== this.wgToken || !g || !this.race || this.race.course.id !== id) return;
+        if (g.uid === uid && this.ghost) return; // el récord es mío: ya está mi fantasma
+        const data = JSON.parse(g.f) as GhostData;
+        if (data.v !== 1 || !Array.isArray(data.f)) return;
+        this.worldGhost = new GhostPlayer(this.scene, data, 0xffd040, 0xb08a30);
+        this.hud.toast(`Fantasma dorado: récord mundial de ${g.name} · ${formatTime(g.timeMs / 1000)}`, 2600);
+      })
+      .catch(() => undefined);
   }
 
   startDaily() {
@@ -711,7 +836,7 @@ class Game {
     this.battle = b;
     const room = this.room;
     const humans: { id: string; name: string; team: Team | null; color: number }[] = [];
-    const humanTeam = (t?: Team): Team | null => (config.kind === 'coop' ? 'A' : config.kind === 'teams' ? (t ?? 'A') : null);
+    const humanTeam = (t?: Team): Team | null => (config.kind === 'coop' || config.kind === 'boss' ? 'A' : config.kind === 'teams' ? (t ?? 'A') : null);
     if (room) {
       for (const [uid, p] of room.players) humans.push({ id: uid, name: uid === room.uid ? this.pilotName() : p.name, team: humanTeam(p.team), color: p.color });
     } else {
@@ -722,6 +847,7 @@ class Game {
     let a = humans.filter((h) => h.team === 'A').length;
     let bb = humans.filter((h) => h.team === 'B').length;
     const specs = makeBotSpecs(config.bots, () => {
+      if (config.kind === 'boss') return 'A';
       if (config.kind !== 'coop' && config.kind !== 'teams') return null;
       if (config.kind === 'coop') return 'B';
       if (a <= bb) {
@@ -744,6 +870,8 @@ class Game {
     // Semilla común a todos los jugadores (zona del Rey del cielo, quién la lleva al empezar)
     this.zoneSeed = room ? [...room.code].reduce((a, c) => a * 31 + c.charCodeAt(0), 7) % 100000 + (room.meta?.round ?? 0) : Math.floor(Math.random() * 100000);
     if (config.kind === 'koth') this.zone = new KothZone(this.scene, this.gen);
+    if (config.kind === 'royale') this.storm = new StormZone(this.scene, this.zoneSeed, config.timeLimit);
+    if (config.kind === 'boss') this.startBoss(humans.length, config.bots);
     if (config.kind === 'tag') {
       const ids = [...b.fighters.keys()].sort();
       b.it = ids[Math.floor(hash2(this.zoneSeed, 1, 3) * ids.length)] ?? null;
@@ -755,6 +883,154 @@ class Game {
     this.hud.toast(BATTLE_LABELS[config.kind], 1800);
     if (config.kind === 'tag') setTimeout(() => this.hud.toast(b.it === this.myId ? '¡La llevas tú! Toca a otro avión' : `La lleva ${b.fighters.get(b.it ?? '')?.name ?? '?'}: ¡huye!`, 2200), 1900);
     this.syncMyScore();
+  }
+
+  /** Jefe final: crea el dirigible (lo simula el anfitrión o el juego en solitario) */
+  private startBoss(humans: number, allies: number) {
+    const boss = new Boss(this.scene, this.gen, this.fx, ARENA.clone(), 1 + 0.45 * (humans - 1) + 0.2 * allies);
+    boss.authority = !this.room || this.room.isHost;
+    this.bossWinAt = 0;
+    boss.events = {
+      onPartDestroyed: (kind, pos) => {
+        this.audio.explosion();
+        this.rig.addShake(pos.distanceTo(this.flight.pos) < 600 ? 5 : 2);
+        this.recorder.event('explosion', pos, 1.3);
+        this.hud.toast(kind === 'turret' ? '¡Torreta destruida!' : kind === 'engine' ? '¡Motor destruido!' : '¡Núcleo destruido!', 1300);
+      },
+      onPhase: (ph) => {
+        this.hud.countdown(`Fase ${ph}`);
+        setTimeout(() => this.hud.countdown(null), 1300);
+        this.hud.toast(PHASE_LABELS[ph], 2200);
+        this.audio.countdown(true);
+        if (ph === 2 && boss.authority) this.spawnEscorts(2 + Math.min(3, humans - 1));
+      },
+      onDefeated: () => {
+        this.recorder.highlight('¡Dirigible derribado!');
+        this.hud.toast('¡EL DIRIGIBLE CAE!', 2500);
+        this.audio.gate(true);
+        this.bossWinAt = this.time + 4;
+      },
+    };
+    this.boss = boss;
+  }
+
+  /** Fase 2 del jefe: cazas enemigos de escolta */
+  private spawnEscorts(n: number) {
+    const b = this.battle;
+    const boss = this.boss;
+    if (!b || !boss) return;
+    const used = this.bots.length;
+    const specs = makeBotSpecs(used + n, () => 'B').slice(used);
+    for (const s of specs) {
+      s.name = s.name.replace('Bot', 'Escolta');
+      b.add({ id: s.id, name: s.name, team: 'B', color: TEAM_COLORS.B, isBot: true });
+      const bot = new Bot(s, this.scene, this.gen, this.fx, 0.6);
+      bot.spawn(boss.pos.clone().setY(0), 300);
+      this.bots.push(bot);
+    }
+    this.hud.toast('¡Cazas de escolta en camino!', 1800);
+  }
+
+  /** Daño al dirigible (solo quien lo simula) */
+  private damageBoss(partId: string, dmg: number, shooter: string) {
+    const boss = this.boss;
+    if (!boss) return;
+    if (!boss.authority) return;
+    const applied = boss.damage(partId, dmg);
+    if (applied > 0 && this.battle && (shooter === this.myId || shooter.startsWith('bot'))) this.battle.addPoints(shooter, applied);
+  }
+
+  private updateBoss(dt: number) {
+    const boss = this.boss!;
+    // Si el anfitrión se va, el nuevo anfitrión pasa a simular el dirigible
+    if (this.room && this.room.isHost && !boss.authority) boss.authority = true;
+    const b = this.battle!;
+    const enemies: Target[] = [];
+    if (this.alive) enemies.push(this.myTarget);
+    for (const t of this.remotes.targets()) if (t.alive && !t.id.startsWith('bot')) enemies.push(t);
+    for (const bot of this.bots) if (bot.alive && bot.spec.team === 'A') enemies.push(bot.target);
+    boss.update(dt, this.time, enemies, this.missiles, (t, dmg) => this.botHit('botboss', t, dmg));
+    if (this.bossWinAt && this.time >= this.bossWinAt) b.bossOutcome = 'win';
+    this.hud.bossBar(`Dirigible · ${boss.phaseLabel()}`, boss.defeated ? 0 : boss.phaseHealth());
+    // Choque contra el casco
+    if (this.alive && this.invuln <= 0 && boss.hits(this.flight.pos)) {
+      this.destroy();
+      this.hud.toast('¡Te has estrellado contra el dirigible!', 2000);
+    }
+  }
+
+  /** Supervivencia: la tormenta se cierra y hace daño fuera de la zona */
+  private stormHurtT = 0;
+  private updateStorm(dt: number) {
+    const st = this.storm!;
+    const b = this.battle!;
+    const t = Math.max(0, b.elapsed);
+    st.update(t, this.time);
+    const dps = st.damageAt(t);
+    const out = st.outside(this.flight.pos);
+    if (this.alive && out > 0 && !b.finished) {
+      this.hp -= dps * dt;
+      this.stormHurtT -= dt;
+      if (this.stormHurtT <= 0) {
+        this.stormHurtT = 0.8;
+        this.hud.damageFlash();
+        Haptic.hitTaken();
+      }
+      if (this.hp <= 0) {
+        this.destroy();
+        this.hud.toast('La tormenta te ha derribado', 2000);
+      }
+    }
+    for (const bot of this.bots) {
+      if (!bot.alive || st.outside(bot.flight.pos) <= 0) continue;
+      bot.hp -= dps * dt;
+      if (bot.hp <= 0) this.botCrash(bot.spec.id);
+    }
+    const left = b.survivors.length;
+    const grace = st.graceLeft(t);
+    if (!this.alive) return;
+    if (out > 0) this.hud.banner(`¡FUERA DE LA ZONA! −${Math.round(dps)}/s · sigue la flecha violeta`, 'bad');
+    else if (grace > 0) this.hud.banner(`La tormenta empieza a cerrarse en ${Math.ceil(grace)} s · quedan ${left}`, 'info');
+    else this.hud.banner(`Zona segura ${Math.round(st.radius)} m · quedan ${left}`, out > -200 ? 'warn' : 'info');
+  }
+
+  // ---------------------------------------------------------------- Espectador
+  private startSpectating() {
+    this.spectating = null;
+    this.nextSpectate();
+  }
+
+  private stopSpectating() {
+    if (!this.spectating && $('spectate').classList.contains('hidden')) return;
+    this.spectating = null;
+    this.hud.spectate(null);
+    this.rig.snap();
+  }
+
+  /** Pasa al siguiente avión vivo */
+  private nextSpectate() {
+    const list = [...this.remotes.targets(), ...this.bots.map((x) => x.target)].filter((t) => t.alive);
+    if (!list.length) {
+      this.spectating = null;
+      this.hud.spectate('nadie en pie');
+      return;
+    }
+    const i = list.findIndex((t) => t.id === this.spectating);
+    const next = list[(i + 1) % list.length];
+    this.spectating = next.id;
+    this.hud.spectate(this.pilotInfo(next.id).name);
+    this.rig.snap();
+  }
+
+  /** Vuelo del avión al que se sigue como espectador */
+  private spectateFlight(): Flight | null {
+    if (!this.spectating) return null;
+    const bot = this.bots.find((x) => x.spec.id === this.spectating);
+    if (bot?.alive) return bot.flight;
+    const r = this.remotes.get(this.spectating);
+    if (r?.alive && r.buffer.length) return r.flight;
+    this.nextSpectate();
+    return null;
   }
 
   private arenaSpawn() {
@@ -771,6 +1047,14 @@ class Game {
     this.battle = null;
     this.hud.battleScore(null);
     if (this.room?.isHost) void this.room.clearBots();
+    this.storm?.dispose();
+    this.storm = null;
+    if (this.boss) {
+      this.boss.dispose();
+      this.boss = null;
+      if (this.room?.isHost) this.room.sendBoss(null);
+    }
+    this.hud.bossBar(null);
   }
 
   private now() {
@@ -801,8 +1085,7 @@ class Game {
       this.drones.setActive(false);
       this.race?.dispose();
       this.race = null;
-      this.ghost?.dispose();
-      this.ghost = null;
+      this.clearGhosts();
       this.endBattle();
       this.endModes();
       this.flight.frozen = false;
@@ -815,6 +1098,9 @@ class Game {
       if (s === 'menu') this.refreshMenu();
     }
     $('btn-stage').classList.toggle('hidden', this.mode !== 'free' || !!this.room);
+    show('btn-chat', !!this.room && s === 'playing');
+    if (s !== 'playing') this.toggleChat(false);
+    if (s === 'menu' && this.cloud.enabled) void this.cloud.save(this.pilotName(), () => this.progress.flush(), false);
     this.updateViewButton();
     this.layoutControls();
   }
@@ -911,6 +1197,16 @@ class Game {
       this.screen = 'crashed';
       this.crashTimer = 0;
       this.fillCrashPanel();
+    } else if (this.battle?.config.kind === 'royale') {
+      // Supervivencia: una sola vida → espectador
+      this.respawnTimer = Infinity;
+      this.hud.banner(null);
+      setTimeout(() => {
+        if (this.battle?.config.kind === 'royale' && !this.alive && this.screen === 'playing') {
+          this.startSpectating();
+          this.hud.toast('Has caído. Modo espectador', 2000);
+        }
+      }, 1500);
     } else {
       this.respawnTimer = RESPAWN_TIME;
       this.hud.toast(this.mode === 'race' ? 'Reapareces en el último hito…' : 'Reapareciendo…', 2000);
@@ -1049,11 +1345,13 @@ class Game {
     if (this.battle) {
       const b = this.battle;
       const list: Target[] = [...this.remotes.targets(), ...this.bots.map((x) => x.target)];
-      return list.filter((t) => b.enemies(this.myId, t.id));
+      const enemies = list.filter((t) => b.enemies(this.myId, t.id));
+      return this.boss ? [...enemies, ...this.boss.targets()] : enemies;
     }
     // Vuelo libre en equipo: sin fuego amigo
     if (this.room) return [];
-    return this.drones.active ? this.drones.list : [];
+    const evt = this.cityEvents?.targets() ?? [];
+    return this.drones.active ? [...this.drones.list, ...evt] : evt;
   }
 
   private gunContext(firing: boolean) {
@@ -1085,6 +1383,27 @@ class Game {
     if (missile) {
       this.progress.add('missileHits');
       this.recorder.highlight('Impacto de misil');
+    }
+    if (t.id.startsWith('boss-')) {
+      this.hud.hitMarker(false);
+      if (this.boss?.authority) this.damageBoss(t.id, dmg, this.myId);
+      else if (this.room?.meta) {
+        this.room.sendEvent(this.room.meta.host, 'bhit', dmg, `bot:${t.id}`);
+        this.battle?.addPoints(this.myId, dmg);
+      }
+      return;
+    }
+    if (t.id.startsWith('evt-')) {
+      const destroyed = this.cityEvents?.damage(t.id, dmg) ?? false;
+      this.hud.hitMarker(destroyed);
+      if (destroyed) {
+        this.kills++;
+        this.audio.explosion();
+        this.earn(20);
+        this.stunts.trick('Saqueador abatido', 120);
+        this.hud.toast('¡Saqueador abatido!', 1000);
+      }
+      return;
     }
     if (t.id.startsWith('drone-')) {
       const destroyed = this.drones.damage(t.id, dmg);
@@ -1226,7 +1545,8 @@ class Game {
 
   /** Un bot (simulado aquí) alcanza a t */
   private botHit(botId: string, t: Target, dmg: number) {
-    if (t.id === this.myId) this.takeDamage(dmg, botId, true);
+    if (t.id.startsWith('boss-')) this.damageBoss(t.id, dmg, botId);
+    else if (t.id === this.myId) this.takeDamage(dmg, botId, true);
     else if (t.id.startsWith('bot')) {
       const victim = this.bots.find((b) => b.spec.id === t.id);
       if (victim) this.damageBot(victim, dmg, botId);
@@ -1276,7 +1596,7 @@ class Game {
         this.audio.damaged();
         this.fx.hit(this.flight.pos, this.myTarget.vel);
         this.takeDamage(e.v, e.b ?? e.from, true);
-        if (!this.alive) this.hud.toast(`Te ha derribado ${e.b ? (this.battle?.fighters.get(e.b)?.name ?? 'un bot') : from}`, 2200);
+        if (!this.alive) this.hud.toast(`Te ha derribado ${e.b === 'botboss' ? 'el dirigible' : e.b ? (this.battle?.fighters.get(e.b)?.name ?? 'un bot') : from}`, 2200);
         break;
       case 'bump':
         if (other) this.bump(new THREE.Vector3().subVectors(this.flight.pos, other.pos).normalize());
@@ -1301,8 +1621,19 @@ class Game {
         }
         break;
       case 'bhit': {
+        if (e.b?.startsWith('bot:boss-')) {
+          this.damageBoss(e.b.slice(4), e.v, e.from);
+          break;
+        }
         const bot = this.bots.find((b) => b.spec.id === e.b);
         if (bot) this.damageBot(bot, e.v, e.from);
+        break;
+      }
+      case 'chat': {
+        const p = room?.players.get(e.from);
+        const i = Math.max(0, Math.min(QUICK_CHAT.length - 1, Math.round(e.v)));
+        this.hud.chat(p?.name ?? 'Piloto', hex(p?.color ?? 0xffffff), `${CHAT_ICONS[i]} ${QUICK_CHAT[i]}`);
+        this.audio.hitMarker();
         break;
       }
       case 'mlaunch': {
@@ -1335,6 +1666,7 @@ class Game {
       fl: this.missiles.myFlareWindow > 0 ? 1 : 0,
       sm: this.inFormation > 0 ? 1 : 0,
     });
+    if (this.room.isHost && this.boss && this.screen === 'playing') this.room.sendBoss(this.boss.netState());
     if (this.room.isHost && this.bots.length) {
       this.room.sendBots(
         this.bots.map((b) => ({
@@ -1359,7 +1691,9 @@ class Game {
   // ================================================================ Bucle
   private frame() {
     this.timer.update();
-    const dt = Math.min(this.timer.getDelta(), 0.05);
+    const rawDt = this.timer.getDelta();
+    const dt = Math.min(rawDt, 0.05);
+    if (this.settings.quality === 'auto' && this.screen === 'playing' && !this.paused && !this.replaying) this.autoQ.sample(rawDt);
     this.time += dt;
     this.netTimer -= dt;
 
@@ -1403,16 +1737,20 @@ class Game {
       if (this.screen !== 'playing') this.guns.update(dt, this.gunContext(false));
       if (this.screen !== 'playing') this.missiles.update(dt, this.missileContext());
       const speedFactor = THREE.MathUtils.clamp((this.flight.speedKmh - CRUISE_KMH) / (BOOST_KMH - CRUISE_KMH), 0, 1);
-      this.rig.update(this.alive ? dt : dt * 0.15, this.flight, this.alive ? speedFactor : 0);
+      const spec = this.screen === 'playing' ? this.spectateFlight() : null;
+      if (spec) this.rig.update(dt, spec, 0);
+      else this.rig.update(this.alive ? dt : dt * 0.15, this.flight, this.alive ? speedFactor : 0);
     }
+    this.chatCooldown -= dt;
     this.jet.update(this.flight, this.time);
     if (!(this.screen === 'playing' && this.invuln > 0)) this.jet.group.visible = this.alive && this.rig.mode !== 'cockpit';
     this.contrails.setVisible(this.rig.mode !== 'cockpit');
     if (this.alive && !frozen) this.fx.damageTrail(this.flight.pos, this.hp / this.maxHp, dt);
     if (this.alive && this.shield > 0 && !frozen) this.fx.shieldSpark(this.flight.pos);
 
-    this.chunks.update(this.flight.pos.x, this.flight.pos.z);
-    this.far.update(this.flight.pos);
+    const focus = (this.spectating && this.spectateFlight()?.pos) || this.flight.pos;
+    this.chunks.update(focus.x, focus.z);
+    this.far.update(focus);
     this.sky.update(this.camera);
     if (!frozen) {
       const turb = this.weather.update(dt, this.camera, this.myTarget.vel);
@@ -1433,7 +1771,7 @@ class Game {
   }
 
   private render(dt: number) {
-    if (this.settings.effects === 'high') this.composer.render(dt);
+    if (this.gfx.bloom) this.composer.render(dt);
     else this.renderer.render(this.scene, this.camera);
   }
 
@@ -1477,6 +1815,7 @@ class Game {
     // Batalla y modos especiales
     if (this.battle) this.updateBattle(dt);
     if (this.mode === 'waves') this.updateWaves(dt);
+    this.cityEvents?.update(dt, this.time, f.pos, f.forward(), this.alive);
     if (this.delivery && this.alive) {
       const ev = this.delivery.update(dt, f.pos, this.jet.group.quaternion, this.time);
       if (ev?.type === 'pickup') {
@@ -1540,8 +1879,10 @@ class Game {
     if (this.race?.started && !this.race.finished) {
       this.ghostRec.record(dt, f);
       this.ghost?.update(this.race.elapsed, this.time);
-    } else if (this.ghost && this.race && !this.race.started) {
-      this.ghost.update(0, this.time);
+      this.worldGhost?.update(this.race.elapsed, this.time);
+    } else if (this.race && !this.race.started) {
+      this.ghost?.update(0, this.time);
+      this.worldGhost?.update(0, this.time);
     }
 
     if (this.battle?.config.kind !== 'tag') this.checkPlayerCollisions();
@@ -1618,21 +1959,27 @@ class Game {
     const b = this.battle!;
     b.elapsed = (this.now() - this.goAt) / 1000;
     // Bots (solo con autoridad)
+    const kind = b.config.kind;
+    const arena = this.storm ? this.storm.center : this.boss ? this.boss.pos.clone().setY(0) : ARENA;
     for (const bot of this.bots) {
       if (!bot.alive) {
         bot.respawn -= dt;
-        if (bot.respawn <= 0 && !b.finished) bot.spawn(ARENA, 1400);
-        bot.update(dt, this.time, [], ARENA, this.missiles, () => undefined);
+        const respawns = kind !== 'royale' && !(kind === 'boss' && bot.spec.team === 'B');
+        if (bot.respawn <= 0 && !b.finished && respawns) bot.spawn(ARENA, 1400);
+        bot.update(dt, this.time, [], arena, this.missiles, () => undefined);
         continue;
       }
       const enemies: Target[] = [];
       if (b.enemies(bot.spec.id, this.myId) && this.alive) enemies.push(this.myTarget);
       for (const t of this.remotes.targets()) if (b.enemies(bot.spec.id, t.id)) enemies.push(t);
       for (const o of this.bots) if (o !== bot && o.alive && b.enemies(bot.spec.id, o.spec.id)) enemies.push(o.target);
+      if (this.boss && bot.spec.team === 'A') enemies.push(...this.boss.targets());
       const opts = this.botModeOpts(bot.spec.id, enemies);
-      const crashed = bot.update(dt, this.time, opts.targets, ARENA, this.missiles, (t, dmg) => this.botHit(bot.spec.id, t, dmg), opts);
+      const crashed = bot.update(dt, this.time, opts.targets, arena, this.missiles, (t, dmg) => this.botHit(bot.spec.id, t, dmg), opts);
       if (crashed) this.botCrash(bot.spec.id);
     }
+    if (this.storm) this.updateStorm(dt);
+    if (this.boss) this.updateBoss(dt);
     if (this.room) for (const [id, sc] of this.room.scores) if (id !== this.myId) b.setScore(id, sc.k, sc.d);
     if (b.config.kind === 'koth') this.updateKoth(dt);
     if (b.config.kind === 'tag') this.updateTag(dt);
@@ -1653,6 +2000,12 @@ class Game {
   private botModeOpts(id: string, enemies: Target[]): { targets: Target[]; goal?: THREE.Vector3; flee?: THREE.Vector3; noFire?: boolean; chase?: boolean } {
     const b = this.battle!;
     if (b.config.kind === 'koth' && this.zone) return { targets: enemies, goal: this.zone.center };
+    if (b.config.kind === 'royale' && this.storm) {
+      const bot = this.bots.find((x) => x.spec.id === id);
+      const st = this.storm;
+      const near = bot ? st.outside(bot.flight.pos) > -st.radius * 0.3 : false;
+      return { targets: enemies, goal: near ? st.center.clone().setY(bot!.flight.pos.y) : undefined };
+    }
     if (b.config.kind === 'tag') {
       const all = this.allPlanes().filter((p) => p.id !== id && p.alive);
       if (b.it === id) {
@@ -1753,7 +2106,7 @@ class Game {
   /** Vuelo en formación: cerca de un compañero, mismo rumbo y velocidad → humo de colores */
   private updateFormation(dt: number) {
     this.inFormation = 0;
-    const coop = this.room && (this.mode === 'free' || (this.battle && this.battle.config.kind !== 'ffa' && this.battle.config.kind !== 'koth' && this.battle.config.kind !== 'tag'));
+    const coop = this.room && (this.mode === 'free' || (this.battle && ['teams', 'coop', 'boss'].includes(this.battle.config.kind)));
     if (!coop || !this.alive) {
       this.hud.formation(0);
       return;
@@ -1774,7 +2127,7 @@ class Game {
     this.hud.formation(this.inFormation);
     if (!this.inFormation) return;
     const color = this.room?.myColor ?? 0xffffff;
-    if (Math.random() < (this.settings.effects === 'high' ? 0.9 : 0.5)) this.fx.formationSmoke(f.pos, fwd.clone().negate(), color);
+    if (Math.random() < (this.gfx.fxHigh ? 0.9 : 0.5)) this.fx.formationSmoke(f.pos, fwd.clone().negate(), color);
     this.formationAcc += dt;
     if (this.formationAcc >= 1) {
       this.formationAcc -= 1;
@@ -1968,6 +2321,312 @@ class Game {
     }
   }
 
+  // ================================================================ Editor de circuitos
+  startEditor(stage: Stage) {
+    this.audio.init();
+    if (stage.id !== this.stage.id) this.loadStage(stage);
+    this.mode = 'editor';
+    this.resetSession();
+    this.drones.setActive(false);
+    this.rings.enabled = false;
+    this.rings.respawnAll([]);
+    this.powerups.setEnabled(false, []);
+    this.editGates = [];
+    this.editId = randomCode(8);
+    this.savedCircuit = null;
+    this.spawnAt(new THREE.Vector3(0, this.safeAltitude(0, 0), 0), Math.random() * Math.PI * 2);
+    show('editor-bar', true);
+    this.updateEditorBar();
+    this.setScreen('playing');
+    this.hud.toast('Vuela por la ciudad y pulsa «Colocar hito» en cada punto del recorrido', 3000);
+  }
+
+  private endEditor() {
+    this.editPreview?.dispose();
+    this.editPreview = null;
+    show('editor-bar', false);
+    show('circuit-save', false);
+  }
+
+  private updateEditorBar() {
+    const n = this.editGates.length;
+    $('ed-count').textContent = `Hitos ${n}/${MAX_GATES}`;
+    ($('btn-ed-save') as HTMLButtonElement).disabled = n < MIN_GATES;
+    ($('btn-ed-undo') as HTMLButtonElement).disabled = n === 0;
+    this.editPreview?.dispose();
+    this.editPreview = null;
+    if (n) {
+      const c: Circuit = { id: this.editId, name: '', stage: this.stage.id, gates: this.editGates, mine: true };
+      this.editPreview = new Race(this.scene, circuitCourse(c));
+    }
+  }
+
+  private placeGate() {
+    if (this.mode !== 'editor' || this.screen !== 'playing' || !this.alive || this.paused) return;
+    const f = this.flight;
+    if (this.editGates.length >= MAX_GATES) {
+      this.hud.toast(`Máximo ${MAX_GATES} hitos: guarda el circuito`, 1600);
+      return;
+    }
+    const last = this.editGates[this.editGates.length - 1];
+    if (last && Math.hypot(last.x - f.pos.x, last.y - f.pos.y, last.z - f.pos.z) < MIN_GATE_GAP) {
+      this.hud.toast(`Aléjate más del hito anterior (mínimo ${MIN_GATE_GAP} m)`, 1600);
+      return;
+    }
+    if (f.pos.y - this.gen.maxHeightNear(f.pos.x, f.pos.z, 70) < 50) {
+      this.hud.toast('Demasiado cerca del suelo o de un edificio: sube un poco', 1600);
+      return;
+    }
+    this.editGates.push({ x: f.pos.x, y: f.pos.y, z: f.pos.z, yaw: f.yaw });
+    this.updateEditorBar();
+    this.audio.gate(true);
+    Haptic.gate();
+    const n = this.editGates.length;
+    this.hud.toast(n === 1 ? 'Salida y meta colocada' : `Hito ${n - 1} colocado`, 1200);
+  }
+
+  private undoGate() {
+    if (this.mode !== 'editor' || !this.editGates.length) return;
+    this.editGates.pop();
+    this.updateEditorBar();
+    this.hud.toast('Último hito quitado', 900);
+  }
+
+  private openSaveCircuit() {
+    const g = this.editGates;
+    if (g.length < MIN_GATES) {
+      this.hud.toast(`Coloca al menos ${MIN_GATES} hitos`, 1400);
+      return;
+    }
+    const a = g[0];
+    const b = g[g.length - 1];
+    if (Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) < MIN_GATE_GAP) {
+      this.hud.toast('El último hito está demasiado cerca de la meta', 1600);
+      return;
+    }
+    this.paused = true;
+    this.input.reset();
+    $<HTMLInputElement>('cs-name').value = `Circuito de ${this.pilotName()}`.slice(0, 28);
+    show('cs-form', true);
+    show('cs-done', false);
+    $('cs-title').textContent = 'Guardar circuito';
+    show('circuit-save', true);
+  }
+
+  private async saveCircuit() {
+    const btn = $<HTMLButtonElement>('btn-cs-save');
+    const name = $<HTMLInputElement>('cs-name').value.trim().slice(0, 28) || 'Mi circuito';
+    const c: Circuit = { id: this.editId, name, stage: this.stage.id, gates: [...this.editGates], mine: true, author: this.pilotName() };
+    btn.disabled = true;
+    btn.textContent = 'Guardando…';
+    let note = '';
+    if (firebase.enabled) {
+      try {
+        const code = randomCode(6);
+        await firebase.publishCircuit(code, { author: c.author!, name, stage: c.stage, g: encodeGates(c.gates) });
+        c.code = code;
+      } catch (e) {
+        console.warn(e);
+        note = 'No se pudo publicar en Firebase: este código largo funciona igual.';
+      }
+    } else note = 'Sin Firebase: comparte este código largo (funciona igual).';
+    btn.disabled = false;
+    btn.textContent = 'Guardar y obtener código';
+    upsertCircuit(c);
+    this.progress.add('circuitsMade');
+    this.savedCircuit = c;
+    $('cs-title').textContent = '¡Circuito guardado!';
+    $('cs-code').textContent = this.circuitShareCode(c);
+    $('cs-code').classList.toggle('long', !c.code);
+    $('cs-note').textContent = note;
+    show('cs-form', false);
+    show('cs-done', true);
+  }
+
+  private circuitShareCode(c: Circuit) {
+    return c.code ? `${c.code.slice(0, 3)}-${c.code.slice(3)}` : longCode(c);
+  }
+
+  private shareCircuitText(c: Circuit) {
+    const link = c.code ? `\n${location.origin}/?circuito=${c.code}` : '';
+    return `¡Prueba mi circuito «${c.name}» en FalconSky! ✈️\nCódigo: ${this.circuitShareCode(c)}${link}`;
+  }
+
+  /** Pantalla «Mis circuitos» */
+  private openCircuits() {
+    show('play', false);
+    $('cc-msg').textContent = '';
+    this.renderCircuitList();
+    show('circuits', true);
+  }
+
+  private renderCircuitList() {
+    const list = loadCircuits();
+    const ul = $('cc-list');
+    if (!list.length) {
+      const li = document.createElement('li');
+      li.className = 'empty';
+      li.textContent = 'Aún no tienes circuitos. ¡Crea el primero!';
+      ul.replaceChildren(li);
+      return;
+    }
+    ul.replaceChildren(
+      ...list.map((c) => {
+        const li = document.createElement('li');
+        const info = document.createElement('div');
+        info.className = 'cc-info';
+        const b = document.createElement('b');
+        b.textContent = c.name;
+        const sm = document.createElement('small');
+        const best = loadBest(circuitCourse(c).id);
+        sm.textContent = `${getStage(c.stage).name} · ${c.gates.length - 1} hitos${c.mine ? '' : c.author ? ` · de ${c.author}` : ''}${c.code ? ` · ${c.code.slice(0, 3)}-${c.code.slice(3)}` : ''}${best ? ` · récord ${formatTime(best.time)}` : ''}`;
+        info.append(b, sm);
+        const run = document.createElement('button');
+        run.className = 'primary small';
+        run.textContent = 'Correr';
+        run.addEventListener('click', () => {
+          show('circuits', false);
+          this.startRace(COURSES[0], 0, 1, undefined, undefined, c);
+        });
+        const share = document.createElement('button');
+        share.className = 'secondary';
+        share.textContent = 'Compartir';
+        share.addEventListener('click', () => this.shareCircuit(c));
+        const del = document.createElement('button');
+        del.className = 'secondary';
+        del.textContent = '✕';
+        del.setAttribute('aria-label', 'Borrar circuito');
+        del.addEventListener('click', () => {
+          if (!confirm(`¿Borrar «${c.name}» de este dispositivo?`)) return;
+          deleteCircuit(c.id);
+          this.renderCircuitList();
+        });
+        li.append(info, run, share, del);
+        return li;
+      }),
+    );
+  }
+
+  private async shareCircuit(c: Circuit) {
+    const text = this.shareCircuitText(c);
+    const nav = navigator as Navigator & { share?: (d: { title?: string; text?: string }) => Promise<void> };
+    if (nav.share) {
+      try {
+        await nav.share({ title: 'FalconSky', text });
+        return;
+      } catch {
+        /* cancelado */
+      }
+    }
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+  }
+
+  /** Carga un circuito por código corto (Firebase) o largo (FS1.…) */
+  private async fetchCircuit(raw: string): Promise<Circuit> {
+    const txt = raw.trim();
+    if (txt.startsWith('FS1.')) {
+      const p = parseLongCode(txt);
+      if (!p) throw new Error('El código del circuito no es válido.');
+      return { id: `l${randomCode(7)}`, name: 'Circuito compartido', stage: p.stage, gates: p.gates, mine: false };
+    }
+    const code = cleanCode(txt);
+    if (code.length !== 6) throw new Error('El código tiene 6 caracteres (o es un código largo que empieza por FS1.).');
+    const local = loadCircuits().find((c) => c.code === code);
+    if (local) return local;
+    if (!firebase.enabled) throw new Error('Los códigos cortos necesitan conexión con Firebase.');
+    const sc = await firebase.loadCircuit(code);
+    if (!sc) throw new Error(`No existe ningún circuito con el código ${code.slice(0, 3)}-${code.slice(3)}.`);
+    const gates = decodeGates(sc.g);
+    if (gates.length < MIN_GATES) throw new Error('Ese circuito está dañado.');
+    const c: Circuit = { id: `s${code}`, name: sc.name, stage: sc.stage, gates, code, author: sc.author, mine: false };
+    upsertCircuit(c);
+    return c;
+  }
+
+  private async loadCircuitFromInput() {
+    const msg = $('cc-msg');
+    msg.textContent = 'Buscando circuito…';
+    try {
+      const c = await this.fetchCircuit($<HTMLInputElement>('cc-code').value);
+      msg.textContent = '';
+      show('circuits', false);
+      this.startRace(COURSES[0], 0, 1, undefined, undefined, c);
+    } catch (e) {
+      msg.textContent = (e as Error).message || 'No se pudo cargar el circuito.';
+    }
+  }
+
+  /** Añade mis circuitos publicados a un selector de circuito (salas) */
+  private fillCourseSelect(sel: HTMLSelectElement) {
+    const keep = sel.value;
+    sel.replaceChildren(...COURSES.map((c) => new Option(c.name, c.id)));
+    for (const c of loadCircuits()) if (c.code) sel.append(new Option(`★ ${c.name}`, `c:${c.code}`));
+    if (keep && [...sel.options].some((o) => o.value === keep)) sel.value = keep;
+  }
+
+  // ================================================================ Chat rápido
+  private toggleChat(open?: boolean) {
+    const el = $('chat-wheel');
+    const v = open ?? el.classList.contains('hidden');
+    el.classList.toggle('hidden', !v);
+  }
+
+  private sendChat(i: number) {
+    const room = this.room;
+    this.toggleChat(false);
+    if (!room || this.chatCooldown > 0) return;
+    this.chatCooldown = 1.2;
+    for (const uid of room.players.keys()) if (uid !== room.uid) room.sendEvent(uid, 'chat', i);
+    this.hud.chat(this.pilotName(), hex(room.myColor), `${CHAT_ICONS[i]} ${QUICK_CHAT[i]}`);
+  }
+
+  // ================================================================ Perfil en la nube
+  private renderCloud() {
+    const c = this.cloud;
+    const info = $('cloud-info');
+    const on = c.enabled;
+    const toggle = $('set-cloud') as HTMLButtonElement;
+    toggle.disabled = !c.available;
+    toggle.setAttribute('aria-pressed', String(on && c.available));
+    toggle.querySelector('b')!.textContent = on && c.available ? 'Sí' : 'No';
+    ($('btn-cloud-restore') as HTMLButtonElement).disabled = !c.available;
+    show('cloud-code-row', on && c.available);
+    $('cloud-code').textContent = formatRecovery(c.code);
+    if (!c.available) info.textContent = 'Necesita el juego conectado a Firebase (en la versión publicada funciona).';
+    else if (!on) info.textContent = 'Guarda créditos, aviones, logros, récords y circuitos en la nube. Con tu código de recuperación lo recuperas en otro móvil o navegador.';
+    else info.textContent = c.lastSync ? `Última copia: ${new Date(c.lastSync).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' })}. Se guarda sola cada 2 minutos.` : 'Aún no hay copia: pulsa «Guardar ahora».';
+  }
+
+  private async cloudSaveNow(force: boolean) {
+    const res = await this.cloud.save(this.pilotName(), () => this.progress.flush(), force);
+    $('cloud-msg').textContent = res === 'saved' ? 'Copia guardada en la nube ✔' : res === 'same' ? 'La copia ya estaba al día ✔' : 'No se pudo guardar. Comprueba la conexión (y que Firestore esté creado).';
+    this.renderCloud();
+  }
+
+  private async cloudRestore() {
+    const code = $<HTMLInputElement>('cloud-restore-code').value;
+    if (!confirm('Se sustituirá el progreso de este dispositivo por el de la copia. ¿Continuar?')) return;
+    $('cloud-msg').textContent = 'Recuperando…';
+    try {
+      this.progress.locked = true;
+      const name = await this.cloud.restore(code);
+      if (name) {
+        this.settings.name = name.slice(0, 16);
+        saveSettings(this.settings);
+      }
+      $('cloud-msg').textContent = 'Perfil recuperado. Reiniciando el juego…';
+      setTimeout(() => location.reload(), 900);
+    } catch (e) {
+      this.progress.locked = false;
+      $('cloud-msg').textContent = (e as Error).message || 'No se pudo recuperar.';
+    }
+  }
+
+  private restartRace() {
+    if (this.isDaily) this.startDaily();
+    else this.startRace(this.courseDef, 0, 1, undefined, undefined, this.customCircuit ?? undefined);
+  }
+
   /** Volver al último hito (penalización de tiempo) */
   resetToRoute() {
     if (!this.race?.started || this.race.finished || this.screen !== 'playing' || !this.alive) return;
@@ -2031,6 +2690,7 @@ class Game {
         route = [f.pos, navTarget, ...(this.race.nextGate !== 0 ? [this.race.followingGatePos] : [])];
       }
       if (this.ghost && !this.ghost.finished) items.push({ pos: this.ghost.pos, kind: 'ghost' });
+      if (this.worldGhost && !this.worldGhost.finished) items.push({ pos: this.worldGhost.pos, kind: 'ghost', color: '#ffd040' });
       this.hud.setTimer(formatTime(this.race.started ? this.race.time : 0));
     } else if (this.battle) {
       scoreLabel = 'Derribos';
@@ -2130,6 +2790,59 @@ class Game {
       }
     }
     if (this.mode === 'waves') scoreLabel = 'Derribos';
+    if (this.mode === 'editor') {
+      scoreLabel = 'Hitos';
+      scoreValue = `${Math.max(0, this.editGates.length - 1)}`;
+      navTarget = null;
+      this.editGates.forEach((g, i) => items.push({ pos: new THREE.Vector3(g.x, g.y, g.z), kind: 'gate', label: i === 0 ? 'M' : String(i) }));
+    }
+    // Eventos de la ciudad
+    const eh = this.cityEvents?.hud(f.pos) ?? null;
+    if (this.cityEvents) this.hud.banner(eh ? eh.banner : null, eh?.kind);
+    if (eh) {
+      for (const it of eh.items) items.push({ pos: it.pos, kind: it.kind, color: it.color });
+      if (eh.nav) {
+        navTarget = eh.nav;
+        navLabel = eh.navLabel;
+        navGate = true;
+        if (eh.nav.distanceTo(f.pos) > 250) {
+          arrowTarget = eh.nav;
+          arrowColor = eh.navColor;
+        }
+      }
+    }
+    // Supervivencia: zona en el radar y flecha si estás fuera
+    const circles: { pos: THREE.Vector3; r: number; color: string }[] = [];
+    if (this.storm) {
+      circles.push({ pos: this.storm.center, r: this.storm.radius, color: 'rgba(170,110,255,0.9)' });
+      if (this.storm.outside(f.pos) > -60) {
+        arrowTarget = this.storm.center.clone().setY(f.pos.y);
+        arrowColor = 0xa070ff;
+      }
+    }
+    // Jefe final: el dirigible y su parte vulnerable más cercana
+    if (this.boss && !this.boss.defeated) {
+      const boss = this.boss;
+      items.push({ pos: boss.pos, kind: 'enemy', color: '#ff6a2a', label: 'J' });
+      let best: Target | null = null;
+      let bd = Infinity;
+      for (const t of boss.targets()) {
+        const d = t.pos.distanceTo(f.pos);
+        if (d < bd) {
+          bd = d;
+          best = t;
+        }
+      }
+      if (best && !lockFor(this)) {
+        navTarget = best.pos;
+        navLabel = (best.name ?? '').toUpperCase();
+        navGate = false;
+      }
+      if (boss.pos.distanceTo(f.pos) > 900) {
+        arrowTarget = boss.pos;
+        arrowColor = 0xff6a2a;
+      }
+    }
 
     const lock = this.alive && this.screen === 'playing' ? this.guns.lock : null;
     this.hud.update({
@@ -2155,7 +2868,7 @@ class Game {
     if (this.doubleDamage > 0) pws.push({ name: 'Doble daño', color: POWER_INFO.damage.css, left: this.doubleDamage, total: POWER_INFO.damage.duration });
     if (this.turbo > 0) pws.push({ name: 'Turbo', color: POWER_INFO.turbo.css, left: this.turbo, total: POWER_INFO.turbo.duration });
     this.hud.setPowerups(pws);
-    this.radar.draw(f.pos, f.yaw, items, route);
+    this.radar.draw(f.pos, f.yaw, items, route, circles);
     this.hud.combo(this.stunts.combo);
     // Etiquetas de los demás pilotos
     const tags = [];
@@ -2179,7 +2892,7 @@ class Game {
     const h = window.innerHeight;
     this.renderer.setSize(w, h, false);
     this.composer.setSize(w, h);
-    this.bloom.resolution.set(w / 2, h / 2);
+    this.bloom.resolution.set(Math.round(w * this.gfx.bloomScale), Math.round(h * this.gfx.bloomScale));
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.layoutControls();
@@ -2244,7 +2957,10 @@ class Game {
     const id = this.race!.course.id;
     // Fantasma
     const prevGhost = this.ghost?.data.time;
-    if (best) saveGhost(id, this.ghostRec.data(this.race!.elapsed));
+    const ghostData = this.ghostRec.data(this.race!.elapsed);
+    if (best) saveGhost(id, ghostData);
+    const worldPrev = this.worldGhost?.data.time;
+    if (worldPrev !== undefined && this.race!.elapsed < worldPrev) this.recorder.highlight('¡Fantasma dorado batido!');
     if (prevGhost !== undefined && time < prevGhost) {
       this.progress.add('ghostBeaten');
       this.recorder.highlight('¡Fantasma batido!');
@@ -2265,7 +2981,7 @@ class Game {
     this.hud.split(`META · ${formatTime(time)}`, best ? 'good' : 'neutral');
     $('rr-title').textContent = best ? '¡Nuevo récord!' : '¡Carrera completada!';
     $('rr-time').textContent = formatTime(time);
-    $('rr-course').textContent = `${this.isDaily ? `Desafío diario · ${dayLabel()}` : this.courseDef.name} · ${this.stage.name}`;
+    $('rr-course').textContent = `${this.isDaily ? `Desafío diario · ${dayLabel()}` : this.race!.course.name} · ${this.stage.name}`;
     $('rr-credits').textContent = `+${this.sessionCredits} créditos`;
     const list = $('rr-splits');
     list.replaceChildren(
@@ -2285,9 +3001,13 @@ class Game {
       this.renderRoomResults();
     } else if (firebase.enabled) {
       firebase
-        .submitTime(courseId(this.stage.id, this.courseDef), this.pilotName(), time)
+        .submitTime(id, this.pilotName(), time)
         .then((saved) => {
           if (saved) $('rr-msg').textContent = 'Tiempo guardado en la clasificación online';
+          if (!saved || !best) return;
+          return firebase.submitWorldGhost(id, this.pilotName(), time, JSON.stringify(ghostData)).then((w) => {
+            if (w) $('rr-msg').textContent = '¡Récord mundial! Tu fantasma dorado ya está en la nube';
+          });
         })
         .catch(() => undefined);
     }
@@ -2304,6 +3024,10 @@ class Game {
     this.screen = 'results';
     this.progress.add('battles');
     if (res.iWon && this.battleConfig.kind === 'koth') this.progress.add('kothWins');
+    if (res.iWon && this.battleConfig.kind === 'royale') this.progress.add('royaleWins');
+    if (res.iWon && this.battleConfig.kind === 'boss') this.progress.add('bossWins');
+    this.stopSpectating();
+    this.hud.banner(null);
     if (res.iWon) {
       this.progress.add('battlesWon');
       this.earn(150);
@@ -2324,7 +3048,9 @@ class Game {
         const li = document.createElement('li');
         if (r.id === this.myId) li.classList.add('me');
         const pts = isPointsMode(this.battleConfig.kind);
-        li.innerHTML = `<span class="pos">${i + 1}</span><span class="nm"></span><span class="speed">${pts ? 'puntos' : `${r.deaths} caídas`}</span><b>${pts ? Math.floor(r.points) : r.kills}</b>`;
+        const kind = this.battleConfig.kind;
+        const sub = kind === 'boss' ? 'daño' : kind === 'royale' ? (r.deaths === 0 ? 'en pie' : 'caído') + ` · ${r.kills} derribos` : pts ? 'puntos' : `${r.deaths} caídas`;
+        li.innerHTML = `<span class="pos">${i + 1}</span><span class="nm"></span><span class="speed">${sub}</span><b>${pts ? Math.floor(r.points) : r.kills}</b>`;
         const nm = li.querySelector('.nm') as HTMLElement;
         nm.textContent = r.name + (r.isBot ? ' 🤖' : '');
         if (r.team) nm.style.color = hex(TEAM_COLORS[r.team]);
@@ -2391,6 +3117,8 @@ class Game {
   private async createRoom() {
     const mode = ($<HTMLSelectElement>('mp-mode').value as RoomMode) || 'free';
     const course = $<HTMLSelectElement>('mp-course').value || COURSES[0].id;
+    const custom = mode === 'race' && course.startsWith('c:') ? loadCircuits().find((c) => c.code === course.slice(2)) : null;
+    if (custom && custom.stage !== this.stage.id) this.loadStage(getStage(custom.stage));
     const bc = this.readBattleForm('mp');
     this.setMpBusy(true);
     try {
@@ -2459,6 +3187,9 @@ class Game {
       }
     };
     room.onMeta = (m) => this.onRoomMeta(m);
+    room.onBoss = (st) => {
+      if (st && this.boss && !room.isHost) this.boss.applyNet(st);
+    };
     room.onTagIt = (id, seq) => {
       const b = this.battle;
       if (!b || b.config.kind !== 'tag' || id === b.it) return;
@@ -2506,6 +3237,8 @@ class Game {
   }
 
   private openMpPanel(code?: string) {
+    this.fillCourseSelect($<HTMLSelectElement>('mp-course'));
+    this.fillCourseSelect($<HTMLSelectElement>('lobby-course'));
     show('mp-panel', true);
     if (code) $<HTMLInputElement>('mp-code').value = formatCode(code);
     if (!firebase.multiplayer) {
@@ -2547,7 +3280,7 @@ class Game {
       return;
     }
     const modeLabel = (r: PublicRoom) =>
-      r.mode === 'race' ? 'Carrera' : r.mode === 'battle' ? `Batalla · ${r.bk === 'teams' ? 'equipos' : r.bk === 'coop' ? 'contra la máquina' : 'todos contra todos'}` : 'Vuelo en equipo';
+      r.mode === 'race' ? 'Carrera' : r.mode === 'battle' ? `Batalla · ${BATTLE_LABELS[r.bk ?? 'ffa']}` : 'Vuelo en equipo';
     ul.replaceChildren(
       ...list.map((r) => {
         const li = document.createElement('li');
@@ -2602,7 +3335,12 @@ class Game {
       this.myRound = m.round;
       const order = [...room.players.entries()].sort((a, b) => a[1].joinedAt - b[1].joinedAt).map(([k]) => k);
       const idx = Math.max(0, order.indexOf(room.uid));
-      if (m.mode === 'race') {
+      if (m.mode === 'race' && m.course.startsWith('c:')) {
+        const n = Math.max(order.length, 1);
+        this.fetchCircuit(m.course.slice(2))
+          .then((c) => this.startRace(COURSES[0], idx, n, m.startAt, undefined, c))
+          .catch((e) => this.hud.toast((e as Error).message || 'No se pudo cargar el circuito de la sala', 3000));
+      } else if (m.mode === 'race') {
         const def = COURSES.find((c) => c.id === m.course) ?? COURSES[0];
         this.startRace(def, idx, Math.max(order.length, 1), m.startAt);
       } else if (m.mode === 'battle') {
@@ -2686,7 +3424,9 @@ class Game {
     for (const id of ['lobby-mode', 'lobby-stage', 'lobby-course', 'lobby-bkind', 'lobby-bots', 'lobby-blimit', 'lobby-btime']) ($(id) as HTMLSelectElement).disabled = !host;
     $<HTMLSelectElement>('lobby-mode').value = m.mode;
     $<HTMLSelectElement>('lobby-stage').value = m.stage;
-    $<HTMLSelectElement>('lobby-course').value = m.course;
+    const lc = $<HTMLSelectElement>('lobby-course');
+    if (![...lc.options].some((o) => o.value === m.course)) lc.append(new Option(m.course.startsWith('c:') ? '★ Circuito de la sala' : m.course, m.course));
+    lc.value = m.course;
     $<HTMLSelectElement>('lobby-bkind').value = m.bk ?? 'ffa';
     $<HTMLInputElement>('lobby-bots').value = String(m.bb ?? 2);
     $('lobby-bots-val').textContent = String(m.bb ?? 2);
@@ -2710,8 +3450,28 @@ class Game {
     this.audio.setMuted(s.muted);
     this.audio.muted = s.muted;
     setHaptics(s.vibration);
-    if (this.fx) this.fx.high = s.effects === 'high';
+    this.applyQuality();
     this.layoutControls();
+  }
+
+  /** Nivel de calidad efectivo (el elegido o el que decide el modo automático) */
+  get qualityLevel(): QualityLevel {
+    return this.settings.quality === 'auto' ? this.autoQ.level : this.settings.quality;
+  }
+
+  /** Aplica resolución, bloom, partículas y distancia de dibujado */
+  private applyQuality() {
+    const prev = this.gfx;
+    this.gfx = qualityPreset(this.qualityLevel, isTouch);
+    if (!this.renderer) return;
+    const pr = Math.min(window.devicePixelRatio || 1, this.gfx.maxPixelRatio);
+    if (this.renderer.getPixelRatio() !== pr || prev.bloomScale !== this.gfx.bloomScale) {
+      this.renderer.setPixelRatio(pr);
+      this.composer.setPixelRatio(pr);
+      this.resize();
+    }
+    if (this.fx) this.fx.high = this.gfx.fxHigh;
+    this.chunks?.setRadius(this.gfx.radius);
   }
 
   private persist() {
@@ -2745,6 +3505,13 @@ class Game {
     const params = new URLSearchParams(location.search);
     const sala = normalizeCode(params.get('sala') ?? '');
     const mode = params.get('mode');
+    const circuito = cleanCode(params.get('circuito') ?? '');
+    if (circuito.length === 6) {
+      history.replaceState(null, '', location.pathname);
+      this.openCircuits();
+      $<HTMLInputElement>('cc-code').value = `${circuito.slice(0, 3)}-${circuito.slice(3)}`;
+      return;
+    }
     if (!mode && !sala) return;
     history.replaceState(null, '', location.pathname);
     // Enlace de invitación: abrir la sala directamente
@@ -2856,7 +3623,8 @@ class Game {
     $('btn-resume').addEventListener('click', () => this.setPaused(false));
     $('btn-pause-menu').addEventListener('click', () => this.setScreen('menu'));
     $('btn-restart').addEventListener('click', () => {
-      if (this.mode === 'race') this.isDaily ? this.startDaily() : this.startRace(this.courseDef);
+      if (this.mode === 'race') this.restartRace();
+      else if (this.mode === 'editor') this.startEditor(this.stage);
       else if (this.mode === 'battle') this.startBattle(this.battleConfig);
       else if (this.mode === 'delivery') this.startDelivery();
       else if (this.mode === 'waves') this.startWaves();
@@ -2878,8 +3646,99 @@ class Game {
     });
     $('btn-board').addEventListener('click', () => this.openBoard(this.stage.id));
 
+    // Espectador
+    $('btn-spectate-next').addEventListener('click', () => this.nextSpectate());
+
+    // Chat rápido
+    $('chat-wheel').replaceChildren(
+      ...QUICK_CHAT.map((t, i) => {
+        const b = document.createElement('button');
+        b.className = 'secondary';
+        b.innerHTML = `<small>${i + 1}</small>`;
+        b.append(`${CHAT_ICONS[i]} ${t}`);
+        b.addEventListener('click', () => this.sendChat(i));
+        return b;
+      }),
+    );
+    $('btn-chat').addEventListener('click', () => this.toggleChat());
+    window.addEventListener('keydown', (e) => {
+      if (this.screen !== 'playing' || (e.target as HTMLElement)?.tagName === 'INPUT') return;
+      if (this.mode === 'editor' && e.code === 'KeyH') this.placeGate();
+      if (!this.room) return;
+      if (e.code === 'KeyT') this.toggleChat();
+      const m = /^Digit([1-8])$/.exec(e.code);
+      if (m && !$('chat-wheel').classList.contains('hidden')) this.sendChat(Number(m[1]) - 1);
+    });
+
+    // Editor de circuitos
+    $('btn-ed-place').addEventListener('click', () => this.placeGate());
+    $('btn-ed-undo').addEventListener('click', () => this.undoGate());
+    $('btn-ed-save').addEventListener('click', () => this.openSaveCircuit());
+    $('btn-cs-save').addEventListener('click', () => void this.saveCircuit());
+    $('btn-cs-cancel').addEventListener('click', () => {
+      show('circuit-save', false);
+      this.paused = false;
+      this.timer.update();
+    });
+    $('btn-cs-copy').addEventListener('click', () => {
+      const t = $('cs-code').textContent ?? '';
+      navigator.clipboard?.writeText(t).then(
+        () => this.hud.toast('Código copiado', 1000),
+        () => selectText($('cs-code')),
+      );
+    });
+    $('btn-cs-wa').addEventListener('click', () => {
+      if (this.savedCircuit) window.open(`https://wa.me/?text=${encodeURIComponent(this.shareCircuitText(this.savedCircuit))}`, '_blank', 'noopener');
+    });
+    $('btn-cs-race').addEventListener('click', () => {
+      const c = this.savedCircuit;
+      show('circuit-save', false);
+      if (c) this.startRace(COURSES[0], 0, 1, undefined, undefined, c);
+    });
+    $('btn-cs-menu').addEventListener('click', () => {
+      this.setScreen('menu');
+      this.openCircuits();
+    });
+    $('cc-back').addEventListener('click', () => {
+      show('circuits', false);
+      this.openPlay();
+    });
+    $('btn-cc-new').addEventListener('click', () => {
+      show('circuits', false);
+      store.set('lastMode', 'circuits');
+      this.startEditor(this.stage);
+    });
+    $('btn-cc-load').addEventListener('click', () => void this.loadCircuitFromInput());
+    $<HTMLInputElement>('cc-code').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') void this.loadCircuitFromInput();
+    });
+    this.buildStageList($('cc-stage'), (st) => {
+      if (st.id !== this.stage.id) this.loadStage(st);
+    });
+
+    // Perfil en la nube
+    $('set-cloud').addEventListener('click', () => {
+      if (!this.cloud.available) return;
+      this.cloud.enabled = !this.cloud.enabled;
+      this.renderCloud();
+      if (this.cloud.enabled) void this.cloudSaveNow(true);
+      else $('cloud-msg').textContent = 'Copia automática desactivada (la copia que ya hay en la nube se conserva).';
+    });
+    $('btn-cloud-save').addEventListener('click', () => void this.cloudSaveNow(true));
+    $('btn-cloud-copy').addEventListener('click', () => {
+      navigator.clipboard?.writeText(formatRecovery(this.cloud.code)).then(
+        () => ($('cloud-msg').textContent = 'Código copiado. Guárdalo en un sitio seguro.'),
+        () => selectText($('cloud-code')),
+      );
+    });
+    $('btn-cloud-restore').addEventListener('click', () => void this.cloudRestore());
+    this.cloud.startAuto(
+      () => this.pilotName(),
+      () => this.progress.flush(),
+    );
+
     // Resultados
-    $('btn-rr-retry').addEventListener('click', () => (this.isDaily ? this.startDaily() : this.startRace(this.courseDef)));
+    $('btn-rr-retry').addEventListener('click', () => this.restartRace());
     $('btn-rr-menu').addEventListener('click', () => this.setScreen('menu'));
     $('btn-rr-replay').addEventListener('click', () => this.startReplay('race-results'));
     $('btn-rr-again').addEventListener('click', () => void this.room?.startRound());
@@ -2894,7 +3753,7 @@ class Game {
     // Multijugador
     const mpCourse = $<HTMLSelectElement>('mp-course');
     const lobbyCourse = $<HTMLSelectElement>('lobby-course');
-    for (const sel of [mpCourse, lobbyCourse]) for (const c of COURSES) sel.append(new Option(c.name, c.id));
+    for (const sel of [mpCourse, lobbyCourse]) this.fillCourseSelect(sel);
     const lobbyStage = $<HTMLSelectElement>('lobby-stage');
     for (const s of STAGES) lobbyStage.append(new Option(s.name, s.id));
     $<HTMLSelectElement>('mp-mode').addEventListener('change', (e) => {
@@ -2922,7 +3781,11 @@ class Game {
     });
     $('lobby-mode').addEventListener('change', (e) => void this.room?.setMeta({ mode: (e.target as HTMLSelectElement).value as RoomMode }));
     lobbyStage.addEventListener('change', (e) => void this.room?.setMeta({ stage: (e.target as HTMLSelectElement).value as StageId }));
-    lobbyCourse.addEventListener('change', (e) => void this.room?.setMeta({ course: (e.target as HTMLSelectElement).value }));
+    lobbyCourse.addEventListener('change', (e) => {
+      const v = (e.target as HTMLSelectElement).value;
+      const custom = v.startsWith('c:') ? loadCircuits().find((c) => c.code === v.slice(2)) : null;
+      void this.room?.setMeta(custom ? { course: v, stage: custom.stage } : { course: v });
+    });
     $('lobby-bkind').addEventListener('change', (e) => void this.room?.setMeta({ bk: (e.target as HTMLSelectElement).value as BattleKind }));
     $('lobby-bots').addEventListener('change', (e) => void this.room?.setMeta({ bb: Number((e.target as HTMLInputElement).value) }));
     $('lobby-blimit').addEventListener('change', (e) => void this.room?.setMeta({ bl: Number((e.target as HTMLSelectElement).value) }));
@@ -2969,7 +3832,14 @@ class Game {
       ['set-invert', () => (this.settings.invertY = !this.settings.invertY)],
       ['set-aim', () => (this.settings.aimAssist = !this.settings.aimAssist)],
       ['set-sound', () => (this.settings.muted = !this.settings.muted)],
-      ['set-effects', () => (this.settings.effects = this.settings.effects === 'high' ? 'low' : 'high')],
+      [
+        'set-quality',
+        () => {
+          const order: QualitySetting[] = ['auto', 'low', 'medium', 'high'];
+          this.settings.quality = order[(order.indexOf(this.settings.quality) + 1) % order.length];
+          this.autoQ.restart();
+        },
+      ],
       [
         'set-weather',
         () => {
@@ -3020,12 +3890,19 @@ class Game {
       coop: 'Tú solo contra todos los bots.',
       koth: 'Quédate solo dentro de la zona dorada para sumar 1 punto por segundo. La zona cambia de sitio cada minuto.',
       tag: 'Sin disparos. Quien «la lleva» tiene que tocar a otro avión para pasársela. Sumas 1 punto por cada segundo sin llevarla.',
+      royale: 'Una sola vida. La tormenta cierra el cielo: gana el último en pie.',
+      boss: 'Todos contra un dirigible gigante con tres fases.',
     };
     $('bp-help').textContent = help[kind];
     $('bp-limit-label').textContent = kind === 'koth' ? 'Puntos para ganar' : 'Derribos para ganar';
     const sel = $<HTMLSelectElement>('bp-blimit');
     for (const o of [...sel.options]) o.textContent = kind === 'koth' ? String(Number(o.value) * 10) : o.value;
-    sel.closest('label')!.classList.toggle('hidden', kind === 'tag');
+    sel.closest('label')!.classList.toggle('hidden', kind === 'tag' || kind === 'royale' || kind === 'boss');
+    const bots = $<HTMLInputElement>('bp-bots');
+    bots.min = kind === 'boss' ? '0' : '1';
+    if (Number(bots.value) < Number(bots.min)) bots.value = bots.min;
+    $('bp-bots-label').firstChild!.textContent = kind === 'boss' ? 'Bots aliados ' : 'Bots ';
+    $('bp-bots-val').textContent = bots.value;
   }
 
   private openSeason() {
@@ -3080,12 +3957,13 @@ class Game {
     set('set-invert', s.invertY, 'Invertido', 'Normal');
     set('set-aim', s.aimAssist, 'Activado', 'Desactivado');
     set('set-sound', !s.muted, 'Sí', 'No');
-    set('set-effects', s.effects === 'high', 'Altos', 'Bajos');
+    set('set-quality', s.quality !== 'low', s.quality === 'auto' ? `Automática · ${QUALITY_LABELS[this.autoQ.level]}` : QUALITY_LABELS[s.quality], QUALITY_LABELS.low);
     set('set-weather', s.weather, 'Variable', 'Siempre despejado');
     set('set-vibration', s.vibration, 'Sí', 'No');
     set('set-ghost', s.ghost, 'Sí', 'No');
     $<HTMLInputElement>('set-sensitivity').value = String(Math.round(s.sensitivity * 100));
     $('set-sensitivity-val').textContent = `${Math.round(s.sensitivity * 100)} %`;
+    this.renderCloud();
   }
 
   private openHangar(tab: 'planes' | 'paints' | 'upgrades') {
@@ -3250,19 +4128,29 @@ class Game {
       this.startDaily();
       return;
     }
+    if (mode === 'circuits') {
+      this.openCircuits();
+      return;
+    }
     this.pfMode = mode;
     $('pf-title').textContent = PF_INFO[mode].title;
     $('pf-desc').textContent = PF_INFO[mode].desc;
-    const battleLike = mode === 'battle' || mode === 'koth' || mode === 'tag';
+    const battleLike = mode === 'battle' || mode === 'koth' || mode === 'tag' || mode === 'royale' || mode === 'boss';
     show('pf-course', mode === 'race');
     show('pf-battle', battleLike);
     if (mode === 'race') this.renderCourses();
     if (battleLike) {
       const sel = $<HTMLSelectElement>('bp-bkind');
-      for (const o of [...sel.options]) o.hidden = mode === 'battle' && (o.value === 'koth' || o.value === 'tag');
+      const special = ['koth', 'tag', 'royale', 'boss'];
+      for (const o of [...sel.options]) o.hidden = mode === 'battle' && special.includes(o.value);
       if (mode === 'battle') {
-        if (sel.value === 'koth' || sel.value === 'tag') sel.value = 'ffa';
+        if (special.includes(sel.value)) sel.value = 'ffa';
       } else sel.value = mode;
+      const time = $<HTMLSelectElement>('bp-btime');
+      if (mode === 'royale') time.value = '180';
+      else if (mode === 'boss') time.value = '480';
+      else if (time.value === '480') time.value = '300';
+      if (mode === 'boss') $<HTMLInputElement>('bp-bots').value = '2';
       show('pf-bkind-field', mode === 'battle');
       show('bp-help', mode === 'battle');
       this.updateBattlePicker();
@@ -3417,6 +4305,11 @@ class Game {
     el.append(p, n, sp, v);
     return el;
   }
+}
+
+/** ¿Hay un objetivo fijado? (para no tapar su marcador) */
+function lockFor(g: Game) {
+  return !!(g.alive && g.guns.lock);
 }
 
 function selectText(el: HTMLElement) {
