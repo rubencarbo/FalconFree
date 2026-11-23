@@ -14,7 +14,7 @@ import { ICONS, ICON_GLYPH, ICON_NAMES, hexColor, type IconId } from './identity
 import { Fx } from './fx';
 import { Guns, MAX_AMMO, type Target } from './combat';
 import { Drones } from './drones';
-import { Race, COURSES, buildCourse, courseId, formatTime, formatDelta, loadBest, type CourseDef, type RaceEvent } from './race';
+import { Race, SKIP_PENALTY, COURSES, buildCourse, courseId, formatTime, formatDelta, loadBest, type CourseDef, type RaceEvent } from './race';
 import { Input } from './input';
 import { Hud } from './hud';
 import { GameAudio } from './audio';
@@ -29,7 +29,7 @@ import { GhostPlayer, GhostRecorder, loadGhost, saveGhost } from './ghost';
 import { PowerUps, POWER_INFO, type PowerKind } from './powerups';
 import { Missiles, MISSILE_DAMAGE, type MissileOwner } from './missiles';
 import { Progress, ACHIEVEMENTS, PLANES, PAINTS, UPGRADES, WELCOME_CREDITS, type PlaneId, type UpgradeId } from './progress';
-import { dailyChallenge, dayLabel, msToNextDaily } from './daily';
+import { dailyChallenge, dayLabel, msToNextDaily, type DailyVariant } from './daily';
 import { Bot, makeBotSpecs, TEAM_COLORS, type Team } from './bots';
 import { Battle, BATTLE_LABELS, DEFAULT_BATTLE, isPointsMode, type BattleConfig, type BattleKind, type BattleResult } from './battle';
 import { ReplayPlayer, ReplayRecorder } from './replay';
@@ -65,6 +65,7 @@ import {
 } from './circuits';
 import type { GhostData } from './ghost';
 import type { WeatherKind } from './weather';
+import { VoicePlayer, VoiceRecorder, VOICE_MAX_MS } from './voice';
 import { PlanePreview, type PreviewMode } from './planePreview';
 import { AutoQuality, QUALITY_LABELS, qualityPreset, type QualityPreset } from './quality';
 import type { QualityLevel, QualitySetting } from './settings';
@@ -159,6 +160,7 @@ class Game {
   courseDef: CourseDef = COURSES[0];
   isDaily = false;
   dailyKey = '';
+  dailyVariant: DailyVariant = store.get('dailyVariant') === 'night' ? 'night' : 'day';
   battleConfig: BattleConfig = { ...DEFAULT_BATTLE };
 
   // Estado del jugador
@@ -233,8 +235,12 @@ class Game {
   private editPreview: Race | null = null;
   private editId = '';
   private savedCircuit: Circuit | null = null;
-  // Chat rápido
+  // Chat rápido y mensajes de voz
   private chatCooldown = 0;
+  private voiceRec = new VoiceRecorder();
+  voicePlayer = new VoicePlayer();
+  private talkPending = false;
+  private talkTimer = 0;
   // Visor de aviones (hangar y preparar vuelo)
   preview = new PlanePreview();
   private hangarFocus: PlaneId | null = null;
@@ -651,12 +657,26 @@ class Game {
       .catch(() => undefined);
   }
 
-  startDaily() {
-    const d = dailyChallenge();
+  startDaily(variant: DailyVariant = this.dailyVariant) {
+    this.dailyVariant = variant;
+    store.set('dailyVariant', variant);
+    const d = dailyChallenge(new Date(), variant);
     if (d.stage.id !== this.stage.id) this.loadStage(d.stage);
     this.startRace(d.def, 0, 1, undefined, d.key);
-    this.hud.toast(`Desafío diario · ${d.stage.name}`, 1800);
+    this.hud.toast(`Desafío diario · ${variant === 'night' ? 'de noche' : 'de día'} · ${d.stage.name}`, 1800);
   }
+
+  /** Mejor tiempo de hoy en el desafío (día, noche o el mejor de los dos) */
+  private dailyBest(variant?: DailyVariant) {
+    const daily = this.progress.p.daily;
+    const day = daily[dailyChallenge(new Date(), 'day').key];
+    const night = daily[dailyChallenge(new Date(), 'night').key];
+    if (variant === 'day') return day;
+    if (variant === 'night') return night;
+    const both = [day, night].filter((x): x is number => x !== undefined);
+    return both.length ? Math.min(...both) : undefined;
+  }
+
 
   /** Vuelo libre multijugador */
   startCoopFree(gridIndex: number) {
@@ -1116,6 +1136,7 @@ class Game {
     }
     $('btn-stage').classList.toggle('hidden', this.mode !== 'free' || !!this.room);
     show('btn-chat', !!this.room && s === 'playing');
+    show('btn-talk', !!this.room && s === 'playing');
     if (s !== 'playing') this.toggleChat(false);
     if (s === 'menu' && this.cloud.enabled) void this.cloud.save(this.pilotName(), () => this.progress.flush(), false);
     this.updateViewButton();
@@ -2375,6 +2396,20 @@ class Game {
           this.fx.sparks(ev.pos, null, 20, 40);
         }
         break;
+      case 'skip': {
+        const names = ev.gates.map((g) => (g === 0 ? 'meta' : String(g))).join(', ');
+        this.audio.empty();
+        Haptic.bump();
+        this.hud.penalty(`HITO ${names} SALTADO`, `+${ev.penalty} s`);
+        this.routeBest = Infinity;
+        this.offRouteT = 0;
+        this.hud.offRoute(false);
+        break;
+      }
+      case 'missed':
+        this.hud.toast(`Hito ${ev.gate === 0 ? 'de meta' : ev.gate} fallado: vuelve, o sigue al siguiente (+${SKIP_PENALTY} s)`, 2600);
+        this.audio.warning();
+        break;
       case 'finish':
         this.audio.gate(ev.best);
         this.recorder.highlight('Meta');
@@ -2642,6 +2677,89 @@ class Game {
     this.hud.chat(this.pilotName(), hex(room.myColor), `${CHAT_ICONS[i]} ${QUICK_CHAT[i]}`);
   }
 
+  // ================================================================ Mensajes de voz
+  /** Tocar: empieza a grabar · tocar otra vez: envía (o se envía solo a los 5 s) */
+  private async toggleTalk() {
+    const room = this.room;
+    if (!room) return;
+    this.voicePlayer.unlock();
+    if (this.voiceRec.recording) {
+      this.voiceRec.stop();
+      return;
+    }
+    if (this.talkPending) return;
+    if (!VoiceRecorder.supported) {
+      this.hud.toast('Este navegador no permite grabar audio', 1800);
+      return;
+    }
+    if (!room.canTalk()) {
+      this.hud.toast(`Espera: está hablando ${room.talk?.n ?? 'otro piloto'}`, 1400);
+      return;
+    }
+    this.talkPending = true;
+    this.updateTalkUi();
+    try {
+      const ok = await room.takeTalk(VOICE_MAX_MS + 3000);
+      if (!ok) {
+        this.hud.toast(`Espera: está hablando ${room.talk?.n ?? 'otro piloto'}`, 1400);
+        return;
+      }
+      this.voiceRec.onDone = async (clip) => {
+        clearInterval(this.talkTimer);
+        if (!clip) {
+          room.releaseTalk();
+          this.hud.toast('Mensaje demasiado corto', 1000);
+        } else if (await room.takeTalk(clip.ms + 1500)) {
+          // (se vuelve a pedir el turno por si hubiera caducado mientras se grababa)
+          room.sendVoice(clip.data, clip.ms);
+          // El turno dura lo que tardan los demás en oírlo
+          setTimeout(() => {
+            if (!this.voiceRec.recording) room.releaseTalk();
+          }, clip.ms + 1500);
+          this.hud.chat(this.pilotName(), hex(room.myColor), '🎙️ mensaje de voz enviado');
+        } else {
+          this.hud.toast(`No se ha enviado: ha empezado a hablar ${room.talk?.n ?? 'otro piloto'}`, 1800);
+        }
+        this.updateTalkUi();
+      };
+      try {
+        await this.voiceRec.start();
+      } catch {
+        room.releaseTalk();
+        this.hud.toast('Permite el micrófono en el navegador para hablar', 2200);
+        return;
+      }
+      Haptic.pickup();
+      clearInterval(this.talkTimer);
+      this.talkTimer = window.setInterval(() => this.updateTalkUi(), 100);
+    } finally {
+      this.talkPending = false;
+      this.updateTalkUi();
+    }
+  }
+
+  /** Estado de los botones HABLAR (grabando, libre u ocupado por otro) */
+  private updateTalkUi() {
+    const room = this.room;
+    const rec = this.voiceRec.recording;
+    const other = room && !room.canTalk() ? room.talk : null;
+    const left = rec ? Math.max(0, VOICE_MAX_MS - (performance.now() - this.voiceRec.startedAt)) : 0;
+    for (const id of ['btn-talk', 'btn-talk-lobby']) {
+      const b = $<HTMLButtonElement>(id);
+      b.classList.toggle('rec', rec);
+      b.classList.toggle('busy', !!other);
+      b.disabled = !!other || this.talkPending;
+      b.querySelector('b')!.textContent = rec ? `■ ENVIAR · ${Math.ceil(left / 1000)} s` : other ? `🔊 Habla ${other.n}` : this.talkPending ? '…' : '🎙️ HABLAR';
+      (b.querySelector('.tk-bar') as HTMLElement).style.transform = `scaleX(${rec ? 1 - left / VOICE_MAX_MS : 0})`;
+    }
+  }
+
+  private onVoice(v: { from: string; n: string; d: string }) {
+    if (!this.settings.voice) return;
+    const color = hex(this.room?.players.get(v.from)?.color ?? 0xffffff);
+    this.voicePlayer.play(v.d, () => this.hud.chat(v.n, color, '🔊 …'));
+  }
+
   // ================================================================ Perfil en la nube
   private renderCloud() {
     const c = this.cloud;
@@ -2729,10 +2847,12 @@ class Game {
 
   private lastHudDt = 0;
   /** Camino que dibuja la estela: hasta el siguiente hito y el posterior (o el reparto) */
+  private routeEnd = Infinity;
   private routePoints(): THREE.Vector3[] | null {
     const f = this.flight;
     const fwd = f.forward();
     const start = f.pos.clone().addScaledVector(fwd, 55);
+    this.routeEnd = Infinity;
     if (this.race && !this.race.finished) {
       const gates = this.race.course.gates;
       const pts = [start];
@@ -2743,7 +2863,9 @@ class Game {
         // entrar de frente y salir recto por el hito
         const before = g.pos.clone().addScaledVector(dir, -140);
         if (before.distanceTo(start) > 160) pts.push(before);
-        pts.push(g.pos.clone(), g.pos.clone().addScaledVector(dir, 120));
+        pts.push(g.pos.clone());
+        if (k === 0) this.routeEnd = pts.length - 1;
+        pts.push(g.pos.clone().addScaledVector(dir, 120));
         if (i === 0) break; // la meta es el final
         i = (i + 1) % gates.length;
       }
@@ -2960,7 +3082,9 @@ class Game {
     if (this.turbo > 0) pws.push({ name: 'Turbo', color: POWER_INFO.turbo.css, left: this.turbo, total: POWER_INFO.turbo.duration });
     this.hud.setPowerups(pws);
     this.radar.draw(f.pos, f.yaw, items, route, circles);
-    this.trail.update(this.lastHudDt, this.screen === 'playing' && this.alive ? this.routePoints() : null, this.race ? (this.race.nextGate === 0 ? 0xffd040 : 0x40e0ff) : 0xffa040);
+    const night = this.stage.night;
+    const trailColor = this.race ? (this.race.nextGate === 0 ? 0xffc040 : night ? 0x9fe8ff : 0xfff0a0) : 0xffb060;
+    this.trail.update(this.lastHudDt, this.screen === 'playing' && this.alive ? this.routePoints() : null, trailColor, this.routeEnd);
     this.hud.combo(this.stunts.combo);
     // Etiquetas de los demás pilotos
     const tags = [];
@@ -3060,7 +3184,8 @@ class Game {
     this.progress.add('races');
     this.earn(60 + (best ? 40 : 0));
     if (this.isDaily) {
-      const firstToday = this.progress.p.daily[this.dailyKey] === undefined;
+      // Cuenta como desafío del día la primera vez, sea de día o de noche
+      const firstToday = this.dailyBest() === undefined;
       const prev = this.progress.p.daily[this.dailyKey] ?? Infinity;
       this.progress.p.daily[this.dailyKey] = Math.min(prev, time);
       this.progress.save();
@@ -3073,7 +3198,7 @@ class Game {
     this.hud.split(`META · ${formatTime(time)}`, best ? 'good' : 'neutral');
     $('rr-title').textContent = best ? '¡Nuevo récord!' : '¡Carrera completada!';
     $('rr-time').textContent = formatTime(time);
-    $('rr-course').textContent = `${this.isDaily ? `Desafío diario · ${dayLabel()}` : this.race!.course.name} · ${this.stage.name}`;
+    $('rr-course').textContent = `${this.isDaily ? `Desafío diario ${this.dailyVariant === 'night' ? 'de noche' : 'de día'} · ${dayLabel()}` : this.race!.course.name} · ${this.stage.name}`;
     $('rr-credits').textContent = `+${this.sessionCredits} créditos`;
     const list = $('rr-splits');
     list.replaceChildren(
@@ -3279,6 +3404,9 @@ class Game {
       }
     };
     room.onMeta = (m) => this.onRoomMeta(m);
+    room.onTalk = () => this.updateTalkUi();
+    room.onVoice = (v) => this.onVoice(v);
+    this.updateTalkUi();
     room.onBoss = (st) => {
       if (st && this.boss && !room.isHost) this.boss.applyNet(st);
     };
@@ -3399,6 +3527,8 @@ class Game {
   }
 
   private detachRoom() {
+    this.voiceRec.cancel();
+    clearInterval(this.talkTimer);
     this.remotes.dispose();
     this.room = null;
     this.applyLoadout();
@@ -3407,6 +3537,9 @@ class Game {
 
   private async leaveRoom() {
     const r = this.room;
+    this.voiceRec.cancel();
+    clearInterval(this.talkTimer);
+    r?.releaseTalk();
     this.detachRoom();
     this.setScreen('menu');
     await r?.leave();
@@ -3621,8 +3754,8 @@ class Game {
 
   private refreshMenu() {
     const d = dailyChallenge();
-    const best = this.progress.p.daily[d.key];
-    $('daily-sub').textContent = `${d.stage.name} · ${d.def.gates} hitos${best !== undefined ? ` · tu mejor ${formatTime(best)}` : ''}`;
+    const best = this.dailyBest();
+    $('daily-sub').textContent = `${d.def.gates} hitos · de día o de noche${best !== undefined ? ` · tu mejor ${formatTime(best)}` : ''}`;
     $('menu-credits').textContent = `${this.progress.p.credits} créditos`;
     const done = Object.keys(this.progress.p.achievements).length;
     $('ach-badge').textContent = `${done}/${ACHIEVEMENTS.length}`;
@@ -3657,10 +3790,14 @@ class Game {
 
     // Modos
     $('btn-play').addEventListener('click', () => this.openPlay());
-    $('btn-daily').addEventListener('click', () => {
-      store.set('lastMode', 'daily');
-      this.startDaily();
-    });
+    $('btn-daily').addEventListener('click', () => this.openPreflight('daily'));
+    for (const v of ['day', 'night'] as const) {
+      $(`dn-${v}`).addEventListener('click', () => {
+        this.dailyVariant = v;
+        store.set('dailyVariant', v);
+        this.renderDailyChoice();
+      });
+    }
     document.querySelectorAll<HTMLElement>('#play .mode-card').forEach((b) => b.addEventListener('click', () => this.openPreflight(b.dataset.mode as PfMode)));
     $('pf-back').addEventListener('click', () => {
       show('preflight', false);
@@ -3755,10 +3892,14 @@ class Game {
       }),
     );
     $('btn-chat').addEventListener('click', () => this.toggleChat());
+    for (const id of ['btn-talk', 'btn-talk-lobby']) $(id).addEventListener('click', () => void this.toggleTalk());
     window.addEventListener('keydown', (e) => {
-      if (this.screen !== 'playing' || (e.target as HTMLElement)?.tagName === 'INPUT') return;
+      if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
+      if (this.screen === 'lobby' && this.room && e.code === 'KeyV' && !e.repeat) void this.toggleTalk();
+      if (this.screen !== 'playing') return;
       if (this.mode === 'editor' && e.code === 'KeyH') this.placeGate();
       if (!this.room) return;
+      if (e.code === 'KeyV' && !e.repeat) void this.toggleTalk();
       if (e.code === 'KeyT') this.toggleChat();
       const m = /^Digit([1-8])$/.exec(e.code);
       if (m && !$('chat-wheel').classList.contains('hidden')) this.sendChat(Number(m[1]) - 1);
@@ -3958,6 +4099,7 @@ class Game {
       ],
       ['set-vibration', () => (this.settings.vibration = !this.settings.vibration)],
       ['set-ghost', () => (this.settings.ghost = !this.settings.ghost)],
+      ['set-voice', () => (this.settings.voice = !this.settings.voice)],
     ];
     for (const [id, flip] of toggles) {
       $(id).addEventListener('click', () => {
@@ -4072,6 +4214,7 @@ class Game {
     set('set-weather', s.weather, 'Variable', 'Siempre despejado');
     set('set-vibration', s.vibration, 'Sí', 'No');
     set('set-ghost', s.ghost, 'Sí', 'No');
+    set('set-voice', s.voice, 'Sí', 'No');
     $<HTMLInputElement>('set-sensitivity').value = String(Math.round(s.sensitivity * 100));
     $('set-sensitivity-val').textContent = `${Math.round(s.sensitivity * 100)} %`;
     this.renderCloud();
@@ -4287,8 +4430,7 @@ class Game {
           return b ? `Sprint: ${formatTime(b.time)}` : '';
         }
         case 'daily': {
-          const d = dailyChallenge();
-          const t = this.progress.p.daily[d.key];
+          const t = this.dailyBest();
           return t !== undefined ? `Hoy: ${formatTime(t)}` : 'Sin completar hoy';
         }
       }
@@ -4302,12 +4444,6 @@ class Game {
 
   /** Preparar vuelo: solo las opciones que necesita el modo elegido */
   private openPreflight(mode: PfMode) {
-    if (mode === 'daily') {
-      show('play', false);
-      store.set('lastMode', 'daily');
-      this.startDaily();
-      return;
-    }
     if (mode === 'circuits') {
       this.openCircuits();
       return;
@@ -4317,6 +4453,13 @@ class Game {
     $('pf-desc').textContent = PF_INFO[mode].desc;
     const battleLike = mode === 'battle' || mode === 'koth' || mode === 'tag' || mode === 'royale' || mode === 'boss';
     show('pf-course', mode === 'race');
+    show('pf-stage', mode !== 'daily');
+    show('pf-daily', mode === 'daily');
+    if (mode === 'daily') {
+      const d = dailyChallenge();
+      $('pf-desc').textContent = `${dayLabel()}: el mismo circuito de ${d.def.gates} hitos para todos. Vuélalo de día o de noche; cada versión tiene su propia clasificación.`;
+      this.renderDailyChoice();
+    }
     show('pf-battle', battleLike);
     if (mode === 'race') this.renderCourses();
     if (battleLike) {
@@ -4339,6 +4482,15 @@ class Game {
     show('play', false);
     show('preflight', true);
     this.renderPlanePicker();
+  }
+
+  private renderDailyChoice() {
+    for (const v of ['day', 'night'] as const) {
+      const d = dailyChallenge(new Date(), v);
+      const t = this.dailyBest(v);
+      $(`dn-${v}-sub`).textContent = `${d.stage.name}${t !== undefined ? ` · tu mejor ${formatTime(t)}` : ''}`;
+      $(`dn-${v}`).setAttribute('aria-pressed', String(this.dailyVariant === v));
+    }
   }
 
   private renderCourses() {
@@ -4379,6 +4531,9 @@ class Game {
         break;
       case 'race':
         this.startRace(this.pfCourse);
+        break;
+      case 'daily':
+        this.startDaily(this.dailyVariant);
         break;
       default:
         this.startBattle(this.readBattleForm('bp'));
@@ -4430,8 +4585,10 @@ class Game {
       return el;
     };
     list.replaceChildren(li('Cargando…'));
-    const daily = dailyChallenge();
+    const daily = dailyChallenge(new Date(), 'day');
     const dailyId = courseId(daily.stage.id, daily.def);
+    const nightDaily = dailyChallenge(new Date(), 'night');
+    const nightId = courseId(nightDaily.stage.id, nightDaily.def);
     const localBest = Number(store.get(`best.${stageId}`) ?? 0);
     if (!firebase.enabled) {
       const rows: HTMLElement[] = [li('Tus récords en este dispositivo', 'heading'), li(`Vuelo libre: ${localBest} anillos`)];
@@ -4439,22 +4596,28 @@ class Game {
         const b = loadBest(courseId(stageId, c));
         rows.push(li(`${c.name}: ${b ? formatTime(b.time) : 'sin tiempo'}`));
       }
-      const db = this.progress.p.daily[daily.key];
-      rows.push(li(`Desafío de hoy: ${db !== undefined ? formatTime(db) : 'sin tiempo'}`));
+      const db = this.dailyBest('day');
+      const dn = this.dailyBest('night');
+      rows.push(li(`Desafío de hoy (día): ${db !== undefined ? formatTime(db) : 'sin tiempo'}`));
+      rows.push(li(`Desafío de hoy (noche): ${dn !== undefined ? formatTime(dn) : 'sin tiempo'}`));
       rows.push(li('Configura Firebase para ver la clasificación global.'));
       list.replaceChildren(...rows);
       return;
     }
     try {
       const uid = await firebase.uid();
-      const [dailyTimes, rings, ...times] = await Promise.all([
+      const [dailyTimes, nightTimes, rings, ...times] = await Promise.all([
         firebase.topTimes(dailyId, 10),
+        firebase.topTimes(nightId, 10),
         firebase.top(stageId),
         ...COURSES.map((c) => firebase.topTimes(courseId(stageId, c), 5)),
       ]);
-      const rows: HTMLElement[] = [li(`Desafío diario · ${dayLabel()}`, 'heading')];
-      if (!dailyTimes.length) rows.push(li('Nadie lo ha completado todavía hoy.'));
-      dailyTimes.forEach((t, i) => rows.push(this.boardRow(i + 1, t.name, '', formatTime(t.timeMs / 1000), t.uid === uid)));
+      const rows: HTMLElement[] = [];
+      for (const [label, list] of [['de día', dailyTimes], ['de noche', nightTimes]] as const) {
+        rows.push(li(`Desafío diario ${label} · ${dayLabel()}`, 'heading'));
+        if (!list.length) rows.push(li('Nadie lo ha completado todavía hoy.'));
+        list.forEach((t, i) => rows.push(this.boardRow(i + 1, t.name, '', formatTime(t.timeMs / 1000), t.uid === uid)));
+      }
       rows.push(li('Vuelo libre · anillos', 'heading'));
       if (!rings.length) rows.push(li('Aún no hay puntuaciones.'));
       rings.forEach((r, i) => rows.push(this.boardRow(i + 1, r.name, `${r.maxSpeed} km/h`, `${r.rings} ◎`, r.uid === uid)));

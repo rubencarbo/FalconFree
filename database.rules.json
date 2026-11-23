@@ -130,6 +130,16 @@
         "boss": {
           ".write": "auth != null && root.child('rooms/' + $code + '/meta/host').val() === auth.uid",
           ".validate": "!newData.exists() || newData.hasChildren(['x', 'y', 'z', 'yaw', 'ph', 'hp', 't'])"
+        },
+        "talk": {
+          ".write": "auth != null && root.child('rooms/' + $code + '/players/' + auth.uid).exists() && (!data.exists() || data.child('uid').val() === auth.uid || data.child('until').val() < now)",
+          ".validate": "!newData.exists() || (newData.hasChildren(['uid', 'n', 'until']) && newData.child('uid').val() === auth.uid && newData.child('until').isNumber() && newData.child('until').val() <= now + 15000)"
+        },
+        "voice": {
+          "$vid": {
+            ".write": "auth != null && ((!data.exists() && root.child('rooms/' + $code + '/talk/uid').val() === auth.uid) || (data.exists() && !newData.exists() && data.child('from').val() === auth.uid))",
+            ".validate": "newData.hasChildren(['from', 'n', 't', 'ms', 'd']) && newData.child('from').val() === auth.uid && newData.child('d').isString() && newData.child('d').val().length <= 60000 && newData.child('ms').isNumber() && newData.child('ms').val() <= 5500"
+          }
         }
       }
     },

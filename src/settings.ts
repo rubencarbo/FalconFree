@@ -29,6 +29,8 @@ export interface Settings {
   vibration: boolean;
   /** Mostrar el fantasma de tu mejor vuelta */
   ghost: boolean;
+  /** Oír los mensajes de voz de otros pilotos */
+  voice: boolean;
   controls: Record<ControlId, ControlLayout>;
 }
 
@@ -70,6 +72,7 @@ function defaults(): Settings {
     weather: true,
     vibration: true,
     ghost: true,
+    voice: true,
     controls: defaultControls(),
   };
 }
@@ -105,6 +108,7 @@ export function loadSettings(): Settings {
       weather: s.weather ?? true,
       vibration: s.vibration ?? true,
       ghost: s.ghost ?? true,
+      voice: s.voice ?? true,
       controls,
     };
   } catch {

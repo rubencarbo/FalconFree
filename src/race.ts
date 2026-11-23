@@ -122,7 +122,14 @@ export function buildCourse(gen: CityGen, def: CourseDef): Course {
 export type RaceEvent =
   | { type: 'gate'; index: number; total: number; split: number; delta: number | null }
   | { type: 'finish'; time: number; splits: number[]; best: boolean }
-  | { type: 'bonus'; kind: BonusKind; pos: THREE.Vector3 };
+  | { type: 'bonus'; kind: BonusKind; pos: THREE.Vector3 }
+  /** Se ha saltado hitos para ir a uno posterior (con penalización) */
+  | { type: 'skip'; count: number; penalty: number; gates: number[] }
+  /** Ha pasado junto al hito sin atravesarlo */
+  | { type: 'missed'; gate: number };
+
+/** Segundos de penalización por cada hito saltado */
+export const SKIP_PENALTY = 5;
 
 export interface BestRecord {
   time: number;
@@ -198,6 +205,7 @@ export class Race {
   private taken = new Set<number>();
   private disposables: { dispose(): void }[] = [];
   private inv = new THREE.Matrix4();
+  private missedGate = -1;
   private la = new THREE.Vector3();
 
   constructor(
@@ -381,15 +389,46 @@ export class Race {
 
     if (!this.started || this.finished) return events;
 
-    // Hito
-    const g = this.course.gates[this.nextGate];
-    if (this.crossed(this.gateVis[this.nextGate].group, prev, cur, g.w / 2, g.h / 2, false)) {
+    // Hito (o uno posterior: se puede saltar hitos con penalización)
+    const N = this.totalCheckpoints;
+    let reached = -1;
+    let skipped = 0;
+    for (let j = 0; j < 3; j++) {
+      const idx = (this.nextGate + j) % N;
+      // No se puede saltar la meta: es siempre el final
+      if (j > 0 && (this.nextGate === 0 || (this.nextGate + j - 1) % N === 0)) break;
+      const g = this.course.gates[idx];
+      if (this.crossed(this.gateVis[idx].group, prev, cur, g.w / 2, g.h / 2, false)) {
+        reached = idx;
+        skipped = j;
+        break;
+      }
+    }
+    if (reached < 0) {
+      // ¿Ha pasado al lado del hito que tocaba? Avisar una vez
+      const g = this.course.gates[this.nextGate];
+      if (this.missedGate !== this.nextGate && this.crossed(this.gateVis[this.nextGate].group, prev, cur, g.w * 2.5, g.h * 3, false)) {
+        this.missedGate = this.nextGate;
+        events.push({ type: 'missed', gate: this.nextGate });
+      }
+    } else {
+      if (skipped > 0) {
+        const gates: number[] = [];
+        for (let j = 0; j < skipped; j++) gates.push((this.nextGate + j) % N);
+        this.penalty(SKIP_PENALTY * skipped);
+        events.push({ type: 'skip', count: skipped, penalty: SKIP_PENALTY * skipped, gates });
+        // Los parciales de los hitos saltados se registran con el tiempo de este
+        for (let j = 0; j < skipped; j++) {
+          this.passed++;
+          this.splits.push(this.time);
+        }
+      }
       this.passed++;
       const split = this.time;
       this.splits.push(split);
       const idx = this.splits.length - 1;
       const delta = this.best && this.best.splits[idx] !== undefined ? split - this.best.splits[idx] : null;
-      if (this.nextGate === 0) {
+      if (reached === 0) {
         this.finished = true;
         const isBest = !this.best || split < this.best.time;
         if (isBest) {
@@ -399,8 +438,9 @@ export class Race {
         events.push({ type: 'finish', time: split, splits: [...this.splits], best: isBest });
       } else {
         events.push({ type: 'gate', index: this.passed, total: this.totalCheckpoints, split, delta });
-        this.nextGate = (this.nextGate + 1) % this.totalCheckpoints;
+        this.nextGate = (reached + 1) % N;
       }
+      this.missedGate = -1;
       this.highlight();
     }
 

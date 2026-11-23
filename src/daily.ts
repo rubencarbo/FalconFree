@@ -14,21 +14,28 @@ function dayNumber(d = new Date()) {
   return Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) / 86400000);
 }
 
-/** Desafío del día: escenario y circuito generados a partir de la fecha */
-export function dailyChallenge(d = new Date()): { stage: Stage; def: CourseDef; key: string } {
+export type DailyVariant = 'day' | 'night';
+
+/**
+ * Desafío del día: circuito generado a partir de la fecha (igual para todo el mundo).
+ * Se puede volar de día o de noche; cada versión tiene su escenario y su clasificación.
+ */
+export function dailyChallenge(d = new Date(), variant: DailyVariant = 'day'): { stage: Stage; def: CourseDef; key: string; variant: DailyVariant; baseKey: string } {
   const n = dayNumber(d);
-  const key = dayKey(d);
-  const stage = STAGES[n % STAGES.length];
+  const baseKey = dayKey(d);
+  const dayStages = STAGES.filter((s) => !s.night);
+  const nightStage = STAGES.find((s) => s.night) ?? STAGES[0];
+  const stage = variant === 'night' ? nightStage : dayStages[n % dayStages.length];
   const gates = 8 + (n % 4);
   const def: CourseDef = {
-    id: `daily-${key}`,
+    id: `daily-${baseKey}`,
     name: 'Desafío diario',
     description: `${gates} hitos · ${stage.name}`,
     gates,
     radius: 1000 + (n % 5) * 150,
     seedOffset: 1000 + (n % 9973),
   };
-  return { stage, def, key };
+  return { stage, def, key: variant === 'night' ? `${baseKey}n` : baseKey, variant, baseKey };
 }
 
 /** Milisegundos hasta el siguiente desafío */

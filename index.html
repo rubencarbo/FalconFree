@@ -42,6 +42,7 @@
         <div id="race-timer" class="hidden">0:00.00</div>
         <div id="battle-score" class="hidden"></div>
         <div id="race-split"></div>
+        <div id="penalty" aria-live="polite"><b>+5 s</b><span>HITO SALTADO</span></div>
         <div id="killfeed"></div>
         <div id="countdown"></div>
         <div id="guide-arrow" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M24 3 L45 42 L24 32 L3 42 Z" /></svg></div>
@@ -54,6 +55,7 @@
         <div id="mode-banner"></div>
         <div id="boss-bar"><span class="bb-name"></span><span class="bb-track"><i></i></span></div>
         <div id="chat-feed"></div>
+        <button id="btn-talk" class="talk-btn hidden" aria-label="Hablar"><span class="tk-bar"></span><b>🎙️ HABLAR</b></button>
         <div id="chat-wheel" class="hidden"></div>
         <div id="spectate" class="hidden"><span>Espectador · <b id="spectate-name"></b></span><button id="btn-spectate-next" class="pill">Siguiente piloto</button></div>
         <div id="editor-bar" class="hidden">
@@ -75,7 +77,7 @@
         <button id="btn-fire" class="round">Disparo</button>
         <button id="btn-missile" class="round">Misil</button>
         <button id="btn-boost" class="round">Turbo</button>
-        <div id="keys-hint">W/S/A/D vuelo · Espacio turbo · F/clic disparo · Q/clic dcho. misil · G bengalas · E subir · C vista · P pausa · T chat (en sala) · H hito (editor)</div>
+        <div id="keys-hint">W/S/A/D vuelo · Espacio turbo · F/clic disparo · Q/clic dcho. misil · G bengalas · E subir · C vista · P pausa · T chat · V hablar (en sala) · H hito (editor)</div>
       </div>
 
       <div id="replay-ui" class="hidden">
@@ -149,6 +151,13 @@
         <div class="panel">
           <div class="menu-head"><button id="pf-back" class="icon-close" aria-label="Volver a los modos">←</button><h2 id="pf-title">Preparar vuelo</h2><span></span></div>
           <p id="pf-desc" class="muted left"></p>
+          <div id="pf-daily" class="field hidden">
+            <span>¿De día o de noche?</span>
+            <div class="daynight">
+              <button id="dn-day" type="button" class="dn-card day" aria-pressed="true"><b>☀ Día</b><small id="dn-day-sub"></small></button>
+              <button id="dn-night" type="button" class="dn-card night" aria-pressed="false"><b>☾ Noche</b><small id="dn-night-sub"></small></button>
+            </div>
+          </div>
           <div id="pf-stage" class="field">
             <span>Escenario</span>
             <div id="stage-list" class="stage-list compact"></div>
@@ -325,6 +334,7 @@
           <div class="lobby-head"><span>Pilotos</span><span id="lobby-count" class="muted"></span></div>
           <ul id="lobby-players" class="lobby-players"></ul>
           <button id="btn-team" class="secondary hidden">Cambiar de equipo</button>
+          <button id="btn-talk-lobby" class="talk-btn lobby"><span class="tk-bar"></span><b>🎙️ HABLAR</b></button>
           <div class="field">
             <span>Tu avión: <b id="lobby-plane-name"></b></span>
             <div id="lobby-planes" class="plane-strip"></div>
@@ -408,6 +418,7 @@
           <h3 class="set-group">Imagen y sonido</h3>
           <button id="set-quality" class="toggle" aria-pressed="true"><span>Calidad gráfica<small>Baja va más fluida en móviles modestos</small></span><b>Automática</b></button>
           <button id="set-sound" class="toggle" aria-pressed="true"><span>Sonido</span><b>Sí</b></button>
+          <button id="set-voice" class="toggle" aria-pressed="true"><span>Mensajes de voz<small>Oír a los otros pilotos en multijugador</small></span><b>Sí</b></button>
           <h3 class="set-group">Perfil en la nube</h3>
           <div id="cloud-box" class="cloud-box">
             <p id="cloud-info" class="muted left"></p>

@@ -68,15 +68,52 @@ export class GuideArrow {
 }
 
 const TRAIL_MAX = 110;
-const TRAIL_GAP = 52;
+
+export type TrailStyle = 'dots' | 'chevrons' | 'line' | 'near' | 'bright' | 'off';
+
+interface TrailSpec {
+  shape: 'dot' | 'chevron' | 'dash';
+  /** separación entre marcas (m) */
+  gap: number;
+  /** tamaño base */
+  size: number;
+  /** opacidad (sin brillo: los colores nunca superan 1, así el bloom no los infla) */
+  opacity: number;
+  /** solo hasta el siguiente hito */
+  nextOnly: boolean;
+  /** distancia máxima dibujada (m) */
+  maxDist: number;
+  /** estilo antiguo, muy brillante (solo para comparar) */
+  glow?: boolean;
+}
+
+export const TRAIL_STYLES: Record<Exclude<TrailStyle, 'off'>, TrailSpec> = {
+  dots: { shape: 'dot', gap: 80, size: 2.3, opacity: 0.75, nextOnly: true, maxDist: 4000 },
+  chevrons: { shape: 'chevron', gap: 120, size: 2.2, opacity: 0.7, nextOnly: true, maxDist: 4000 },
+  line: { shape: 'dash', gap: 30, size: 2.4, opacity: 0.5, nextOnly: true, maxDist: 4000 },
+  near: { shape: 'chevron', gap: 60, size: 1.8, opacity: 0.75, nextOnly: false, maxDist: 450 },
+  bright: { shape: 'chevron', gap: 52, size: 1, opacity: 1, nextOnly: false, maxDist: 6000, glow: true },
+};
+
+export const TRAIL_LABELS: Record<TrailStyle, string> = {
+  dots: 'Puntos',
+  chevrons: 'Flechas sueltas',
+  line: 'Línea fina',
+  near: 'Solo cerca',
+  bright: 'Actual (brillante)',
+  off: 'Sin estela',
+};
 
 /**
- * Estela en el cielo: chevrones luminosos que fluyen por el camino a seguir
- * (del avión al siguiente hito y al posterior), entrando de frente por cada hito.
+ * Estela del camino: marcas discretas en el cielo hacia el siguiente hito
+ * (y el posterior), entrando de frente por cada hito.
  */
 export class RouteTrail {
-  private mesh: THREE.InstancedMesh;
+  style: TrailStyle = 'chevrons';
+  private meshes = new Map<string, THREE.InstancedMesh>();
+  private mats: THREE.MeshBasicMaterial[] = [];
   private curve: THREE.CatmullRomCurve3 | null = null;
+  private curveKey = '';
   private len = 0;
   private phase = 0;
   private refreshT = 0;
@@ -90,71 +127,89 @@ export class RouteTrail {
   private p = new THREE.Vector3();
   private t = new THREE.Vector3();
 
-  constructor(scene: THREE.Scene) {
+  constructor(private scene: THREE.Scene) {
     const arm = (side: number) => {
       const g = new THREE.BoxGeometry(1.1, 0.6, 8);
       g.rotateY(side * 0.62);
       g.translate(side * 2.3, 0, 1.8);
       return g.toNonIndexed();
     };
-    const geo = mergeGeometries([arm(1), arm(-1)]);
-    const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
-    this.mesh = new THREE.InstancedMesh(geo, mat, TRAIL_MAX);
-    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    this.mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(TRAIL_MAX * 3), 3);
-    this.mesh.frustumCulled = false;
-    this.mesh.count = 0;
-    this.mesh.renderOrder = 4;
-    scene.add(this.mesh);
+    this.add('chevron', mergeGeometries([arm(1), arm(-1)]), false);
+    this.add('chevron-glow', mergeGeometries([arm(1), arm(-1)]), true);
+    this.add('dot', new THREE.IcosahedronGeometry(2.2, 1), false);
+    this.add('dash', new THREE.BoxGeometry(0.7, 0.7, 14), false);
   }
 
-  /** points: camino a seguir (null para ocultar). color: hex del camino. */
-  update(dt: number, points: THREE.Vector3[] | null, color = 0x40e0ff) {
-    if (!points || points.length < 2) {
-      this.mesh.count = 0;
+  private add(key: string, geo: THREE.BufferGeometry, glow: boolean) {
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 1,
+      blending: glow ? THREE.AdditiveBlending : THREE.NormalBlending,
+      depthWrite: false,
+      fog: !glow,
+    });
+    this.mats.push(mat);
+    const mesh = new THREE.InstancedMesh(geo, mat, TRAIL_MAX);
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(TRAIL_MAX * 3), 3);
+    mesh.frustumCulled = false;
+    mesh.count = 0;
+    mesh.renderOrder = 4;
+    this.scene.add(mesh);
+    this.meshes.set(key, mesh);
+  }
+
+  /** points: camino (null para ocultar); nextEnd: índice del último punto hasta el siguiente hito */
+  update(dt: number, points: THREE.Vector3[] | null, color = 0x40e0ff, nextEnd = Infinity) {
+    for (const m of this.meshes.values()) m.count = 0;
+    if (this.style === 'off' || !points || points.length < 2) {
       this.curve = null;
       return;
     }
+    const spec = TRAIL_STYLES[this.style];
+    const pts = spec.nextOnly ? points.slice(0, Math.min(points.length, nextEnd + 1)) : points;
+    if (pts.length < 2) return;
     this.refreshT -= dt;
-    if (!this.curve || this.refreshT <= 0) {
+    const key = `${this.style}|${pts.length}`;
+    if (!this.curve || this.refreshT <= 0 || key !== this.curveKey) {
       this.refreshT = 0.15;
-      this.curve = new THREE.CatmullRomCurve3(points, false, 'centripetal');
+      this.curveKey = key;
+      this.curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
       this.len = this.curve.getLength();
     }
     const curve = this.curve;
-    const L = this.len;
-    if (L < 20) {
-      this.mesh.count = 0;
-      return;
-    }
-    this.phase = (this.phase + dt * 70) % TRAIL_GAP;
-    this.base.setHex(color).multiplyScalar(0.9);
-    const n = Math.min(TRAIL_MAX, Math.floor(L / TRAIL_GAP));
+    const L = Math.min(this.len, spec.maxDist);
+    if (L < 20) return;
+    const mesh = this.meshes.get(spec.glow ? 'chevron-glow' : spec.shape)!;
+    (mesh.material as THREE.MeshBasicMaterial).opacity = spec.glow ? 1 : spec.opacity;
+    this.phase = (this.phase + dt * (spec.shape === 'dash' ? 40 : 60)) % spec.gap;
+    this.base.setHex(color);
+    if (spec.glow) this.base.setHex(0x40e0ff).multiplyScalar(1.6);
+    const n = Math.min(TRAIL_MAX, Math.floor(L / spec.gap) + 1);
     let k = 0;
     for (let i = 0; i < n; i++) {
-      const d = i * TRAIL_GAP + this.phase;
+      const d = i * spec.gap + this.phase;
       if (d > L) break;
-      const u = d / L;
+      const u = d / this.len;
       curve.getPointAt(u, this.p);
       curve.getTangentAt(u, this.t);
       this.look.lookAt(this.p, this.t.add(this.p), this.up);
       this.q.setFromRotationMatrix(this.look);
-      const scale = 1 + Math.min(2, d / 380);
-      this.s.setScalar(scale);
-      this.m.compose(this.p, this.q, this.s);
-      this.mesh.setMatrixAt(k, this.m);
-      // Aparece suave cerca del avión y se apaga al final
-      // Nada justo delante del avión: no tapa la vista
+      // Nada justo delante del avión; aparece y se apaga encogiendo (no oscureciendo)
       const fadeIn = THREE.MathUtils.clamp((d - 70) / 160, 0, 1);
-      const fadeOut = Math.min(1, (L - d) / 80);
-      const pulse = 0.8 + 0.2 * Math.sin(i * 0.9 - this.phase * 0.12);
-      this.c.copy(this.base).multiplyScalar(fadeIn * fadeOut * pulse);
-      this.mesh.setColorAt(k, this.c);
+      const fadeOut = Math.min(1, (L - d) / (spec.maxDist < 1000 ? 160 : 80));
+      const k01 = fadeIn * fadeOut;
+      this.s.setScalar(spec.size * (1 + Math.min(1.6, d / 500)) * (spec.glow ? 1 : k01));
+      this.m.compose(this.p, this.q, this.s);
+      mesh.setMatrixAt(k, this.m);
+      this.c.copy(this.base).multiplyScalar(spec.glow ? k01 : 1);
+      mesh.setColorAt(k, this.c);
       k++;
     }
-    this.mesh.count = k;
-    this.mesh.instanceMatrix.needsUpdate = true;
-    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+    mesh.count = k;
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
   }
 }
 

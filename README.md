@@ -41,6 +41,12 @@ completa, con su icono, sin barra del navegador.
 
 ## Orientación en las carreras
 
+- **Saltar hitos**: si te pasas un hito, puedes seguir al siguiente: al atravesarlo se acepta con
+  **+5 s por hito saltado** (rótulo rojo «+5 s · HITO SALTADO» y cronómetro en rojo). La meta no se
+  puede saltar. Si pasas al lado de un hito sin atravesarlo, el juego te avisa.
+- **Desafío diario de día o de noche**: el mismo circuito para todos; eliges escenario de día o la
+  Ciudad nocturna, y cada versión tiene su propia clasificación.
+
 - **Estela en el cielo**: flechas luminosas que fluyen desde tu avión hasta el siguiente hito y el
   posterior, entrando de frente por cada hito (dorada cuando lo siguiente es la meta). También
   guía en Mensajero hasta la azotea de entrega.
@@ -81,6 +87,14 @@ Para no perderse en un mundo abierto, sin mover los hitos (sería injusto en la 
   comparte el código corto (o un código largo si no hay conexión). Tus amigos lo escriben en
   «Mis circuitos» o con el enlace `?circuito=CODIGO`. En las salas de carrera, el anfitrión puede
   elegir sus circuitos publicados (★).
+
+## Multijugador: mensajes de voz
+
+Botón **🎙️ HABLAR** (o tecla V) en la sala y en partida: tocas, hablas hasta 5 segundos y tocas
+otra vez (o se envía solo). Solo puede hablar **un piloto a la vez**: mientras alguien habla, el
+botón de los demás muestra «🔊 Habla …» y queda bloqueado (el turno lo reparte Realtime Database
+con la hora del servidor). El audio va en calidad telefónica (~40 KB por mensaje) y se borra a
+los 20 s. En Ajustes puedes desactivar la voz de los demás.
 
 ## Multijugador: chat rápido
 

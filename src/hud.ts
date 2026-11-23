@@ -245,6 +245,23 @@ export class Hud {
     el.className = `show ${kind}`;
   }
 
+  private penTimer = 0;
+  /** Aviso grande de penalización (hito saltado): rótulo rojo y cronómetro en rojo */
+  penalty(title: string, amount: string) {
+    const el = $('penalty');
+    (el.querySelector('b') as HTMLElement).textContent = amount;
+    (el.querySelector('span') as HTMLElement).textContent = title;
+    el.classList.remove('show');
+    void el.offsetWidth;
+    el.classList.add('show');
+    this.timerEl.classList.add('penalized');
+    clearTimeout(this.penTimer);
+    this.penTimer = window.setTimeout(() => {
+      el.classList.remove('show');
+      this.timerEl.classList.remove('penalized');
+    }, 2600);
+  }
+
   /** Barra de vida del jefe final */
   bossBar(label: string | null, frac = 1) {
     const el = $('boss-bar');

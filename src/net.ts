@@ -70,6 +70,23 @@ export interface PlayerInfo {
   plane?: PlaneVariant;
 }
 
+/** Turno de palabra: solo un piloto puede mandar audio a la vez */
+export interface TalkState {
+  uid: string;
+  n: string;
+  /** hora del servidor (ms) hasta la que dura el turno */
+  until: number;
+}
+
+export interface VoiceClip {
+  from: string;
+  n: string;
+  t: number;
+  ms: number;
+  /** audio µ-law 8 kHz en base64 */
+  d: string;
+}
+
 /** Bot simulado por el anfitrión */
 export interface BotNet extends NetState {
   n: string;
@@ -150,6 +167,11 @@ export class Room {
   onBots?: () => void;
   /** Jefe final: estado del dirigible (lo publica el anfitrión) */
   onBoss?: (s: BossNet | null) => void;
+  /** Turno de palabra: quién está hablando (null si nadie) */
+  onTalk?: (t: TalkState | null) => void;
+  /** Mensaje de voz de otro piloto */
+  onVoice?: (v: VoiceClip) => void;
+  talk: TalkState | null = null;
   /** Pilla-pilla: quién la lleva */
   onTagIt?: (id: string, seq: number) => void;
   onScores?: () => void;
@@ -326,6 +348,16 @@ export class Room {
         for (const [k, b] of Object.entries(v)) this.bots.set(k, b);
         this.onBots?.();
       }),
+      onValue(ref(db, `rooms/${this.code}/talk`), (s) => {
+        this.talk = (s.val() as TalkState | null) ?? null;
+        this.onTalk?.(this.talk);
+      }),
+      onChildAdded(ref(db, `rooms/${this.code}/voice`), (s) => {
+        const v = s.val() as VoiceClip | null;
+        if (!v || v.from === this.uid) return;
+        // Solo los recientes (no reproducir mensajes viejos al entrar)
+        if (this.serverNow() - v.t < 15000) this.onVoice?.(v);
+      }),
       onValue(ref(db, `rooms/${this.code}/boss`), (s) => {
         this.onBoss?.((s.val() as BossNet | null) ?? null);
       }),
@@ -410,6 +442,42 @@ export class Room {
       out[`bot${i + 1}`] = o;
     });
     set(ref(firebase.database()!, `rooms/${this.code}/bots`), out).catch(() => undefined);
+  }
+
+  /** ¿Puedo hablar ahora? (nadie tiene el turno o es mío) */
+  canTalk() {
+    const t = this.talk;
+    return !t || t.uid === this.uid || t.until < this.serverNow();
+  }
+
+  /** Pide el turno de palabra. Devuelve false si otro piloto está hablando. */
+  async takeTalk(ms: number): Promise<boolean> {
+    if (this.closed) return false;
+    const now = this.serverNow();
+    const res = await runTransaction(ref(firebase.database()!, `rooms/${this.code}/talk`), (cur: TalkState | null) => {
+      if (cur && cur.uid !== this.uid && cur.until > now) return undefined;
+      return { uid: this.uid, n: this.name.slice(0, 16), until: Math.round(now + ms) };
+    });
+    return res.committed;
+  }
+
+  /** Alarga el turno hasta que los demás terminen de oír el mensaje */
+  extendTalk(ms: number) {
+    if (this.closed) return;
+    set(ref(firebase.database()!, `rooms/${this.code}/talk`), { uid: this.uid, n: this.name.slice(0, 16), until: Math.round(this.serverNow() + ms) }).catch(() => undefined);
+  }
+
+  releaseTalk() {
+    if (this.closed || this.talk?.uid !== this.uid) return;
+    remove(ref(firebase.database()!, `rooms/${this.code}/talk`)).catch(() => undefined);
+  }
+
+  /** Envía un mensaje de voz (se borra solo a los 20 s) */
+  sendVoice(d: string, ms: number) {
+    if (this.closed) return;
+    const r = push(ref(firebase.database()!, `rooms/${this.code}/voice`));
+    set(r, { from: this.uid, n: this.name.slice(0, 16), t: Math.round(this.serverNow()), ms, d }).catch(() => undefined);
+    setTimeout(() => remove(r).catch(() => undefined), 20000);
   }
 
   /** El anfitrión publica el estado del dirigible */
