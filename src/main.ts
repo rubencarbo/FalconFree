@@ -3203,12 +3203,13 @@ class Game {
     // Objetivos de los modos especiales (marcador, flecha y radar)
     if (this.delivery && !this.delivery.over) {
       const pick = this.delivery.state === 'pickup';
-      navTarget = this.delivery.target;
+      const target: THREE.Vector3 = this.delivery.target;
+      navTarget = target;
       navGate = true;
       navLabel = pick ? 'RECOGER' : 'ENTREGAR';
-      arrowTarget = navTarget;
+      arrowTarget = target;
       arrowColor = pick ? 0x5cff8a : 0xffa040;
-      items.push({ pos: navTarget, kind: 'gate', color: pick ? '#5cff8a' : '#ffa040' });
+      items.push({ pos: target, kind: 'gate', color: pick ? '#5cff8a' : '#ffa040' });
     }
     if (this.zone) {
       navTarget = this.zone.center;
