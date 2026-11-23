@@ -25,7 +25,7 @@ export interface Gate {
   low: boolean;
 }
 
-export type BonusKind = 'time' | 'boost';
+export type BonusKind = 'time' | 'boost' | 'gold';
 
 export interface Bonus {
   id: number;
@@ -43,6 +43,26 @@ export interface Course {
 }
 
 export const TIME_BONUS = 1;
+/** Aro dorado fuera de ruta: resta más tiempo, pero obliga a desviarse */
+export const GOLD_BONUS = 3;
+
+export type Medal = 'gold' | 'silver' | 'bronze' | null;
+export const MEDAL_LABELS = { gold: 'Oro', silver: 'Plata', bronze: 'Bronce' } as const;
+export const MEDAL_ICONS = { gold: '🥇', silver: '🥈', bronze: '🥉' } as const;
+
+/** Tiempos objetivo de las medallas a partir de la longitud real del circuito */
+export function medalTimes(course: Course) {
+  const g = course.gates;
+  let len = course.start.pos.distanceTo(g[0].pos);
+  for (let i = 0; i < g.length; i++) len += g[i].pos.distanceTo(g[(i + 1) % g.length].pos);
+  // velocidades medias de referencia (m/s) contando giros: oro ≈ 830 km/h, plata ≈ 670, bronce ≈ 520
+  return { gold: Math.round((len / 230) * 10) / 10, silver: Math.round((len / 185) * 10) / 10, bronze: Math.round((len / 145) * 10) / 10 };
+}
+
+export function medalFor(course: Course, time: number): Medal {
+  const t = medalTimes(course);
+  return time <= t.gold ? 'gold' : time <= t.silver ? 'silver' : time <= t.bronze ? 'bronze' : null;
+}
 
 export function courseId(stageId: string, def: CourseDef) {
   return `${stageId}-${def.id}`;
@@ -112,6 +132,21 @@ export function buildCourse(gen: CityGen, def: CourseDef): Course {
       p.y = 480 + rand() * 160;
       bonuses.push({ id: id++, pos: p, yaw, kind: 'boost' });
     }
+  }
+
+  // Aros dorados fuera de ruta: uno cada dos tramos, apartado del camino directo
+  for (let i = 0; i < N; i += 2) {
+    const a = gates[i].pos;
+    const b = gates[(i + 1) % N].pos;
+    const seg = new THREE.Vector3().subVectors(b, a);
+    const len = seg.length();
+    if (len < 500) continue;
+    const perp = new THREE.Vector3(-seg.z, 0, seg.x).normalize();
+    const side = rand() < 0.5 ? 1 : -1;
+    const p = a.clone().lerp(b, 0.45 + rand() * 0.1).addScaledVector(perp, side * (320 + rand() * 180));
+    p.y = Math.max(gen.maxHeightNear(p.x, p.z, 50) + 60, 140 + rand() * 260);
+    const dir = seg.clone().normalize();
+    bonuses.push({ id: id++, pos: p, yaw: yawFromDir(new THREE.Vector3(dir.x, 0, dir.z).normalize()), kind: 'gold' });
   }
 
   const d0 = new THREE.Vector3(-Math.sin(gates[0].yaw), 0, -Math.cos(gates[0].yaw));
@@ -211,6 +246,10 @@ export class Race {
   lap = 1;
   lapStart = 0;
   bestLap = Infinity;
+
+  isTaken(id: number) {
+    return this.taken.has(id);
+  }
 
   /** Otra vuelta al mismo circuito: el cronómetro total sigue corriendo */
   continueLap() {
@@ -351,9 +390,12 @@ export class Race {
     const boostGeo = new THREE.TorusGeometry(15, 2.2, 6, 18);
     const timeMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.4, 1.4, 2.6) });
     const boostMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.5, 2.6, 0.7) });
+    const goldGeo = new THREE.TorusGeometry(20, 2.6, 8, 24);
+    const goldMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(1, 0.78, 0.25) });
+    this.disposables.push(goldGeo, goldMat);
     this.disposables.push(timeGeo, boostGeo, timeMat, boostMat);
     for (const b of this.course.bonuses) {
-      const m = new THREE.Mesh(b.kind === 'time' ? timeGeo : boostGeo, b.kind === 'time' ? timeMat : boostMat);
+      const m = new THREE.Mesh(b.kind === 'time' ? timeGeo : b.kind === 'gold' ? goldGeo : boostGeo, b.kind === 'time' ? timeMat : b.kind === 'gold' ? goldMat : boostMat);
       m.position.copy(b.pos);
       m.rotation.y = b.yaw;
       m.updateMatrixWorld();
@@ -470,11 +512,12 @@ export class Race {
       if (this.taken.has(b.id)) continue;
       if (b.pos.distanceToSquared(cur) > 60 * 60) continue;
       const m = this.bonusMeshes.get(b.id)!;
-      const r = b.kind === 'time' ? 13 : 17;
+      const r = b.kind === 'time' ? 13 : b.kind === 'gold' ? 19 : 17;
       if (this.crossed(m, prev, cur, r, r, true)) {
         this.taken.add(b.id);
         m.visible = false;
         if (b.kind === 'time') this.bonusTime += TIME_BONUS;
+        if (b.kind === 'gold') this.bonusTime += GOLD_BONUS;
         events.push({ type: 'bonus', kind: b.kind, pos: b.pos });
       }
     }

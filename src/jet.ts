@@ -139,7 +139,7 @@ export class Flight {
 }
 const _v = new THREE.Vector3();
 
-export type PlaneVariant = 'falcon' | 'sparrow' | 'raptor' | 'typhoon' | 'specter' | 'phoenix' | 'mantis' | 'storm' | 'comet';
+export type PlaneVariant = 'falcon' | 'sparrow' | 'raptor' | 'typhoon' | 'specter' | 'phoenix' | 'mantis' | 'storm' | 'comet' | 'aurora';
 
 /** Color de las llamas y de las luces de cada avión */
 const VARIANT_GLOW: Partial<Record<PlaneVariant, { flame: number; glow: [number, number, number] }>> = {
@@ -148,6 +148,7 @@ const VARIANT_GLOW: Partial<Record<PlaneVariant, { flame: number; glow: [number,
   mantis: { flame: 0xc070ff, glow: [2.2, 0.8, 3.2] },
   storm: { flame: 0xffc040, glow: [2.6, 2.4, 0.6] },
   comet: { flame: 0x6a8aff, glow: [0.8, 1.4, 3.6] },
+  aurora: { flame: 0xffc860, glow: [1.15, 0.92, 0.4] },
 };
 
 type AddFn = (w: number, h: number, d: number, x: number, y: number, z: number, m: THREE.Material) => THREE.Mesh;
@@ -207,6 +208,9 @@ export class JetModel {
         break;
       case 'comet':
         this.buildComet(add, m);
+        break;
+      case 'aurora':
+        this.buildAurora(add, m);
         break;
       default:
         this.buildFalcon(add, m, variant);
@@ -320,6 +324,32 @@ export class JetModel {
     const c = VARIANT_GLOW.specter!.flame;
     this.flame(-1.6, 0.2, 6, 0.8, c);
     this.flame(1.6, 0.2, 6, 0.8, c);
+  }
+
+  /** Avión legendario: ala de gaviota dorada, doble deriva y canards */
+  private buildAurora(add: AddFn, m: Mats) {
+    add(2, 1.6, 12, 0, 0, 0.5, m.body);
+    add(1.4, 1.2, 3, 0, 0, -6.6, m.body);
+    add(0.7, 0.7, 2, 0, -0.05, -9, m.accent);
+    add(1.2, 0.9, 3.4, 0, 1.1, -3.4, m.glass);
+    for (let k = 0; k < 6; k++) {
+      const x = 1.6 + k * 1.4;
+      const y = k < 3 ? k * 0.25 : 0.75 - (k - 3) * 0.3;
+      const depth = 4.6 - k * 0.5;
+      for (const sx of [-1, 1]) {
+        add(1.5, 0.4, depth, sx * x, y, 1.4 + k * 0.5, m.wing);
+        add(1.5, 0.12, 0.3, sx * x, y + 0.26, 1.4 + k * 0.5 - depth / 2, m.glow);
+      }
+    }
+    for (const sx of [-1, 1]) {
+      add(2.6, 0.3, 1.2, sx * 1.8, 0.2, -5, m.accent); // canards
+      add(0.3, 2.4, 2, sx * 1.4, 1.4, 5.4, m.accent); // derivas
+      add(0.12, 2.2, 0.3, sx * 1.4, 1.4, 4.4, m.glow);
+    }
+    this.wingTips = [new THREE.Vector3(-9.4, 0, 4), new THREE.Vector3(9.4, 0, 4)];
+    const c = VARIANT_GLOW.aurora!.flame;
+    this.flame(-0.6, 0, 7, 0.9, c);
+    this.flame(0.6, 0, 7, 0.9, c);
   }
 
   /** Alas en flecha invertida, canards y tres derivas */

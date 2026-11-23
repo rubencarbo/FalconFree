@@ -14,11 +14,11 @@ import { ICONS, ICON_GLYPH, ICON_NAMES, hexColor, type IconId } from './identity
 import { Fx } from './fx';
 import { Guns, MAX_AMMO, type Target } from './combat';
 import { Drones } from './drones';
-import { Race, SKIP_PENALTY, COURSES, buildCourse, courseId, formatTime, formatDelta, loadBest, type CourseDef, type RaceEvent } from './race';
+import { Race, SKIP_PENALTY, GOLD_BONUS, MEDAL_ICONS, MEDAL_LABELS, medalFor, medalTimes, type Medal, COURSES, buildCourse, courseId, formatTime, formatDelta, loadBest, type CourseDef, type RaceEvent } from './race';
 import { Input } from './input';
 import { Hud } from './hud';
 import { GameAudio } from './audio';
-import { firebase } from './firebase';
+import { firebase, countryName, playerCountry } from './firebase';
 import { Room, NetError, formatCode, normalizeCode, MAX_PLAYERS, PLAYER_COLORS, type NetEvent, type PublicRoom, type RoomMeta, type RoomMode } from './net';
 import { RemotePlayers, bodyTint } from './remote';
 import { loadSettings, saveSettings, store, type Settings } from './settings';
@@ -29,7 +29,7 @@ import { GhostPlayer, GhostRecorder, loadGhost, saveGhost } from './ghost';
 import { PowerUps, POWER_INFO, type PowerKind } from './powerups';
 import { Missiles, MISSILE_DAMAGE, type MissileOwner } from './missiles';
 import { Progress, ACHIEVEMENTS, PLANES, PAINTS, UPGRADES, WELCOME_CREDITS, type PlaneId, type UpgradeId } from './progress';
-import { dailyChallenge, dayLabel, msToNextDaily, type DailyVariant } from './daily';
+import { dailyChallenge, dayKey, dayLabel, msToNextDaily, type DailyVariant } from './daily';
 import { Bot, makeBotSpecs, TEAM_COLORS, type Team } from './bots';
 import { Battle, BATTLE_LABELS, DEFAULT_BATTLE, isPointsMode, type BattleConfig, type BattleKind, type BattleResult } from './battle';
 import { ReplayPlayer, ReplayRecorder } from './replay';
@@ -43,6 +43,7 @@ import { hash2 } from './world/noise';
 import { Haptic, setHaptics } from './haptics';
 import { Boss, PHASE_LABELS } from './boss';
 import { CityEvents } from './events';
+import { SkyFun } from './skyfun';
 import { StormZone } from './zone';
 import { CloudSave, formatRecovery } from './cloud';
 import { QUICK_CHAT, CHAT_ICONS } from './chat';
@@ -223,9 +224,12 @@ class Game {
   boss: Boss | null = null;
   private bossWinAt = 0;
   cityEvents: CityEvents | null = null;
+  skyfun: SkyFun | null = null;
   private prevWeather: WeatherKind = 'clear';
   cloud = new CloudSave();
   worldGhost: GhostPlayer | null = null;
+  /** Rivales del día: el que va justo delante, el mejor de tu país y el mejor de tus amigos */
+  rivals: { ghost: GhostPlayer; name: string; label: string; color: string }[] = [];
   private wgToken = 0;
   customCircuit: Circuit | null = null;
   /** Espectador: id del avión que se sigue */
@@ -456,6 +460,8 @@ class Game {
     this.delivery = null;
     this.cityEvents?.dispose();
     this.cityEvents = null;
+    this.skyfun?.dispose();
+    this.skyfun = null;
     this.endEditor();
     this.stopSpectating();
     this.hud.bossBar(null);
@@ -533,6 +539,7 @@ class Game {
     this.hud.setTimer(null);
     this.hud.countdown(null);
     this.hud.battleScore(null);
+    this.hud.medalTarget(null);
     this.hud.offRoute(false);
     this.flight.frozen = false;
     this.recorder.reset();
@@ -561,8 +568,30 @@ class Game {
     this.powerups.setEnabled(true, this.chunks.loaded());
     this.drones.setActive(true);
     this.startCityEvents();
+    this.startSkyFun();
     this.setScreen('playing');
     this.hud.toast('¡Despegue!');
+  }
+
+  /** Túneles de viento, globos, pasos imposibles, pájaros, rampas y piezas legendarias */
+  private startSkyFun() {
+    this.skyfun = new SkyFun(this.scene, this.gen, this.fx, {
+      trick: (name, pts) => this.stunts.trick(name, pts),
+      reward: (n) => this.earn(n),
+      toast: (t, ms) => this.hud.toast(t, ms),
+      big: (t) => this.hud.split(t, 'good'),
+      sound: (k) => {
+        if (k === 'pop') this.audio.hitMarker();
+        else if (k === 'whoosh') this.audio.boostRing();
+        else if (k === 'pickup') this.audio.ring();
+        else if (k === 'win') this.audio.gate(true);
+        else if (k === 'hit') this.audio.scrape();
+        else this.audio.empty();
+      },
+      damage: (n) => this.takeDamage(n),
+      sparks: (pos, n) => this.fx.sparks(pos, null, n, 60),
+      stat: (k, v, max) => (max ? this.progress.max(k, v) : this.progress.add(k, v)),
+    });
   }
 
   /** Eventos dinámicos de la ciudad (vuelo libre en solitario) */
@@ -621,7 +650,13 @@ class Game {
       const g = loadGhost(course.id);
       if (g) this.ghost = new GhostPlayer(this.scene, g);
       this.loadWorldGhost(course.id);
+      this.loadRivals(course.id);
     }
+    // Medallas: objetivos de este circuito
+    const mt = medalTimes(course);
+    setTimeout(() => {
+      if (this.race?.course.id === course.id && !this.race.started) this.hud.toast(`🥇 ${formatTime(mt.gold)} · 🥈 ${formatTime(mt.silver)} · 🥉 ${formatTime(mt.bronze)}`, 3000);
+    }, 600);
     this.ghostRec.reset();
     const right = new THREE.Vector3(Math.cos(course.start.yaw), 0, -Math.sin(course.start.yaw));
     const pos = course.start.pos.clone().addScaledVector(right, (gridIndex - (gridSize - 1) / 2) * 32);
@@ -639,6 +674,64 @@ class Game {
     this.ghost = null;
     this.worldGhost?.dispose();
     this.worldGhost = null;
+    for (const r of this.rivals) r.ghost.dispose();
+    this.rivals = [];
+  }
+
+  /** Rivales del día (fantasmas de otros pilotos de la clasificación) */
+  private loadRivals(id: string) {
+    if (!firebase.enabled) return;
+    const token = this.wgToken;
+    const friends = this.friendList().map((f) => f.uid);
+    const country = playerCountry();
+    void (async () => {
+      try {
+        const uid = await firebase.uid();
+        const mine = uid ? await firebase.bestOfFriends(id, [uid]) : null;
+        const [ahead, nat, fr] = await Promise.all([
+          firebase.rivalAhead(id, mine?.timeMs ?? null).catch(() => null),
+          firebase.bestInCountry(id, country).catch(() => null),
+          firebase.bestOfFriends(id, friends).catch(() => null),
+        ]);
+        const picks: { t: typeof ahead; label: string; accent: number; css: string }[] = [
+          { t: ahead, label: 'Justo delante', accent: 0xb070ff, css: '#c08cff' },
+          { t: nat, label: country ? `Mejor de ${countryName(country)}` : 'Mejor de tu país', accent: 0xff5a5a, css: '#ff7a7a' },
+          { t: fr, label: 'Tu amigo', accent: 0x50e090, css: '#60f0a0' },
+        ];
+        const used = new Set<string>([uid ?? '']);
+        for (const pk of picks) {
+          const t = pk.t;
+          if (!t || used.has(t.uid) || token !== this.wgToken || !this.race || this.race.course.id !== id) continue;
+          used.add(t.uid);
+          const g = await firebase.playerGhost(id, t.uid).catch(() => null);
+          if (!g || token !== this.wgToken) continue;
+          const data = JSON.parse(g.f) as GhostData;
+          if (data.v !== 1 || !Array.isArray(data.f)) continue;
+          this.rivals.push({ ghost: new GhostPlayer(this.scene, data, pk.accent, 0x50506a), name: `${t.name} · ${formatTime(t.timeMs / 1000)}`, label: pk.label, color: pk.css });
+        }
+        if (this.rivals.length) this.hud.toast(`Rivales: ${this.rivals.map((r) => r.label.toLowerCase()).join(', ')}`, 2600);
+      } catch (e) {
+        console.warn('[rivales] no se pudieron cargar', e);
+      }
+    })();
+  }
+
+  /** Pilotos con los que has jugado en multijugador (tus «amigos») */
+  private friendList(): { uid: string; name: string }[] {
+    try {
+      const l = JSON.parse(store.get('friends') ?? '[]') as { uid: string; name: string }[];
+      return Array.isArray(l) ? l : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private rememberFriends() {
+    const room = this.room;
+    if (!room) return;
+    const list = this.friendList().filter((f) => !room.players.has(f.uid));
+    for (const [uid, p] of room.players) if (uid !== room.uid) list.unshift({ uid, name: p.name });
+    store.set('friends', JSON.stringify(list.slice(0, 20)));
   }
 
   /** Fantasma del récord mundial (Firestore), en dorado */
@@ -666,6 +759,34 @@ class Game {
     this.hud.toast(`Desafío diario · ${variant === 'night' ? 'de noche' : 'de día'} · ${d.stage.name}`, 1800);
   }
 
+  /** Racha de días seguidos completando el desafío diario */
+  private bumpStreak() {
+    let st = { last: '', n: 0 };
+    try {
+      st = { ...st, ...(JSON.parse(store.get('dailyStreak') ?? '{}') as typeof st) };
+    } catch {
+      /* nada */
+    }
+    const today = dayKey();
+    const yesterday = dayKey(new Date(Date.now() - 86400000));
+    if (st.last !== today) {
+      st.n = st.last === yesterday ? st.n + 1 : 1;
+      st.last = today;
+      store.set('dailyStreak', JSON.stringify(st));
+    }
+    return st.n;
+  }
+
+  private streak() {
+    try {
+      const st = JSON.parse(store.get('dailyStreak') ?? '{}') as { last?: string; n?: number };
+      const yesterday = dayKey(new Date(Date.now() - 86400000));
+      return st.last === dayKey() || st.last === yesterday ? (st.n ?? 0) : 0;
+    } catch {
+      return 0;
+    }
+  }
+
   /** Mejor tiempo de hoy en el desafío (día, noche o el mejor de los dos) */
   private dailyBest(variant?: DailyVariant) {
     const daily = this.progress.p.daily;
@@ -689,6 +810,7 @@ class Game {
     this.rings.respawnAll(this.chunks.loaded());
     this.powerups.setEnabled(true, this.chunks.loaded());
     for (const id of this.room?.rings ?? []) this.rings.takenByOther(id);
+    this.startSkyFun();
     this.setScreen('playing');
     this.hud.toast('¡Vuelo en equipo!');
   }
@@ -1118,6 +1240,7 @@ class Game {
       this.hud.setTimer(null);
       this.hud.countdown(null);
       this.hud.offRoute(false);
+      this.hud.medalTarget(null);
       this.hud.missileWarning(false);
       this.drones.setActive(false);
       this.race?.dispose();
@@ -1386,9 +1509,10 @@ class Game {
       const enemies = list.filter((t) => b.enemies(this.myId, t.id));
       return this.boss ? [...enemies, ...this.boss.targets()] : enemies;
     }
-    // Vuelo libre en equipo: sin fuego amigo
-    if (this.room) return [];
-    const evt = this.cityEvents?.targets() ?? [];
+    // Vuelo libre en equipo: sin fuego amigo (pero sí a los globos)
+    const fun = this.skyfun?.targets() ?? [];
+    if (this.room) return fun;
+    const evt = [...(this.cityEvents?.targets() ?? []), ...fun];
     return this.drones.active ? [...this.drones.list, ...evt] : evt;
   }
 
@@ -1429,6 +1553,10 @@ class Game {
         this.room.sendEvent(this.room.meta.host, 'bhit', dmg, `bot:${t.id}`);
         this.battle?.addPoints(this.myId, dmg);
       }
+      return;
+    }
+    if (t.id.startsWith('bal-')) {
+      this.hud.hitMarker(this.skyfun?.hitBalloon(t.id) ?? false);
       return;
     }
     if (t.id.startsWith('evt-')) {
@@ -1858,6 +1986,7 @@ class Game {
     if (this.battle) this.updateBattle(dt);
     if (this.mode === 'waves') this.updateWaves(dt);
     this.cityEvents?.update(dt, this.time, f.pos, f.forward(), this.alive);
+    this.skyfun?.update(dt, this.time, f, this.alive);
     if (this.delivery && this.alive) {
       const ev = this.delivery.update(dt, f.pos, this.jet.group.quaternion, this.time);
       if (ev?.type === 'pickup') {
@@ -1930,9 +2059,11 @@ class Game {
       if (this.race.lap === 1) this.ghostRec.record(dt, f);
       this.ghost?.update(this.race.elapsed, this.time);
       this.worldGhost?.update(this.race.elapsed, this.time);
+      for (const r of this.rivals) r.ghost.update(this.race.elapsed, this.time);
     } else if (this.race && !this.race.started) {
       this.ghost?.update(0, this.time);
       this.worldGhost?.update(0, this.time);
+      for (const r of this.rivals) r.ghost.update(0, this.time);
     }
 
     if (this.battle?.config.kind !== 'tag') this.checkPlayerCollisions();
@@ -2389,7 +2520,13 @@ class Game {
         break;
       }
       case 'bonus':
-        if (ev.kind === 'time') {
+        if (ev.kind === 'gold') {
+          this.audio.gate(true);
+          this.hud.split(`¡ARO DORADO! −${GOLD_BONUS} s`, 'good');
+          this.fx.sparks(ev.pos, null, 40, 60);
+          this.stunts.trick('Aro dorado', 150);
+          this.progress.add('timeBonuses');
+        } else if (ev.kind === 'time') {
           this.audio.ring();
           this.hud.toast('−1 s', 900);
           this.fx.sparks(ev.pos, null, 20, 40);
@@ -2948,6 +3085,16 @@ class Game {
       }
       if (this.ghost && !this.ghost.finished) items.push({ pos: this.ghost.pos, kind: 'ghost' });
       if (this.worldGhost && !this.worldGhost.finished) items.push({ pos: this.worldGhost.pos, kind: 'ghost', color: '#ffd040' });
+      for (const r of this.rivals) if (!r.ghost.finished) items.push({ pos: r.ghost.pos, kind: 'ghost', color: r.color });
+      // Aros dorados fuera de ruta cercanos
+      for (const b of this.race.course.bonuses) if (b.kind === 'gold' && !this.race.isTaken(b.id) && b.pos.distanceTo(f.pos) < 1500) items.push({ pos: b.pos, kind: 'power', color: '#ffc840' });
+      // Cronómetro con la siguiente medalla a batir
+      if (this.race.lap === 1) {
+        const mt = medalTimes(this.race.course);
+        const t = this.race.started ? this.race.time : 0;
+        const next = t <= mt.gold ? `🥇 ${formatTime(mt.gold)}` : t <= mt.silver ? `🥈 ${formatTime(mt.silver)}` : t <= mt.bronze ? `🥉 ${formatTime(mt.bronze)}` : '';
+        this.hud.medalTarget(next ? `Siguiente medalla ${next}` : 'Sin medalla esta vez: ¡termina igualmente!');
+      } else this.hud.medalTarget(`Vuelta ${this.race.lap}`);
       this.hud.setTimer(formatTime(this.race.started ? this.race.time : 0));
     } else if (this.battle) {
       scoreLabel = 'Derribos';
@@ -3055,7 +3202,9 @@ class Game {
     }
     // Eventos de la ciudad
     const eh = this.cityEvents?.hud(f.pos) ?? null;
-    if (this.cityEvents) this.hud.banner(eh ? eh.banner : null, eh?.kind);
+    const sb = this.skyfun?.banner ?? null;
+    if (this.cityEvents || this.skyfun) this.hud.banner(eh ? eh.banner : sb ? sb.text : null, eh ? eh.kind : sb?.kind);
+    if (this.skyfun && this.mode === 'free') this.skyfun.radar(items, f.pos);
     if (eh) {
       for (const it of eh.items) items.push({ pos: it.pos, kind: it.kind, color: it.color });
       if (eh.nav) {
@@ -3141,6 +3290,7 @@ class Game {
         const enemy = tagMode ? t.id === this.battle!.it : this.battle ? this.battle.enemies(this.myId, t.id) : false;
         tags.push({ id: t.id, name: pi.name, glyph: ICON_GLYPH[pi.icon], color: pi.teamColor, pos: t.pos, enemy });
       }
+      for (const [i, r] of this.rivals.entries()) if (!r.ghost.finished) tags.push({ id: `rival${i}`, name: `${r.label}: ${r.name}`, glyph: '👻', color: r.color, pos: r.ghost.pos, enemy: false });
     }
     this.hud.updatePilots(this.camera, f.pos, tags);
     this.arrow.update(f.pos, f.yaw, arrowTarget, this.alive && this.screen === 'playing' && this.rig.mode !== 'cockpit' && this.rig.mode !== 'top', arrowColor);
@@ -3227,6 +3377,7 @@ class Game {
     }
     this.progress.add('races');
     this.earn(60 + (best ? 40 : 0));
+    let streakMsg = '';
     if (this.isDaily) {
       // Cuenta como desafío del día la primera vez, sea de día o de noche
       const firstToday = this.dailyBest() === undefined;
@@ -3236,7 +3387,23 @@ class Game {
       if (firstToday) {
         this.progress.add('dailies');
         this.earn(120);
+        const n = this.bumpStreak();
+        const bonus = 40 * Math.min(n, 10);
+        this.earn(bonus);
+        streakMsg = `🔥 Racha de ${n} ${n === 1 ? 'día' : 'días'} · +${bonus} créditos`;
       }
+    }
+    // Medallas (se premia la primera vez que se consigue cada una)
+    const medal = medalFor(this.race!.course, time);
+    const medalKey = `medal.${id}`;
+    const order: Medal[] = [null, 'bronze', 'silver', 'gold'];
+    const prevMedal = (store.get(medalKey) as Medal) || null;
+    if (order.indexOf(medal) > order.indexOf(prevMedal)) {
+      store.set(medalKey, medal ?? '');
+      const pay = { gold: 150, silver: 80, bronze: 40 };
+      let gain = 0;
+      for (let k = order.indexOf(prevMedal) + 1; k <= order.indexOf(medal); k++) gain += pay[order[k] as 'gold'];
+      if (gain) this.earn(gain);
     }
     this.hud.setTimer(formatTime(time));
     this.hud.split(`META · ${formatTime(time)}`, best ? 'good' : 'neutral');
@@ -3256,7 +3423,13 @@ class Game {
         return li;
       }),
     );
-    $('rr-msg').textContent = '';
+    const mt = medalTimes(this.race!.course);
+    const medalEl = $('rr-medal');
+    medalEl.className = `medal-line ${medal ?? 'none'}`;
+    medalEl.textContent = medal
+      ? `${MEDAL_ICONS[medal]} Medalla de ${MEDAL_LABELS[medal].toLowerCase()}${medal !== 'gold' ? ` · ${medal === 'silver' ? `oro en ${formatTime(mt.gold)}` : `plata en ${formatTime(mt.silver)}`}` : ''}`
+      : `Sin medalla · bronce en ${formatTime(mt.bronze)}`;
+    $('rr-msg').textContent = streakMsg;
     if (this.room) {
       void this.room.submitResult(time);
       this.renderRoomResults();
@@ -3264,8 +3437,10 @@ class Game {
       firebase
         .submitTime(id, this.pilotName(), time)
         .then((saved) => {
-          if (saved) $('rr-msg').textContent = 'Tiempo guardado en la clasificación online';
-          if (!saved || !best) return;
+          if (saved) $('rr-msg').textContent = [streakMsg, 'Tiempo guardado en la clasificación online'].filter(Boolean).join(' · ');
+          if (!saved) return;
+          void firebase.submitPlayerGhost(id, this.pilotName(), time, JSON.stringify(ghostData));
+          if (!best) return;
           return firebase.submitWorldGhost(id, this.pilotName(), time, JSON.stringify(ghostData)).then((w) => {
             if (w) $('rr-msg').textContent = '¡Récord mundial! Tu fantasma dorado ya está en la nube';
           });
@@ -3433,6 +3608,7 @@ class Game {
     let myColor = -1;
     room.onPlayers = () => {
       resync();
+      this.rememberFriends();
       const me = room.players.get(room.uid);
       if (me && me.color !== myColor) {
         myColor = me.color;
@@ -3842,7 +4018,8 @@ class Game {
   private refreshMenu() {
     const d = dailyChallenge();
     const best = this.dailyBest();
-    $('daily-sub').textContent = `${d.def.gates} hitos · de día o de noche${best !== undefined ? ` · tu mejor ${formatTime(best)}` : ''}`;
+    const sk = this.streak();
+    $('daily-sub').textContent = `${d.def.gates} hitos · de día o de noche${best !== undefined ? ` · tu mejor ${formatTime(best)}` : ''}${sk ? ` · 🔥 ${sk}` : ''}`;
     $('menu-credits').textContent = `${this.progress.p.credits} créditos`;
     const done = Object.keys(this.progress.p.achievements).length;
     $('ach-badge').textContent = `${done}/${ACHIEVEMENTS.length}`;

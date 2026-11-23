@@ -84,8 +84,22 @@ service cloud.firestore {
         && d.updatedAt == request.time;
     }
 
+    // Fantasma de la mejor vuelta de cada piloto: ghostsAll/{courseId}_{uid} (rivales del día)
+    match /ghostsAll/{gid} {
+      allow read: if true;
+      allow create: if request.auth != null
+        && gid == request.resource.data.course + '_' + request.auth.uid
+        && validGhost(request.resource.data, request.resource.data.course);
+      allow update: if request.auth != null
+        && resource.data.uid == request.auth.uid
+        && validGhost(request.resource.data, resource.data.course)
+        && request.resource.data.timeMs < resource.data.timeMs;
+      allow delete: if false;
+    }
+
     function validTime(d) {
-      return d.keys().hasOnly(['uid', 'name', 'course', 'timeMs', 'updatedAt'])
+      return d.keys().hasOnly(['uid', 'name', 'course', 'timeMs', 'country', 'updatedAt'])
+        && (!('country' in d) || (d.country is string && d.country.size() <= 3))
         && d.uid == request.auth.uid
         && d.name is string && d.name.size() > 0 && d.name.size() <= 16
         && d.course is string && d.course.size() <= 40

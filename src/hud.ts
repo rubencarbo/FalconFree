@@ -352,6 +352,12 @@ export class Hud {
     this.dmgEl.classList.add('show');
   }
 
+  medalTarget(text: string | null) {
+    const el = $('race-medal');
+    el.classList.toggle('hidden', text === null);
+    if (text !== null && el.textContent !== text) el.textContent = text;
+  }
+
   setTimer(text: string | null) {
     this.timerEl.classList.toggle('hidden', text === null);
     if (text !== null) this.timerEl.textContent = text;

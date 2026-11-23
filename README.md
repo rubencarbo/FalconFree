@@ -117,6 +117,31 @@ En partida multijugador, el botón 💬 (o la tecla T y luego 1–8) envía fras
 - **Fantasma dorado**: en las carreras compites también contra la vuelta del récord mundial de
   ese circuito (se guarda en Firestore cuando alguien lo bate).
 
+## Vuelo libre: elementos del cielo
+
+- **Túneles de viento**: corrientes en espiral con aros guía. Entra por la boca (aro azul) y el
+  viento te empuja a toda velocidad por el recorrido (+combo).
+- **Globos de colores**: racimos de 6–8 globos. Al reventar el primero (chocando o a tiros) tienes
+  15 s para reventarlos todos: +80 créditos.
+- **Pasos imposibles**: huecos estrechos entre dos torres marcados con postes amarillos y negros.
+  Crúzalos por debajo de la barra; con las alas en vertical («en cuchillo») valen casi el doble.
+- **Bandadas de pájaros**: se apartan a tu paso. Atraviesa la bandada sin tocar ninguno para
+  «Vuelo limpio»; si chocas, pierdes algo de blindaje.
+- **Rampas de lanzamiento**: seis aros verdes en curva hacia arriba te lanzan por encima de las
+  nubes, donde hay islas flotantes con tesoros dorados.
+- **Avión legendario**: 20 piezas doradas escondidas a ras de calle entre rascacielos (7 en
+  Metrópolis, 7 en Archipiélago y 6 en Ciudad nocturna). Reúnelas todas para desbloquear el
+  **Aurora**. Aparecen en el radar (?) cuando estás cerca.
+
+## Carreras: medallas, aros dorados y rivales
+
+- **Medallas** de bronce, plata y oro con tiempos objetivo calculados según la longitud real del
+  circuito. Debajo del cronómetro se ve la siguiente medalla a batir; cada medalla nueva da créditos.
+- **Racha del desafío diario**: días seguidos completándolo (🔥), con premio creciente.
+- **Aros dorados fuera de ruta**: apartados del camino directo; si te desvías a por ellos restan 3 s.
+- **Rivales del día**: fantasmas del piloto que va justo delante de ti en la clasificación, del
+  mejor de tu país y del mejor de tus amigos (pilotos con los que has jugado en multijugador).
+
 ## Acrobacias, formación y pase de temporada
 
 - **Combos de acrobacias** en todos los modos: rasante, entre rascacielos, ¡por poco!, picado
@@ -299,6 +324,7 @@ Firestore:
 
 - `scores/{stageId}_{uid}` → `{ uid, name, stage, rings, maxSpeed, updatedAt }`
 - `times/{courseId}_{uid}` → `{ uid, name, course, timeMs, updatedAt }`
+- `ghostsAll/{courseId}_{uid}` → fantasma de la mejor vuelta de cada piloto (rivales del día)
 - `ghosts/{courseId}` → fantasma del récord mundial `{ uid, name, course, timeMs, f, updatedAt }`
   (solo se sustituye por un tiempo mejor)
 - `circuits/{CODE}` → circuito de un jugador `{ uid, author, name, stage, g, createdAt }` (no se

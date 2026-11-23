@@ -31,6 +31,26 @@ export interface TimeEntry {
   name: string;
   course: string;
   timeMs: number;
+  country?: string;
+}
+
+/** País del jugador (de la configuración regional del navegador): «ES», «MX»… */
+export function playerCountry(): string {
+  try {
+    const loc = Intl.DateTimeFormat().resolvedOptions().locale || navigator.language || '';
+    const m = /[-_]([A-Za-z]{2})\b/.exec(loc);
+    return m ? m[1].toUpperCase() : '';
+  } catch {
+    return '';
+  }
+}
+
+export function countryName(code: string) {
+  try {
+    return new Intl.DisplayNames(['es'], { type: 'region' }).of(code) ?? code;
+  } catch {
+    return code;
+  }
 }
 
 /** Fantasma del récord mundial de un circuito */
@@ -176,7 +196,8 @@ class FirebaseService {
     try {
       const snap = await getDoc(ref);
       if (snap.exists() && (snap.data().timeMs ?? Infinity) <= timeMs) return false;
-      await setDoc(ref, { uid: u.uid, name: name.slice(0, 16) || 'Piloto', course, timeMs, updatedAt: serverTimestamp() });
+      const country = playerCountry();
+      await setDoc(ref, { uid: u.uid, name: name.slice(0, 16) || 'Piloto', course, timeMs, ...(country ? { country } : {}), updatedAt: serverTimestamp() });
       return true;
     } catch (e) {
       console.warn('[firebase] error guardando tiempo', e);
@@ -255,6 +276,69 @@ class FirebaseService {
     await this.user();
     const snap = await getDoc(doc(this.db, 'circuits', code));
     return snap.exists() ? (snap.data() as SharedCircuit) : null;
+  }
+
+  // ------------------------------------------------------------ Rivales del día
+  /** Guarda el fantasma de mi mejor vuelta (para que otros puedan correr contra él) */
+  async submitPlayerGhost(course: string, name: string, timeSec: number, ghostJson: string): Promise<boolean> {
+    if (!this.enabled || ghostJson.length > 450000) return false;
+    const u = await this.user();
+    if (!u || !this.db) return false;
+    const timeMs = Math.round(timeSec * 1000);
+    const ref = doc(this.db, 'ghostsAll', `${course}_${u.uid}`);
+    try {
+      const snap = await getDoc(ref);
+      if (snap.exists() && (snap.data().timeMs ?? Infinity) <= timeMs) return false;
+      await setDoc(ref, { uid: u.uid, name: name.slice(0, 16) || 'Piloto', course, timeMs, f: ghostJson, updatedAt: serverTimestamp() });
+      return true;
+    } catch (e) {
+      console.warn('[firebase] error guardando fantasma', e);
+      return false;
+    }
+  }
+
+  async playerGhost(course: string, uid: string): Promise<WorldGhost | null> {
+    if (!this.enabled || !this.db) return null;
+    const snap = await getDoc(doc(this.db, 'ghostsAll', `${course}_${uid}`));
+    return snap.exists() ? (snap.data() as WorldGhost) : null;
+  }
+
+  /** El piloto que va justo por delante de mi tiempo (o el último del top si aún no tengo) */
+  async rivalAhead(course: string, myMs: number | null): Promise<TimeEntry | null> {
+    if (!this.enabled) return null;
+    this.init();
+    if (!this.db) return null;
+    await this.user();
+    const base = collection(this.db, 'times');
+    const q = myMs !== null ? query(base, where('course', '==', course), where('timeMs', '<', myMs), orderBy('timeMs', 'desc'), limit(1)) : query(base, where('course', '==', course), orderBy('timeMs', 'desc'), limit(1));
+    const res = await getDocs(q);
+    return res.empty ? null : (res.docs[0].data() as TimeEntry);
+  }
+
+  async bestInCountry(course: string, country: string): Promise<TimeEntry | null> {
+    if (!this.enabled || !country) return null;
+    this.init();
+    if (!this.db) return null;
+    await this.user();
+    const res = await getDocs(query(collection(this.db, 'times'), where('course', '==', course), where('country', '==', country), orderBy('timeMs', 'asc'), limit(1)));
+    return res.empty ? null : (res.docs[0].data() as TimeEntry);
+  }
+
+  /** Mejor tiempo entre mis amigos (pilotos con los que he jugado) */
+  async bestOfFriends(course: string, uids: string[]): Promise<TimeEntry | null> {
+    if (!this.enabled || !uids.length) return null;
+    this.init();
+    if (!this.db) return null;
+    await this.user();
+    const db = this.db;
+    const snaps = await Promise.all(uids.slice(0, 12).map((u) => getDoc(doc(db, 'times', `${course}_${u}`)).catch(() => null)));
+    let best: TimeEntry | null = null;
+    for (const sn of snaps) {
+      if (!sn?.exists()) continue;
+      const t = sn.data() as TimeEntry;
+      if (!best || t.timeMs < best.timeMs) best = t;
+    }
+    return best;
   }
 }
 

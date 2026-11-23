@@ -92,6 +92,19 @@ export const PLANES: PlaneDef[] = [
     flame: 0x6a8aff,
     weapon: { ...STANDARD_WEAPON, name: 'Cañón de riel', description: 'Proyectiles supersónicos de largo alcance.', fireRate: 7, damage: 8.5, speed: 2100, tracer: [2.8, 2.8, 3.6], lockRange: 1800, cone: 14 },
   },
+  {
+    id: 'aurora',
+    tier: 'advanced',
+    name: 'Aurora (legendario)',
+    description: 'El avión legendario. Reúne sus 20 piezas escondidas por los tres escenarios en vuelo libre.',
+    speed: 1.2,
+    agility: 1.18,
+    armor: 1.15,
+    cost: 20000,
+    flame: 0xffc860,
+    achievement: 'leyenda',
+    weapon: { ...STANDARD_WEAPON, name: 'Haz dorado', description: 'Cuatro cañones rápidos y certeros.', barrels: 4, fireRate: 16, damage: 4.2, speed: 1500, tracer: [1.2, 1, 0.45], lockRange: 1600, cone: 24, missiles: 6 },
+  },
 ];
 
 export interface PaintDef {
@@ -157,6 +170,9 @@ export interface Stats {
   bossWins: number;
   cityEvents: number;
   circuitsMade: number;
+  legendPieces: number;
+  balloonClusters: number;
+  impossiblePasses: number;
 }
 
 export interface Achievement {
@@ -196,6 +212,9 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'dirigible', name: 'Matagigantes', description: 'Derriba el dirigible del Jefe final.', reward: 400, done: (s) => s.bossWins >= 1 },
   { id: 'heroe', name: 'Héroe de la ciudad', description: 'Completa 5 eventos en la ciudad.', reward: 250, done: (s) => s.cityEvents >= 5 },
   { id: 'arquitecto', name: 'Arquitecto', description: 'Crea y guarda un circuito propio.', reward: 150, done: (s) => s.circuitsMade >= 1 },
+  { id: 'leyenda', name: 'Leyenda', description: 'Reúne las 20 piezas del avión legendario.', reward: 1000, done: (s) => s.legendPieces >= 20 },
+  { id: 'globos', name: 'Revientaglobos', description: 'Revienta 5 racimos de globos a tiempo.', reward: 200, done: (s) => s.balloonClusters >= 5 },
+  { id: 'imposible', name: 'Imposible', description: 'Cruza 10 pasos imposibles.', reward: 250, done: (s) => s.impossiblePasses >= 10 },
   { id: 'formacion', name: 'Patrulla', description: 'Vuela 120 s en formación con tu equipo.', reward: 300, done: (s) => s.formationTime >= 120 },
 ];
 
@@ -235,7 +254,7 @@ function emptyStats(): Stats {
     rings: 0, drones: 0, kills: 0, deaths: 0, races: 0, battlesWon: 0, battles: 0, missileHits: 0, flaresDodged: 0,
     scrapes: 0, powerups: 0, ghostBeaten: 0, dailies: 0, mpGames: 0, bestStreak: 0, maxSpeed: 0, lowFlight: 0, timeBonuses: 0,
     deliveries: 0, wavesBest: 0, kothWins: 0, tagFree: 0, formationTime: 0, stuntPoints: 0, bestCombo: 0, seaRings: 0,
-    royaleWins: 0, bossWins: 0, cityEvents: 0, circuitsMade: 0,
+    royaleWins: 0, bossWins: 0, cityEvents: 0, circuitsMade: 0, legendPieces: 0, balloonClusters: 0, impossiblePasses: 0,
   };
 }
 

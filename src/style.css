@@ -3677,3 +3677,33 @@ html.standalone .install {
 #set-trail-tune.hidden {
   display: none;
 }
+
+.medal-line {
+  margin: 0;
+  text-align: center;
+  font-weight: 800;
+  font-size: 15px;
+}
+
+.medal-line.gold { color: #ffd040; }
+.medal-line.silver { color: #d8e2ec; }
+.medal-line.bronze { color: #e0a070; }
+.medal-line.none { color: var(--muted); }
+
+#race-medal {
+  position: absolute;
+  top: calc(52px + var(--safe-top));
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 10px;
+  border-radius: 8px;
+  background: var(--glass);
+  white-space: nowrap;
+  pointer-events: none !important;
+}
+
+#race-medal.hidden {
+  display: none;
+}
