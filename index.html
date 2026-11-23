@@ -35,6 +35,7 @@
         <div class="top-right">
           <button id="btn-stage" class="pill">Cambiar escenario</button>
           <button id="btn-chat" class="pill icon hidden" aria-label="Chat rápido">💬</button>
+          <button id="btn-talk" class="talk-btn pill hidden" aria-label="Hablar"><span class="tk-bar"></span><b>🎙️ HABLAR</b></button>
           <button id="btn-view" class="pill">Vista: Básica</button>
           <button id="btn-pause" class="pill icon" aria-label="Pausa">❚❚</button>
           <canvas id="radar" aria-label="Radar"></canvas>
@@ -56,7 +57,8 @@
         <div id="mode-banner"></div>
         <div id="boss-bar"><span class="bb-name"></span><span class="bb-track"><i></i></span></div>
         <div id="chat-feed"></div>
-        <button id="btn-talk" class="talk-btn hidden" aria-label="Hablar"><span class="tk-bar"></span><b>🎙️ HABLAR</b></button>
+        <div id="mic-live" class="hidden" aria-live="polite"><span class="ml-dot"></span><b>🎙️ MICRO ABIERTO</b><span id="mic-live-time">5 s</span><span class="ml-meter"><i id="mic-live-level"></i></span></div>
+        <div id="voice-live" class="hidden" aria-live="polite"><span class="vl-icon">🔊</span><span><b id="voice-live-name"></b> está hablando…</span></div>
         <div id="chat-wheel" class="hidden"></div>
         <div id="spectate" class="hidden"><span>Espectador · <b id="spectate-name"></b></span><button id="btn-spectate-next" class="pill">Siguiente piloto</button></div>
         <div id="editor-bar" class="hidden">

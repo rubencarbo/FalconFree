@@ -24,27 +24,55 @@ export class VoiceRecorder {
     return !!navigator.mediaDevices?.getUserMedia && !!(window.AudioContext || (window as unknown as { webkitAudioContext?: unknown }).webkitAudioContext);
   }
 
-  async start() {
-    if (this.recording) return;
-    this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+  /** Hay micro abierto y listo (permiso concedido) */
+  get ready() {
+    return !!this.node;
+  }
+
+  /**
+   * Abre el micro. Llamar DIRECTAMENTE desde el toque del usuario: el contexto de audio
+   * se crea antes del primer «await», como exigen Safari (iPhone) y Chrome en Android.
+   */
+  async open() {
+    if (this.node) return;
     const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    this.ctx = new Ctx();
-    await this.ctx.resume();
-    this.inRate = this.ctx.sampleRate;
-    const src = this.ctx.createMediaStreamSource(this.stream);
-    this.node = this.ctx.createScriptProcessor(4096, 1, 1);
+    const ctx = new Ctx();
+    this.ctx = ctx;
+    const resumed = ctx.resume();
+    try {
+      this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    } catch (e) {
+      this.cleanup();
+      throw e;
+    }
+    await resumed.catch(() => undefined);
+    this.inRate = ctx.sampleRate;
+    const src = ctx.createMediaStreamSource(this.stream);
+    this.node = ctx.createScriptProcessor(4096, 1, 1);
     this.chunks = [];
     this.node.onaudioprocess = (e) => {
       if (this.recording) this.chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
     };
     // Conectar a un destino mudo (si no, algunos navegadores no procesan)
-    const mute = this.ctx.createGain();
+    const mute = ctx.createGain();
     mute.gain.value = 0;
     src.connect(this.node);
-    this.node.connect(mute).connect(this.ctx.destination);
+    this.node.connect(mute).connect(ctx.destination);
+  }
+
+  /** Empieza a grabar (el micro ya está abierto); se para solo a los 5 s */
+  begin() {
+    if (!this.node || this.recording) return;
+    this.chunks = [];
     this.recording = true;
     this.startedAt = performance.now();
     this.timer = window.setTimeout(() => this.stop(), VOICE_MAX_MS);
+  }
+
+  /** Abre el micro y graba (atajo) */
+  async start() {
+    await this.open();
+    this.begin();
   }
 
   /** Termina la grabación y entrega el clip */
@@ -71,6 +99,15 @@ export class VoiceRecorder {
     this.chunks = [];
   }
 
+  /** Nivel de entrada actual 0..1 (para el indicador del micro) */
+  level() {
+    const c = this.chunks[this.chunks.length - 1];
+    if (!c) return 0;
+    let peak = 0;
+    for (let i = 0; i < c.length; i += 16) peak = Math.max(peak, Math.abs(c[i]));
+    return Math.min(1, peak * 2);
+  }
+
   private cleanup() {
     this.node?.disconnect();
     this.node = null;
@@ -84,14 +121,33 @@ export class VoiceRecorder {
 /** Reproduce clips de uno en uno (nunca se solapan) */
 export class VoicePlayer {
   private queue: { data: string; onStart?: () => void; onEnd?: () => void }[] = [];
-  private playing = false;
+  private isPlaying = false;
   private ctx: AudioContext | null = null;
   enabled = true;
 
   /** Llamar tras un gesto del usuario para que el navegador permita el sonido */
   unlock() {
     const c = this.context();
-    void c?.resume();
+    if (!c) return;
+    void c.resume();
+    // Safari (iPhone) necesita reproducir algo dentro del toque para desbloquear el audio
+    if (!this.unlocked) {
+      this.unlocked = true;
+      try {
+        const b = c.createBuffer(1, 1, 22050);
+        const s = c.createBufferSource();
+        s.buffer = b;
+        s.connect(c.destination);
+        s.start();
+      } catch {
+        /* nada */
+      }
+    }
+  }
+  private unlocked = false;
+
+  get playing() {
+    return this.isPlaying;
   }
 
   private context() {
@@ -106,17 +162,17 @@ export class VoicePlayer {
   play(data: string, onStart?: () => void, onEnd?: () => void) {
     if (!this.enabled) return;
     this.queue.push({ data, onStart, onEnd });
-    if (!this.playing) this.next();
+    if (!this.isPlaying) this.next();
   }
 
   private next() {
     const item = this.queue.shift();
     const ctx = this.context();
     if (!item || !ctx) {
-      this.playing = false;
+      this.isPlaying = false;
       return;
     }
-    this.playing = true;
+    this.isPlaying = true;
     try {
       const pcm = upsample(decodeMuLaw(item.data), RATE, PLAY_RATE);
       const buf = ctx.createBuffer(1, pcm.length, PLAY_RATE);
@@ -192,7 +248,7 @@ function normalize(pcm: Float32Array) {
   return pcm;
 }
 
-function encodeMuLaw(pcm: Float32Array) {
+export function encodeMuLaw(pcm: Float32Array) {
   const bytes = new Uint8Array(pcm.length);
   for (let i = 0; i < pcm.length; i++) {
     let s = Math.max(-1, Math.min(1, pcm[i])) * 32767;
@@ -209,7 +265,7 @@ function encodeMuLaw(pcm: Float32Array) {
   return btoa(bin);
 }
 
-function decodeMuLaw(b64: string) {
+export function decodeMuLaw(b64: string) {
   const bin = atob(b64);
   const out = new Float32Array(bin.length);
   for (let i = 0; i < bin.length; i++) {

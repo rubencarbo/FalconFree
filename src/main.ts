@@ -2879,8 +2879,7 @@ class Game {
     const room = this.room;
     if (!room) return;
     this.voicePlayer.unlock();
-    if (this.voiceRec.recording) return;
-    if (this.talkPending) return;
+    if (this.voiceRec.recording || this.talkPending) return;
     if (!VoiceRecorder.supported) {
       this.hud.toast('Este navegador no permite grabar audio', 1800);
       return;
@@ -2892,20 +2891,31 @@ class Game {
     this.talkPending = true;
     this.updateTalkUi();
     try {
-      const ok = await room.takeTalk(VOICE_MAX_MS + 3000);
+      // 1) Abrir el micro dentro del toque (los móviles lo exigen)
+      try {
+        await this.voiceRec.open();
+      } catch (e) {
+        console.warn('[voz] micro', e);
+        const denied = /NotAllowed|Permission|denied/i.test(String((e as Error)?.name ?? e));
+        this.hud.toast(denied ? 'Permite el micrófono en el navegador (icono del candado junto a la dirección)' : 'No se pudo abrir el micrófono', 3000);
+        return;
+      }
+      // 2) Pedir el turno de palabra
+      const ok = await room.takeTalk(VOICE_MAX_MS + 4000);
       if (!ok) {
+        this.voiceRec.cancel();
         this.hud.toast(`Espera: está hablando ${room.talk?.n ?? 'otro piloto'}`, 1400);
         return;
       }
+      // 3) Grabar 5 s; al terminar se envía solo
       this.voiceRec.onDone = async (clip) => {
         clearInterval(this.talkTimer);
+        show('mic-live', false);
         if (!clip) {
           room.releaseTalk();
-          this.hud.toast('Mensaje demasiado corto', 1000);
+          this.hud.toast('No se ha oído nada: revisa el micrófono', 1600);
         } else if (await room.takeTalk(clip.ms + 1500)) {
-          // (se vuelve a pedir el turno por si hubiera caducado mientras se grababa)
           room.sendVoice(clip.data, clip.ms);
-          // El turno dura lo que tardan los demás en oírlo
           setTimeout(() => {
             if (!this.voiceRec.recording) room.releaseTalk();
           }, clip.ms + 1500);
@@ -2915,14 +2925,9 @@ class Game {
         }
         this.updateTalkUi();
       };
-      try {
-        await this.voiceRec.start();
-      } catch {
-        room.releaseTalk();
-        this.hud.toast('Permite el micrófono en el navegador para hablar', 2200);
-        return;
-      }
+      this.voiceRec.begin();
       Haptic.pickup();
+      show('mic-live', true);
       clearInterval(this.talkTimer);
       this.talkTimer = window.setInterval(() => this.updateTalkUi(), 100);
     } finally {
@@ -2945,12 +2950,25 @@ class Game {
       b.querySelector('b')!.textContent = rec ? `🔴 GRABANDO · ${Math.ceil(left / 1000)} s` : other ? `🔊 Habla ${other.n}` : this.talkPending ? '…' : '🎙️ HABLAR';
       (b.querySelector('.tk-bar') as HTMLElement).style.transform = `scaleX(${rec ? 1 - left / VOICE_MAX_MS : 0})`;
     }
+    if (rec) {
+      $('mic-live-time').textContent = `${Math.ceil(left / 1000)} s`;
+      ($('mic-live-level') as HTMLElement).style.transform = `scaleX(${0.08 + this.voiceRec.level() * 0.92})`;
+    }
   }
 
   private onVoice(v: { from: string; n: string; d: string }) {
     if (!this.settings.voice) return;
     const color = hex(this.room?.players.get(v.from)?.color ?? 0xffffff);
-    this.voicePlayer.play(v.d, () => this.hud.chat(v.n, color, '🔊 …'));
+    this.voicePlayer.play(
+      v.d,
+      () => {
+        $('voice-live-name').textContent = v.n;
+        ($('voice-live') as HTMLElement).style.setProperty('--vc', color);
+        show('voice-live', true);
+        this.hud.chat(v.n, color, '🔊 mensaje de voz');
+      },
+      () => show('voice-live', false),
+    );
   }
 
   // ================================================================ Perfil en la nube
@@ -4218,6 +4236,10 @@ class Game {
     );
     $('btn-chat').addEventListener('click', () => this.toggleChat());
     for (const id of ['btn-talk', 'btn-talk-lobby']) $(id).addEventListener('click', () => void this.toggleTalk());
+    // Desbloquear el audio de los mensajes de voz con cualquier toque (Safari/Chrome lo exigen)
+    const unlockVoice = () => this.voicePlayer.unlock();
+    window.addEventListener('pointerdown', unlockVoice, { passive: true });
+    window.addEventListener('keydown', unlockVoice);
     window.addEventListener('keydown', (e) => {
       if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
       if (this.screen === 'lobby' && this.room && e.code === 'KeyV' && !e.repeat) void this.toggleTalk();
