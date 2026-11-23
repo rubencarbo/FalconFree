@@ -3640,3 +3640,40 @@ html.standalone .install {
   letter-spacing: normal;
   user-select: none;
 }
+
+/* Ajustes: estela del camino */
+.trail-set {
+  gap: 8px;
+}
+
+.trail-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.trail-chip {
+  padding: 7px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.trail-chip[aria-pressed='true'] {
+  background: var(--orange);
+  border-color: var(--orange);
+  color: #1a0d00;
+}
+
+#set-trail-tune {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#set-trail-tune.hidden {
+  display: none;
+}

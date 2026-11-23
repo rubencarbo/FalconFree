@@ -3,6 +3,20 @@
 export type QualityLevel = 'low' | 'medium' | 'high';
 export type QualitySetting = 'auto' | QualityLevel;
 
+/** Forma de la estela del camino (carreras y reparto) */
+export type TrailStyleSetting = 'chevrons' | 'dots' | 'line' | 'near' | 'off';
+export interface TrailTune {
+  /** separación entre marcas (m) */
+  gap: number;
+  /** intensidad 0.15..1 */
+  opacity: number;
+}
+export interface TrailSettings {
+  style: TrailStyleSetting;
+  /** ajustes propios de cada forma */
+  tune: Partial<Record<TrailStyleSetting, TrailTune>>;
+}
+
 export type ControlId = 'joy' | 'boost' | 'fire' | 'missile';
 
 export interface ControlLayout {
@@ -31,6 +45,7 @@ export interface Settings {
   ghost: boolean;
   /** Oír los mensajes de voz de otros pilotos */
   voice: boolean;
+  trail: TrailSettings;
   controls: Record<ControlId, ControlLayout>;
 }
 
@@ -73,6 +88,7 @@ function defaults(): Settings {
     vibration: true,
     ghost: true,
     voice: true,
+    trail: { style: 'chevrons', tune: {} },
     controls: defaultControls(),
   };
 }
@@ -109,6 +125,7 @@ export function loadSettings(): Settings {
       vibration: s.vibration ?? true,
       ghost: s.ghost ?? true,
       voice: s.voice ?? true,
+      trail: sanitizeTrail(s.trail),
       controls,
     };
   } catch {
@@ -154,3 +171,15 @@ export const store = {
     }
   },
 };
+
+const TRAIL_IDS: TrailStyleSetting[] = ['chevrons', 'dots', 'line', 'near', 'off'];
+
+function sanitizeTrail(t: Partial<TrailSettings> | undefined): TrailSettings {
+  const style = t && TRAIL_IDS.includes(t.style as TrailStyleSetting) ? (t.style as TrailStyleSetting) : 'chevrons';
+  const tune: TrailSettings['tune'] = {};
+  for (const id of TRAIL_IDS) {
+    const v = t?.tune?.[id];
+    if (v && isFinite(v.gap) && isFinite(v.opacity)) tune[id] = { gap: clamp(v.gap, 15, 300), opacity: clamp(v.opacity, 0.15, 1) };
+  }
+  return { style, tune };
+}

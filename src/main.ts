@@ -23,7 +23,7 @@ import { Room, NetError, formatCode, normalizeCode, MAX_PLAYERS, PLAYER_COLORS, 
 import { RemotePlayers, bodyTint } from './remote';
 import { loadSettings, saveSettings, store, type Settings } from './settings';
 import { applyControlLayout, ControlsEditor } from './controls';
-import { GuideArrow, Radar, RouteTrail, type RadarItem } from './nav';
+import { GuideArrow, Radar, RouteTrail, TRAIL_HELP, TRAIL_LABELS, TRAIL_STYLES, type RadarItem } from './nav';
 import { Weather, WEATHER_LABELS } from './weather';
 import { GhostPlayer, GhostRecorder, loadGhost, saveGhost } from './ghost';
 import { PowerUps, POWER_INFO, type PowerKind } from './powerups';
@@ -68,7 +68,7 @@ import type { WeatherKind } from './weather';
 import { VoicePlayer, VoiceRecorder, VOICE_MAX_MS } from './voice';
 import { PlanePreview, type PreviewMode } from './planePreview';
 import { AutoQuality, QUALITY_LABELS, qualityPreset, type QualityPreset } from './quality';
-import type { QualityLevel, QualitySetting } from './settings';
+import type { QualityLevel, QualitySetting, TrailStyleSetting } from './settings';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const show = (id: string, v: boolean) => $(id).classList.toggle('hidden', !v);
@@ -3678,6 +3678,7 @@ class Game {
     this.audio.muted = s.muted;
     setHaptics(s.vibration);
     this.applyQuality();
+    this.applyTrail();
     this.layoutControls();
   }
 
@@ -3699,6 +3700,47 @@ class Game {
     }
     if (this.fx) this.fx.high = this.gfx.fxHigh;
     this.chunks?.setRadius(this.gfx.radius);
+  }
+
+  /** Estela: forma elegida y sus ajustes */
+  private applyTrail() {
+    if (!this.trail) return;
+    const t = this.settings.trail;
+    this.trail.style = t.style;
+    this.trail.tune = t.style === 'off' ? null : (t.tune[t.style] ?? null);
+  }
+
+  private trailTune(style: Exclude<TrailStyleSetting, 'off'>) {
+    const d = TRAIL_STYLES[style];
+    return this.settings.trail.tune[style] ?? { gap: d.gap, opacity: d.opacity };
+  }
+
+  private renderTrailSettings() {
+    const t = this.settings.trail;
+    const ids: TrailStyleSetting[] = ['chevrons', 'dots', 'line', 'near', 'off'];
+    $('set-trail-styles').replaceChildren(
+      ...ids.map((id) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'trail-chip';
+        b.textContent = TRAIL_LABELS[id];
+        b.setAttribute('aria-pressed', String(t.style === id));
+        b.addEventListener('click', () => {
+          this.settings.trail.style = id;
+          this.persist();
+          this.renderTrailSettings();
+        });
+        return b;
+      }),
+    );
+    $('set-trail-help').textContent = TRAIL_HELP[t.style];
+    show('set-trail-tune', t.style !== 'off');
+    if (t.style === 'off') return;
+    const tune = this.trailTune(t.style);
+    $<HTMLInputElement>('set-trail-gap').value = String(tune.gap);
+    $('set-trail-gap-val').textContent = `${tune.gap} m`;
+    $<HTMLInputElement>('set-trail-op').value = String(Math.round(tune.opacity * 100));
+    $('set-trail-op-val').textContent = `${Math.round(tune.opacity * 100)} %`;
   }
 
   private persist() {
@@ -4072,6 +4114,26 @@ class Game {
         },
       );
     });
+    // Estela del camino: separación e intensidad de la forma elegida
+    const trailInput = (id: 'set-trail-gap' | 'set-trail-op') => {
+      const st = this.settings.trail.style;
+      if (st === 'off') return;
+      const tune = { ...this.trailTune(st) };
+      const v = Number($<HTMLInputElement>(id).value);
+      if (id === 'set-trail-gap') tune.gap = v;
+      else tune.opacity = v / 100;
+      this.settings.trail.tune[st] = tune;
+      this.persist();
+      $('set-trail-gap-val').textContent = `${tune.gap} m`;
+      $('set-trail-op-val').textContent = `${Math.round(tune.opacity * 100)} %`;
+    };
+    $('set-trail-gap').addEventListener('input', () => trailInput('set-trail-gap'));
+    $('set-trail-op').addEventListener('input', () => trailInput('set-trail-op'));
+    $('set-trail-reset').addEventListener('click', () => {
+      delete this.settings.trail.tune[this.settings.trail.style];
+      this.persist();
+      this.renderTrailSettings();
+    });
     const sens = $<HTMLInputElement>('set-sensitivity');
     sens.addEventListener('input', () => {
       this.settings.sensitivity = Number(sens.value) / 100;
@@ -4215,6 +4277,7 @@ class Game {
     set('set-vibration', s.vibration, 'Sí', 'No');
     set('set-ghost', s.ghost, 'Sí', 'No');
     set('set-voice', s.voice, 'Sí', 'No');
+    this.renderTrailSettings();
     $<HTMLInputElement>('set-sensitivity').value = String(Math.round(s.sensitivity * 100));
     $('set-sensitivity-val').textContent = `${Math.round(s.sensitivity * 100)} %`;
     this.renderCloud();

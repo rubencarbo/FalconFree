@@ -100,8 +100,17 @@ export const TRAIL_LABELS: Record<TrailStyle, string> = {
   chevrons: 'Flechas sueltas',
   line: 'Línea fina',
   near: 'Solo cerca',
-  bright: 'Actual (brillante)',
+  bright: 'Brillante (antigua)',
   off: 'Sin estela',
+};
+
+export const TRAIL_HELP: Record<TrailStyle, string> = {
+  chevrons: 'Flechas pequeñas y espaciadas hasta el siguiente hito: marcan el sentido sin formar un pasillo.',
+  dots: 'Puntos suaves que dibujan la curva hasta el siguiente hito.',
+  line: 'Trazos finos discontinuos, como una pista punteada en el cielo.',
+  near: 'Solo unas pocas flechas en los próximos 450 m: hacia dónde girar ahora.',
+  bright: 'Flechas de neón muy juntas hasta dos hitos.',
+  off: 'Solo el rombo del hito, su haz de luz y la flecha guía.',
 };
 
 /**
@@ -110,6 +119,8 @@ export const TRAIL_LABELS: Record<TrailStyle, string> = {
  */
 export class RouteTrail {
   style: TrailStyle = 'chevrons';
+  /** Ajustes del jugador (separación e intensidad); null = los de la forma */
+  tune: { gap: number; opacity: number } | null = null;
   private meshes = new Map<string, THREE.InstancedMesh>();
   private mats: THREE.MeshBasicMaterial[] = [];
   private curve: THREE.CatmullRomCurve3 | null = null;
@@ -167,7 +178,8 @@ export class RouteTrail {
       this.curve = null;
       return;
     }
-    const spec = TRAIL_STYLES[this.style];
+    const base = TRAIL_STYLES[this.style];
+    const spec = this.tune && !base.glow ? { ...base, gap: this.tune.gap, opacity: this.tune.opacity } : base;
     const pts = spec.nextOnly ? points.slice(0, Math.min(points.length, nextEnd + 1)) : points;
     if (pts.length < 2) return;
     this.refreshT -= dt;

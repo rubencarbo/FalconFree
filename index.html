@@ -414,6 +414,16 @@
           <button id="set-vibration" class="toggle" aria-pressed="true"><span>Vibración</span><b>Sí</b></button>
           <h3 class="set-group">Juego</h3>
           <button id="set-weather" class="toggle" aria-pressed="true"><span>Clima</span><b>Variable</b></button>
+          <div class="field trail-set">
+            <span>Estela del camino</span>
+            <div id="set-trail-styles" class="trail-chips" role="group" aria-label="Forma de la estela"></div>
+            <small id="set-trail-help" class="muted left"></small>
+            <div id="set-trail-tune">
+              <label class="field slider"><span>Separación entre marcas <b id="set-trail-gap-val">120 m</b></span><input id="set-trail-gap" type="range" min="20" max="250" step="5" value="120" /></label>
+              <label class="field slider"><span>Intensidad <b id="set-trail-op-val">70 %</b></span><input id="set-trail-op" type="range" min="15" max="100" step="5" value="70" /></label>
+              <button id="set-trail-reset" class="secondary">Valores por defecto de esta forma</button>
+            </div>
+          </div>
           <button id="set-ghost" class="toggle" aria-pressed="true"><span>Fantasmas en carreras<small>El tuyo y el del récord mundial</small></span><b>Sí</b></button>
           <h3 class="set-group">Imagen y sonido</h3>
           <button id="set-quality" class="toggle" aria-pressed="true"><span>Calidad gráfica<small>Baja va más fluida en móviles modestos</small></span><b>Automática</b></button>

@@ -47,9 +47,10 @@ completa, con su icono, sin barra del navegador.
 - **Desafío diario de día o de noche**: el mismo circuito para todos; eliges escenario de día o la
   Ciudad nocturna, y cada versión tiene su propia clasificación.
 
-- **Estela en el cielo**: flechas luminosas que fluyen desde tu avión hasta el siguiente hito y el
-  posterior, entrando de frente por cada hito (dorada cuando lo siguiente es la meta). También
-  guía en Mensajero hasta la azotea de entrega.
+- **Estela del camino**: por defecto, flechas sueltas y discretas hasta el siguiente hito (doradas
+  cuando lo siguiente es la meta); también guía en Mensajero. En **Ajustes → Juego** eliges la forma
+  (Flechas sueltas, Puntos, Línea fina, Solo cerca o Sin estela) y, para cada una, la separación
+  entre marcas y la intensidad.
 - **Flecha guía**: una flecha plana y grande junto al avión que solo aparece cuando el objetivo
   no está a la vista; si está detrás, indica hacia qué lado girar.
 - **Tirón de emergencia**: si vas a chocar contra el suelo o un edificio y tiras del morro hacia
