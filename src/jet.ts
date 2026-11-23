@@ -194,6 +194,9 @@ export class JetModel {
       case 'sparrow':
         this.buildSparrow(add, m);
         break;
+      case 'raptor':
+        this.buildRaptor(add, m);
+        break;
       case 'specter':
         this.buildSpecter(add, m);
         break;
@@ -265,14 +268,7 @@ export class JetModel {
     add(0.3, 3.2, 2.6, 1.1, 2, 5, m.wing).rotation.z = -0.25;
     add(1.1, 1.1, 1.2, -0.6, 0, 6.6, m.dark);
     add(1.1, 1.1, 1.2, 0.6, 0, 6.6, m.dark);
-    if (variant === 'raptor') {
-      add(0.9, 0.9, 3, 0, -0.1, -11.5, m.body);
-      add(0.4, 0.4, 1.2, 0, -0.1, -13.4, m.dark);
-      add(16.5, 0.3, 1.2, 0, -0.25, 3.9, m.wing);
-      add(1.2, 0.4, 1.4, -8, -0.2, 3.9, m.accent);
-      add(1.2, 0.4, 1.4, 8, -0.2, 3.9, m.accent);
-      this.wingTips = [new THREE.Vector3(-8.3, 0, 3.9), new THREE.Vector3(8.3, 0, 3.9)];
-    } else if (variant === 'typhoon') {
+    if (variant === 'typhoon') {
       add(3.4, 2.6, 9, 0, -0.2, 1.5, m.body);
       add(1.6, 1.6, 1.6, -1.2, -0.2, 6.6, m.dark);
       add(1.6, 1.6, 1.6, 1.2, -0.2, 6.6, m.dark);
@@ -301,155 +297,247 @@ export class JetModel {
     this.flame(0, 0, 5.4, 0.9);
   }
 
-  // ---------------------------------------------------------------- Avanzados
-  /** Ala volante furtiva */
+  // ---------------------------------------------------------------- Piezas con forma real
+  /**
+   * Plancha con la silueta en planta (alas, estabilizadores, quillas).
+   * pts: contorno del lado derecho como [x, z]; se refleja en el lado izquierdo.
+   */
+  private plate(pts: [number, number][], t: number, y: number, mat: THREE.Material, mirror = true) {
+    const make = (sx: number) => {
+      const shape = new THREE.Shape();
+      const p0 = pts[0];
+      shape.moveTo(p0[0] * sx, p0[1]);
+      for (let i = 1; i < pts.length; i++) shape.lineTo(pts[i][0] * sx, pts[i][1]);
+      shape.closePath();
+      const geo = new THREE.ExtrudeGeometry(shape, { depth: t, bevelEnabled: false });
+      geo.rotateX(Math.PI / 2);
+      geo.translate(0, y + t / 2, 0);
+      const mesh = new THREE.Mesh(geo, mat);
+      this.group.add(mesh);
+      return mesh;
+    };
+    make(1);
+    if (mirror) make(-1);
+  }
+
+  /** Deriva vertical: contorno [z, y] desde su raíz; cant = inclinación lateral (rad) */
+  private fin(pts: [number, number][], t: number, x: number, y: number, cant: number, mat: THREE.Material) {
+    const shape = new THREE.Shape();
+    shape.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) shape.lineTo(pts[i][0], pts[i][1]);
+    shape.closePath();
+    const geo = new THREE.ExtrudeGeometry(shape, { depth: t, bevelEnabled: false });
+    geo.rotateY(-Math.PI / 2);
+    geo.translate(t / 2, 0, 0);
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(x, y, 0);
+    mesh.rotation.z = cant;
+    this.group.add(mesh);
+    return mesh;
+  }
+
+  /** Tubo a lo largo del eje Z (fuselajes redondos, góndolas, conos, misiles) */
+  private tube(rFront: number, rBack: number, len: number, x: number, y: number, z: number, mat: THREE.Material, seg = 8) {
+    const geo = new THREE.CylinderGeometry(rBack, rFront, len, seg);
+    geo.rotateX(Math.PI / 2);
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(x, y, z);
+    this.group.add(mesh);
+    return mesh;
+  }
+
+  // ---------------------------------------------------------------- Avanzados (basados en aviones reales)
+  /** Caza furtivo de superioridad aérea (estilo F-22 Raptor) */
+  private buildRaptor(add: AddFn, m: Mats) {
+    add(2.6, 1.3, 11, 0, 0, 1.6, m.body);
+    // Morro con aristas (chine) y cono
+    this.plate([[0, -10.4], [0.9, -7.4], [1.5, -4], [1.7, -0.5], [1.7, 1], [0, 1]], 0.8, -0.35, m.body);
+    this.tube(0.06, 0.55, 2.2, 0, 0, -10.6, m.body, 6);
+    add(1, 0.75, 3.8, 0, 0.75, -5.2, m.glass);
+    add(1.2, 0.5, 1.6, 0, 0.7, -2.6, m.body);
+    // Tomas de aire laterales en diamante
+    for (const sx of [-1, 1]) {
+      const intake = add(1, 1.3, 3.2, sx * 1.75, -0.15, -2.4, m.dark);
+      intake.rotation.z = sx * 0.2;
+    }
+    // Ala trapezoidal y estabilizadores
+    this.plate([[1.3, -2.9], [7.5, 3.3], [7.5, 4.5], [1.3, 6.2]], 0.32, -0.25, m.wing);
+    this.plate([[7, 3.0], [7.5, 3.3], [7.5, 4.5], [7, 4.6]], 0.36, -0.25, m.accent);
+    this.plate([[1.2, 6.2], [4.6, 8.4], [4.6, 9.4], [1.2, 9.6]], 0.24, -0.2, m.wing);
+    // Derivas gemelas inclinadas hacia fuera
+    for (const sx of [-1, 1]) {
+      this.fin([[5, 0], [7.6, 3.2], [8.8, 3.2], [8.7, 0]], 0.25, sx * 1.5, 0.55, -sx * 0.48, m.wing);
+      this.fin([[7.7, 2.7], [7.9, 3.2], [8.8, 3.2], [8.75, 2.7]], 0.28, sx * 1.5, 0.55, -sx * 0.48, m.accent);
+    }
+    // Toberas vectoriales planas
+    add(1.25, 0.75, 1.3, -0.68, 0, 8, m.dark);
+    add(1.25, 0.75, 1.3, 0.68, 0, 8, m.dark);
+    add(3, 0.12, 0.5, 0, 0.66, 1.2, m.accent);
+    this.wingTips = [new THREE.Vector3(-7.5, -0.1, 4), new THREE.Vector3(7.5, -0.1, 4)];
+    this.flame(-0.68, 0, 8.6);
+    this.flame(0.68, 0, 8.6);
+  }
+
+  /** Ala volante furtiva (estilo B-2 Spirit, a escala de caza) */
   private buildSpecter(add: AddFn, m: Mats) {
-    add(3, 1.3, 9, 0, 0, 0.5, m.body);
-    add(1.6, 0.8, 3.2, 0, 0.9, -2.2, m.glass);
-    add(1.8, 0.9, 2.4, 0, -0.1, -4.8, m.body);
-    for (let k = 0; k < 7; k++) {
-      const x = 1.8 + k * 1.35;
-      const z = -2.4 + k * 1.05;
-      const depth = 5.2 - k * 0.45;
-      for (const sx of [-1, 1]) {
-        add(1.45, 0.45, depth, sx * x, -0.1, z + depth / 2 - 1, m.body);
-        add(1.45, 0.12, 0.25, sx * x, 0.18, z - 1, m.glow); // borde de ataque luminoso
-      }
-    }
+    // Planta en W con borde de salida en dientes de sierra
+    this.plate([[0, -7.2], [9.4, 2], [9.4, 2.8], [6.5, 5.4], [4.4, 3.5], [2.2, 5.6], [0, 3.9]], 0.55, -0.3, m.body);
+    // Borde de ataque luminoso (fino)
+    this.plate([[0.3, -6.95], [9.3, 1.9], [9.3, 2.12], [0.3, -6.7]], 0.12, 0.02, m.glow);
+    // Joroba central, cabina y tomas de aire dorsales
+    add(3.4, 1.1, 8, 0, 0.45, -1.6, m.body);
+    add(2.2, 0.6, 3, 0, 1.05, -2.4, m.body);
+    add(1.3, 0.45, 2, 0, 1.3, -3.8, m.glass);
     for (const sx of [-1, 1]) {
-      add(1.3, 0.5, 1.2, sx * 1.6, 0.2, 5.4, m.dark);
-      add(3.2, 0.1, 0.3, sx * 2.5, 0.42, 1.2, m.glow);
+      add(1.3, 0.55, 2.2, sx * 2.1, 0.75, -0.2, m.dark);
+      add(1.8, 0.2, 1, sx * 2.1, 0.45, 3.6, m.dark);
     }
-    this.wingTips = [new THREE.Vector3(-10, 0, 3.8), new THREE.Vector3(10, 0, 3.8)];
+    this.wingTips = [new THREE.Vector3(-9.4, 0, 2.4), new THREE.Vector3(9.4, 0, 2.4)];
     const c = VARIANT_GLOW.specter!.flame;
-    this.flame(-1.6, 0.2, 6, 0.8, c);
-    this.flame(1.6, 0.2, 6, 0.8, c);
+    this.flame(-2.1, 0.45, 4.1, 0.75, c);
+    this.flame(2.1, 0.45, 4.1, 0.75, c);
   }
 
-  /** Avión legendario: ala de gaviota dorada, doble deriva y canards */
-  private buildAurora(add: AddFn, m: Mats) {
-    add(2, 1.6, 12, 0, 0, 0.5, m.body);
-    add(1.4, 1.2, 3, 0, 0, -6.6, m.body);
-    add(0.7, 0.7, 2, 0, -0.05, -9, m.accent);
-    add(1.2, 0.9, 3.4, 0, 1.1, -3.4, m.glass);
-    for (let k = 0; k < 6; k++) {
-      const x = 1.6 + k * 1.4;
-      const y = k < 3 ? k * 0.25 : 0.75 - (k - 3) * 0.3;
-      const depth = 4.6 - k * 0.5;
-      for (const sx of [-1, 1]) {
-        add(1.5, 0.4, depth, sx * x, y, 1.4 + k * 0.5, m.wing);
-        add(1.5, 0.12, 0.3, sx * x, y + 0.26, 1.4 + k * 0.5 - depth / 2, m.glow);
-      }
-    }
-    for (const sx of [-1, 1]) {
-      add(2.6, 0.3, 1.2, sx * 1.8, 0.2, -5, m.accent); // canards
-      add(0.3, 2.4, 2, sx * 1.4, 1.4, 5.4, m.accent); // derivas
-      add(0.12, 2.2, 0.3, sx * 1.4, 1.4, 4.4, m.glow);
-    }
-    this.wingTips = [new THREE.Vector3(-9.4, 0, 4), new THREE.Vector3(9.4, 0, 4)];
-    const c = VARIANT_GLOW.aurora!.flame;
-    this.flame(-0.6, 0, 7, 0.9, c);
-    this.flame(0.6, 0, 7, 0.9, c);
-  }
-
-  /** Alas en flecha invertida, canards y tres derivas */
+  /** Alas en flecha invertida y canards (estilo Su-47 Berkut) */
   private buildPhoenix(add: AddFn, m: Mats) {
-    add(2.2, 1.9, 12, 0, 0, 0.6, m.body);
-    add(1.6, 1.5, 3, 0, 0, -6.8, m.body);
-    add(0.9, 0.9, 1.8, 0, -0.1, -9.2, m.accent);
-    add(1.3, 1, 3.6, 0, 1.3, -4.2, m.glass);
-    for (let k = 0; k < 6; k++) {
-      const x = 1.6 + k * 1.3;
-      const z = 2.4 - k * 0.85;
-      for (const sx of [-1, 1]) {
-        add(1.35, 0.35, 2.4, sx * x, -0.2, z, m.wing);
-        if (k % 2 === 1) add(1.35, 0.1, 0.3, sx * x, 0.02, z + 1.15, m.glow);
-      }
-    }
+    add(2.2, 1.7, 13, 0, 0.1, 0.2, m.body);
+    this.tube(0.08, 0.85, 3.6, 0, 0, -8.1, m.body, 8);
+    add(1.1, 0.85, 3.6, 0, 1.05, -4.2, m.glass);
+    add(1.4, 0.5, 2.6, 0, 0.95, -1.6, m.body);
     for (const sx of [-1, 1]) {
-      add(2.6, 0.25, 1.1, sx * 2, 0.4, -5.6, m.accent);
-      add(0.3, 2.8, 2.2, sx * 1.4, 1.8, 5.2, m.wing).rotation.z = sx * -0.35;
-      add(3.2, 0.3, 1.5, sx * 2.4, 0, 6.4, m.wing);
+      this.tube(0.75, 0.8, 9.5, sx * 1.55, -0.2, 3.6, m.body, 8);
+      this.tube(0.7, 0.6, 1.2, sx * 1.55, -0.2, 8.9, m.dark, 8);
+      add(1, 1.2, 1.4, sx * 1.55, -0.3, -1.7, m.dark);
     }
-    add(0.3, 3, 2, 0, 2.2, 5.6, m.accent);
-    add(1.4, 0.15, 6, 0, 1.0, 1.8, m.glow);
-    add(1.1, 1.1, 1.2, -0.6, 0, 7, m.dark);
-    add(1.1, 1.1, 1.2, 0.6, 0, 7, m.dark);
+    // Ala en flecha invertida: la punta va por delante de la raíz
+    this.plate([[2.1, 0.6], [8.6, -2.6], [8.6, -1], [2.1, 5.4]], 0.32, -0.3, m.wing);
+    this.plate([[8, -2.3], [8.6, -2.6], [8.6, -1], [8, -0.7]], 0.36, -0.3, m.accent);
+    // Canards y estabilizadores
+    this.plate([[1.2, -5.6], [4, -4.3], [4, -3.5], [1.2, -3.6]], 0.2, 0.25, m.accent);
+    this.plate([[2.2, 7], [5, 8.6], [5, 9.4], [2.2, 9.4]], 0.22, -0.2, m.wing);
+    for (const sx of [-1, 1]) this.fin([[5.6, 0], [8.2, 3.1], [9.2, 3.1], [9.2, 0]], 0.25, sx * 1.9, 0.5, -sx * 0.18, m.wing);
+    add(0.25, 0.12, 6, 0, 1.0, 2.4, m.glow);
     this.wingTips = [new THREE.Vector3(-8.6, -0.2, -1.8), new THREE.Vector3(8.6, -0.2, -1.8)];
     const c = VARIANT_GLOW.phoenix!.flame;
-    this.flame(-0.6, 0, 7.6, 1, c);
-    this.flame(0.6, 0, 7.6, 1, c);
+    this.flame(-1.55, -0.2, 9.5, 1, c);
+    this.flame(1.55, -0.2, 9.5, 1, c);
   }
 
-  /** Doble fuselaje con lanzamisiles bajo las alas */
+  /** Delta con canards cargado de misiles (estilo Eurofighter Typhoon) */
   private buildMantis(add: AddFn, m: Mats) {
-    add(2.4, 2, 8, 0, 0, -1.5, m.body);
-    add(1.4, 1.2, 2.2, 0, -0.1, -6.4, m.accent);
-    add(1.4, 1, 3, 0, 1.3, -3, m.glass);
-    add(17, 0.4, 3, 0, -0.1, 0.4, m.wing);
+    add(2.1, 1.7, 12.5, 0, 0.1, 0.8, m.body);
+    this.tube(0.07, 0.8, 3.4, 0, 0.15, -7.1, m.body, 8);
+    add(1, 0.85, 3.4, 0, 1.15, -4.2, m.glass);
+    add(1.3, 0.55, 3, 0, 1.0, -1.6, m.body);
+    // Toma de aire ventral «sonrisa»
+    add(2.1, 1.1, 3.2, 0, -1.1, -1.6, m.dark);
+    add(1.8, 0.9, 6, 0, -0.9, 2.6, m.body);
+    // Delta recortado y canards
+    this.plate([[1, -0.6], [6.2, 5.2], [6.2, 6.1], [1, 7]], 0.32, -0.3, m.wing);
+    this.plate([[5.6, 4.6], [6.2, 5.2], [6.2, 6.1], [5.6, 6.2]], 0.36, -0.3, m.accent);
+    this.plate([[1, -5.8], [3.1, -4.6], [3.1, -4.05], [1, -4.2]], 0.18, 0.3, m.accent);
+    this.fin([[3.2, 0], [6.8, 3.5], [8.1, 3.5], [7.7, 0]], 0.28, 0, 0.8, 0, m.wing);
+    this.fin([[6.6, 2.9], [6.85, 3.5], [8.1, 3.5], [8.0, 2.9]], 0.3, 0, 0.8, 0, m.accent);
+    this.tube(0.62, 0.55, 1.2, -0.6, 0, 7.7, m.dark, 8);
+    this.tube(0.62, 0.55, 1.2, 0.6, 0, 7.7, m.dark, 8);
+    // Misiles: tres por ala y dos bajo el fuselaje
     for (const sx of [-1, 1]) {
-      add(1.3, 1.3, 11, sx * 3.6, 0, 3, m.body);
-      add(0.3, 2.6, 2, sx * 3.6, 1.6, 7.6, m.accent);
-      add(1.4, 0.15, 7, sx * 3.6, 0.72, 2.5, m.glow);
-      // Lanzamisiles: tres misiles por ala
-      for (const dx of [5.4, 6.6, 7.8]) {
-        add(0.45, 0.45, 2.8, sx * dx, -0.6, 0.2, m.white);
-        add(0.45, 0.45, 0.5, sx * dx, -0.6, -1.45, m.red);
+      for (const [x, z] of [
+        [2.4, 2.4],
+        [3.6, 3.4],
+        [4.8, 4.4],
+      ]) {
+        add(0.15, 0.35, 1.6, sx * x, -0.55, z, m.dark);
+        this.tube(0.06, 0.2, 2.6, sx * x, -0.85, z, m.white, 6);
+        this.tube(0.02, 0.2, 0.45, sx * x, -0.85, z - 1.5, m.red, 6);
       }
+      this.tube(0.06, 0.2, 2.6, sx * 0.7, -1.75, 3.2, m.white, 6);
     }
-    add(8.6, 0.3, 1.4, 0, 0.9, 8.4, m.wing);
-    add(1.2, 1.2, 1.2, 0, 0, 2.9, m.dark);
-    this.wingTips = [new THREE.Vector3(-8.5, 0, 0.4), new THREE.Vector3(8.5, 0, 0.4)];
+    this.wingTips = [new THREE.Vector3(-6.2, -0.2, 5.6), new THREE.Vector3(6.2, -0.2, 5.6)];
     const c = VARIANT_GLOW.mantis!.flame;
-    this.flame(0, 0, 3.4, 0.9, c);
-    this.flame(-3.6, 0, 8.6, 0.7, c);
-    this.flame(3.6, 0, 8.6, 0.7, c);
+    this.flame(-0.6, 0, 8.3, 0.9, c);
+    this.flame(0.6, 0, 8.3, 0.9, c);
   }
 
-  /** Cañonera pesada de cuatro motores y cañón triple */
+  /** Avión de ataque blindado con cañón rotativo (estilo A-10 Thunderbolt II) */
   private buildStorm(add: AddFn, m: Mats) {
-    add(3.8, 3, 14, 0, 0, 0, m.body);
-    add(2.8, 2.2, 3, 0, -0.2, -8, m.body);
-    add(2, 1.2, 3.4, 0, 1.8, -4.4, m.glass);
-    for (const x of [-0.9, 0, 0.9]) add(0.35, 0.35, 3.2, x, -0.8, -10.8, m.dark);
-    add(23, 0.7, 4, 0, 0.2, 0.6, m.wing);
-    for (const sx of [-1, 1]) {
-      for (const x of [4.2, 8]) {
-        add(1.7, 1.7, 4.4, sx * x, -0.6, 1.2, m.dark);
-        add(1.7, 0.2, 0.4, sx * x, 0.3, -1, m.glow);
-      }
-      add(2, 0.8, 2.6, sx * 10.6, 0.2, 0.6, m.accent);
+    add(2.3, 2.3, 11, 0, 0, 0.6, m.body);
+    this.tube(0.7, 1.15, 3, 0, -0.2, -6.4, m.body, 8);
+    add(1.4, 1.1, 2.8, 0, 1.35, -4.4, m.glass);
+    // Cañón rotativo: tres cañones asomando bajo el morro
+    this.tube(0.45, 0.45, 1.4, 0, -0.6, -8.4, m.dark, 8);
+    for (let k = 0; k < 3; k++) {
+      const a = (k / 3) * Math.PI * 2;
+      this.tube(0.1, 0.1, 2.6, Math.cos(a) * 0.25, -0.6 + Math.sin(a) * 0.25, -9.9, m.dark, 5);
     }
-    add(11, 0.4, 2.2, 0, 0.6, 7, m.wing);
-    add(0.5, 4.6, 3.2, 0, 3.2, 6.4, m.accent);
-    this.wingTips = [new THREE.Vector3(-11.4, 0.2, 0.6), new THREE.Vector3(11.4, 0.2, 0.6)];
+    add(1.6, 1.2, 4, 0, -0.2, 7.4, m.body);
+    // Ala recta, gruesa, con carga bajo las alas
+    this.plate([[1.1, -0.9], [9.2, -0.1], [9.2, 1.8], [1.1, 2.4]], 0.45, -0.6, m.wing);
+    this.plate([[8.5, -0.15], [9.2, -0.1], [9.2, 1.8], [8.5, 1.85]], 0.5, -0.6, m.accent);
+    for (const sx of [-1, 1]) {
+      for (const x of [3.4, 5, 6.6]) {
+        add(0.2, 0.5, 1.4, sx * x, -0.9, 0.6, m.dark);
+        this.tube(0.15, 0.32, 2.4, sx * x, -1.35, 0.5, m.white, 6);
+      }
+      // Motores altos en góndolas, junto a la cola
+      this.tube(0.95, 0.85, 3.8, sx * 1.75, 1.55, 4.3, m.body, 10);
+      this.tube(0.75, 0.75, 0.3, sx * 1.75, 1.55, 2.35, m.dark, 10);
+      add(0.4, 0.9, 1.6, sx * 1.2, 1.05, 4.3, m.body);
+      // Derivas en los extremos del estabilizador
+      this.fin([[7.4, -1.1], [7.8, 2.3], [9.2, 2.3], [9.4, -1.1]], 0.3, sx * 3.7, 0.5, 0, m.wing);
+      this.fin([[7.6, 1.6], [7.8, 2.3], [9.2, 2.3], [9.2, 1.6]], 0.34, sx * 3.7, 0.5, 0, m.accent);
+    }
+    this.plate([[0, 7.5], [3.8, 7.7], [3.8, 9], [0, 9.2]], 0.3, 0.45, m.wing);
+    this.wingTips = [new THREE.Vector3(-9.2, -0.4, 0.8), new THREE.Vector3(9.2, -0.4, 0.8)];
     const c = VARIANT_GLOW.storm!.flame;
-    for (const sx of [-1, 1]) for (const x of [4.2, 8]) this.flame(sx * x, -0.6, 3.4, 0.75, c);
+    this.flame(-1.75, 1.55, 6.3, 0.85, c);
+    this.flame(1.75, 1.55, 6.3, 0.85, c);
   }
 
-  /** Interceptor de morro de aguja y gran motor */
+  /** Avión espía trisónico (estilo SR-71 Blackbird) */
   private buildComet(add: AddFn, m: Mats) {
-    add(1.7, 1.7, 14, 0, 0, 0, m.body);
-    add(1.1, 1.1, 3, 0, 0, -8.4, m.body);
-    add(0.5, 0.5, 3.4, 0, 0, -11.6, m.accent);
-    add(1.1, 0.9, 3.4, 0, 1.15, -4.4, m.glass);
-    const steps: [number, number][] = [
-      [3.4, 1.4],
-      [5.6, 2.6],
-      [7.8, 3.8],
-      [9.6, 5],
-    ];
-    for (const [span, z] of steps) add(span, 0.3, 1.25, 0, -0.2, z, m.wing);
+    // Fuselaje larguísimo con aristas a los lados
+    this.tube(0.75, 0.75, 17, 0, 0.1, -0.6, m.body, 8);
+    this.tube(0.04, 0.75, 4.4, 0, 0.1, -11.3, m.body, 8);
+    this.plate([[0, -12.6], [0.9, -8], [1.6, -3], [2, 1], [0, 1]], 0.3, -0.05, m.body);
+    add(0.9, 0.55, 2.6, 0, 0.75, -7.2, m.glass);
+    // Ala delta y góndolas de los motores a media ala con conos de admisión
+    this.plate([[1.6, -4.5], [7.4, 6.6], [7.4, 7.9], [1.6, 8.3]], 0.28, -0.15, m.wing);
+    this.plate([[6.8, 5.6], [7.4, 6.6], [7.4, 7.9], [6.8, 7.95]], 0.32, -0.15, m.accent);
     for (const sx of [-1, 1]) {
-      add(2.2, 0.2, 0.8, sx * 1.4, 0.3, -6.2, m.accent);
-      add(0.3, 2.4, 2.4, sx * 0.9, 1.5, 5.4, m.wing).rotation.z = sx * -0.3;
-      add(0.2, 0.15, 9, sx * 0.9, 0.86, -0.5, m.glow);
+      this.tube(0.85, 0.95, 12.5, sx * 3.5, 0, 2.7, m.body, 10);
+      this.tube(0.03, 0.62, 1.8, sx * 3.5, 0, -4.2, m.dark, 8);
+      this.tube(0.85, 0.85, 0.3, sx * 3.5, 0, -3.5, m.accent, 10);
+      this.tube(0.8, 0.75, 0.6, sx * 3.5, 0, 9.2, m.dark, 10);
+      // Derivas sobre las góndolas, inclinadas hacia dentro
+      this.fin([[5.6, 0], [7.6, 2.9], [8.6, 2.9], [8.9, 0]], 0.22, sx * 3.5, 0.75, sx * 0.26, m.wing);
     }
-    add(2.6, 2.6, 2, 0, 0, 7.4, m.dark);
-    add(2.8, 0.3, 0.3, 0, 1.35, 8.3, m.glow);
-    add(2.8, 0.3, 0.3, 0, -1.35, 8.3, m.glow);
-    this.wingTips = [new THREE.Vector3(-4.8, -0.2, 5), new THREE.Vector3(4.8, -0.2, 5)];
-    this.flame(0, 0, 8.4, 1.6, VARIANT_GLOW.comet!.flame);
+    add(0.18, 0.1, 9, 0, 0.88, -1.4, m.glow);
+    this.wingTips = [new THREE.Vector3(-7.4, 0, 7.4), new THREE.Vector3(7.4, 0, 7.4)];
+    const c = VARIANT_GLOW.comet!.flame;
+    this.flame(-3.5, 0, 9.5, 1.05, c);
+    this.flame(3.5, 0, 9.5, 1.05, c);
+  }
+
+  /** Avión legendario: caza de sexta generación sin derivas (como los prototipos NGAD) */
+  private buildAurora(add: AddFn, m: Mats) {
+    // Planta en cometa (ala de diamante) con borde de salida en W
+    this.plate([[0, -10], [1.9, -4.5], [8.8, 3], [8.8, 3.9], [5.4, 5.6], [2.8, 4.2], [0, 6.6]], 0.45, -0.25, m.wing);
+    this.plate([[0.3, -9.7], [1.95, -4.6], [8.75, 2.9], [8.75, 3.15], [1.8, -4.25], [0.3, -9.4]], 0.12, 0.05, m.glow);
+    this.plate([[8.2, 2.5], [8.8, 3], [8.8, 3.9], [8.2, 4.2]], 0.5, -0.25, m.accent);
+    // Fuselaje integrado, cabina y tomas dorsales
+    add(2.6, 1.1, 11, 0, 0.35, -1, m.body);
+    this.tube(0.05, 0.7, 2.4, 0, 0.3, -9.4, m.body, 6);
+    add(1.05, 0.65, 3.4, 0, 1.05, -5, m.glass);
+    add(1.5, 0.5, 2.2, 0, 1.0, -2.4, m.body);
+    for (const sx of [-1, 1]) {
+      add(1.1, 0.5, 2.6, sx * 1.4, 0.85, -0.6, m.dark);
+      add(1.3, 0.35, 0.9, sx * 1, 0.25, 5.6, m.dark);
+    }
+    this.wingTips = [new THREE.Vector3(-8.8, -0.1, 3.4), new THREE.Vector3(8.8, -0.1, 3.4)];
+    const c = VARIANT_GLOW.aurora!.flame;
+    this.flame(-1, 0.25, 6.1, 0.85, c);
+    this.flame(1, 0.25, 6.1, 0.85, c);
   }
 
   /** Posición en el mundo de cada tobera (para los efectos del turbo) */

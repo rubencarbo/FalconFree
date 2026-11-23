@@ -591,6 +591,19 @@ class Game {
       damage: (n) => this.takeDamage(n),
       sparks: (pos, n) => this.fx.sparks(pos, null, n, 60),
       stat: (k, v, max) => (max ? this.progress.max(k, v) : this.progress.add(k, v)),
+      repair: () => {
+        this.hp = this.maxHp;
+      },
+      refill: () => {
+        this.guns.refill();
+        this.missiles.addMissiles(1);
+      },
+      power: () => {
+        const kinds: PowerKind[] = ['shield', 'turbo', 'damage', 'repair'];
+        const k = kinds[Math.floor(Math.random() * kinds.length)];
+        this.applyPower(k);
+        return POWER_INFO[k].name;
+      },
     });
   }
 

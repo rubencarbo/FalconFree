@@ -127,8 +127,12 @@ En partida multijugador, el botón 💬 (o la tecla T y luego 1–8) envía fras
   Crúzalos por debajo de la barra; con las alas en vertical («en cuchillo») valen casi el doble.
 - **Bandadas de pájaros**: se apartan a tu paso. Atraviesa la bandada sin tocar ninguno para
   «Vuelo limpio»; si chocas, pierdes algo de blindaje.
-- **Rampas de lanzamiento**: seis aros verdes en curva hacia arriba te lanzan por encima de las
-  nubes, donde hay islas flotantes con tesoros dorados.
+- **Rampas de lanzamiento y montañas flotantes**: seis aros verdes en curva te lanzan por encima
+  de las nubes, a unas montañas de roca suspendidas en el aire (con lianas, neblina, cascadas y
+  plantas que brillan de noche). Son un refugio útil: la **cascada** repara el avión al 100 %, los
+  **arcos de piedra** recargan la munición y dan +1 misil, el **nido** de la cima da una recompensa
+  (escudo, turbo, doble daño o reparación; reaparece cada minuto) y la **corriente ascendente**
+  te sube gratis. Además hay un tesoro dorado bajo cada montaña. En el radar aparecen con la «M».
 - **Avión legendario**: 20 piezas doradas escondidas a ras de calle entre rascacielos (7 en
   Metrópolis, 7 en Archipiélago y 6 en Ciudad nocturna). Reúnelas todas para desbloquear el
   **Aurora**. Aparecen en el radar (?) cuando estás cerca.
@@ -179,6 +183,11 @@ Cada 5 anillos recogidos se gana además 1 misil.
   creó, el modo, el escenario y los pilotos). El anfitrión puede cambiarlo desde la sala.
 
 ## Aviones
+
+Los tres básicos de siempre (Halcón, Gorrión y Tifón) y siete diseños basados en aviones reales:
+**Raptor** (F-22), **Espectro** (B-2 Spirit), **Fénix** (Su-47 Berkut), **Mantis** (Eurofighter),
+**Tormenta** (A-10 Thunderbolt II), **Cometa** (SR-71 Blackbird) y el legendario **Aurora**
+(caza de sexta generación sin derivas). Las alas y derivas tienen su silueta real.
 
 En el hangar cada avión se ve en **3D girando en el aire** y en **2D** (planta y perfil, estilo
 plano). En «Preparar vuelo» y en la sala multijugador eliges el avión antes de despegar. Al
