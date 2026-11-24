@@ -79,10 +79,10 @@ export class Weather {
   }
 
   /** Elige un clima al azar (o despejado si está desactivado) */
-  randomize(enabled: boolean, night: boolean) {
+  randomize(enabled: boolean, night: boolean, custom?: [WeatherKind, number][]) {
     if (!enabled) return this.set('clear');
     const r = Math.random();
-    const options: [WeatherKind, number][] = night
+    const options: [WeatherKind, number][] = custom ? custom : night
       ? [['clear', 0.45], ['rain', 0.2], ['fog', 0.15], ['storm', 0.2]]
       : [['clear', 0.42], ['rain', 0.2], ['fog', 0.15], ['storm', 0.13], ['snow', 0.1]];
     let acc = 0;

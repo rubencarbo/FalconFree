@@ -238,6 +238,7 @@ class Game {
   private missionT0 = 0;
   private frameStart = new THREE.Vector3();
   private probe = new THREE.Vector3();
+  private stageAurora: AuroraSky | null = null;
   /** Mi avatar («e:N» o foto) */
   private avatar = loadAvatar();
   private cropper: AvatarCropper | null = null;
@@ -454,6 +455,8 @@ class Game {
       baseHorizon: new THREE.Color(stage.sky.horizon),
     });
     this.weather.onLightning = (d) => this.audio.thunder(d);
+    // Glaciar: aurora boreal permanente
+    if (stage.aurora) this.stageAurora = new AuroraSky(this.scene);
     this.renderer.toneMapping = THREE.NoToneMapping;
     this.bloom.strength = stage.night ? 1 : 0.8;
     this.applyLoadout();
@@ -464,6 +467,8 @@ class Game {
   }
 
   private disposeWorld() {
+    this.stageAurora?.dispose();
+    this.stageAurora = null;
     this.endBattle();
     this.race?.dispose();
     this.race = null;
@@ -584,7 +589,7 @@ class Game {
     this.recorder.reset();
     this.offRouteT = 0;
     this.routeBest = Infinity;
-    this.weather.randomize(this.settings.weather, this.stage.night);
+    this.weather.randomize(this.settings.weather, this.stage.night, this.stage.weather);
     if (this.weather.kind !== 'clear') setTimeout(() => this.hud.toast(WEATHER_LABELS[this.weather.kind], 1500), 1300);
     if (this.room) this.progress.add('mpGames');
     this.endModes();
@@ -1715,13 +1720,16 @@ class Game {
     f.setVelocity(v);
     if (push) {
       f.pos.copy(push);
+    } else if (box && normal.y < -0.5) {
+      // Golpe por debajo de un arco o losa: empujar hacia abajo
+      f.pos.y = box.y0 - 4;
     } else if (box && normal.y < 0.5) {
       if (normal.x < -0.5) f.pos.x = box.x0 - 4;
       else if (normal.x > 0.5) f.pos.x = box.x1 + 4;
       else if (normal.z < -0.5) f.pos.z = box.z0 - 4;
       else if (normal.z > 0.5) f.pos.z = box.z1 + 4;
     } else {
-      f.pos.y = (box ? box.h : 0) + 4;
+      f.pos.y = (box ? box.y0 + box.h : 0) + 4;
     }
     f.stun = 0.9;
     this.stunts.crash();
@@ -1758,11 +1766,12 @@ class Game {
         this.impact(rockHit.normal, null, rockHit.push);
         return true;
       }
-      const box = this.gen.boxAt(p.x, p.z);
-      if (box && p.y < box.h + 0.5) {
+      const box = this.gen.solidAt(p.x, p.y, p.z);
+      if (box) {
         const prev = this.prevPos;
         const n = new THREE.Vector3();
-        if (prev.y >= box.h - 1) n.set(0, 1, 0);
+        if (prev.y >= box.y0 + box.h - 1) n.set(0, 1, 0);
+        else if (box.y0 > 0 && prev.y <= box.y0 + 1) n.set(0, -1, 0);
         else if (prev.x < box.x0) n.set(-1, 0, 0);
         else if (prev.x > box.x1) n.set(1, 0, 0);
         else if (prev.z < box.z0) n.set(0, 0, -1);
@@ -2187,6 +2196,8 @@ class Game {
       this.chunks.update(this.replayer.subject.x, this.replayer.subject.z);
       this.far.update(this.replayer.subject);
       this.sky.update(this.camera);
+    this.stageAurora?.update(this.time, this.camera, 1);
+      this.stageAurora?.update(this.time, this.camera, 1);
       this.weather.update(dt, this.camera, new THREE.Vector3());
       this.render(dt);
       return;
@@ -5648,6 +5659,12 @@ class Game {
       t.textContent = s.name;
       const d = document.createElement('small');
       d.textContent = s.description;
+      if (s.tag) {
+        const tg = document.createElement('em');
+        tg.className = 'stage-tag';
+        tg.textContent = s.tag;
+        t.append(tg);
+      }
       txt.append(t, d);
       b.append(sw, txt);
       b.addEventListener('click', () => onPick(s));

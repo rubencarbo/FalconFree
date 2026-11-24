@@ -4174,3 +4174,15 @@ html.standalone .install {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.stage-tag {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: #ff8a2a;
+  color: #1a1006;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 800;
+  vertical-align: middle;
+}

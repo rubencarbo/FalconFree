@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import type { Stage } from '../stages';
 import { CHUNK, CityGen, PERIOD, ROAD, hexToInt, type Box } from './city';
-import { hash2 } from './noise';
+import { fbm, hash2 } from './noise';
+import { canyonFloor, canyonH, jungleClearing, nunatakH, tepuiH } from './biomes';
 
 /** Metros por píxel de la textura del suelo (look pixelado) */
 const PX = 2;
@@ -21,6 +22,8 @@ interface Chunk {
   props?: THREE.InstancedMesh;
   clouds?: THREE.InstancedMesh;
   beacons?: THREE.InstancedMesh;
+  smoke?: THREE.InstancedMesh;
+  fires?: THREE.InstancedMesh;
   ltex?: THREE.DataTexture;
 }
 
@@ -125,6 +128,45 @@ float fbHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453
         ? step(0.32, f.x) * step(f.x, 0.68) * step(0.12, f.y) * step(f.y, 0.92)
         : step(0.2, f.x) * step(f.x, 0.8) * step(0.28, f.y) * step(f.y, 0.84);
       diffuseColor.rgb = mix(diffuseColor.rgb, uWindow * (0.85 + 0.3 * fbHash(floor(fbCell))), fbWin);
+    } else if (fbStyle == 8 || fbStyle == 10 || fbStyle == 15) {
+      // Roca estratificada (nevada en el glaciar)
+      float band = fbHash(vec2(floor(fbY / 6.0), fbSeed * 17.0 + floor(fbU / 40.0)));
+      float line = step(0.86, fract(fbY / 6.0));
+      float grain = fbHash(floor(vec2(fbU, fbY) * 0.7));
+      diffuseColor.rgb *= (0.78 + 0.32 * band) * (1.0 - 0.18 * line) * (0.94 + 0.1 * grain);
+      if (fbStyle == 10) {
+        float cap = step(fbH - 4.0 - 4.0 * fbHash(vec2(floor(fbU / 3.0), fbSeed)), fbY);
+        float streak = step(0.8, fbHash(vec2(floor(fbU / 2.0), 7.0))) * step(fbH - 20.0, fbY);
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.92, 0.95, 1.0), max(cap, streak * 0.7));
+      }
+    } else if (fbStyle == 9) {
+      // Copas de árbol: hojas a manchas
+      float leaf = fbHash(floor(vec2(fbU, fbY) * 0.6) + fbSeed * 11.0);
+      diffuseColor.rgb *= 0.72 + 0.4 * leaf;
+    } else if (fbStyle == 11) {
+      // Hielo: vetas verticales y azul más intenso abajo
+      float v = fbHash(vec2(floor(fbU / 1.5), fbSeed * 5.0));
+      diffuseColor.rgb *= 0.9 + 0.14 * v;
+      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.45, 0.72, 0.95), clamp(1.0 - fbY / max(fbH, 1.0), 0.0, 1.0) * 0.35);
+    } else if (fbStyle == 12) {
+      // Ruinas: huecos de ventana negros y hollín
+      fbCell = vec2(fbU / 3.2, fbY / 3.5);
+      f = fract(fbCell);
+      float hole = step(0.2, f.x) * step(f.x, 0.8) * step(0.25, f.y) * step(f.y, 0.85) * step(0.3, fbHash(floor(fbCell) + fbSeed * 3.0));
+      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.05, 0.045, 0.04), hole * step(3.5, fbY));
+      float soot = smoothstep(fbH * 0.55, fbH, fbY) * 0.5 + step(0.82, fbHash(floor(vec2(fbU / 5.0, fbY / 6.0)) + fbSeed)) * 0.35;
+      diffuseColor.rgb *= 1.0 - soot;
+    } else if (fbStyle == 13) {
+      // Sillares de piedra con musgo
+      vec2 sc = vec2(fbU / 2.4 + 0.5 * step(0.5, fract(fbY / 2.4)), fbY / 1.2);
+      f = fract(sc);
+      float mortar = max(step(f.x, 0.06), step(f.y, 0.1));
+      diffuseColor.rgb *= (1.0 - 0.3 * mortar) * (0.9 + 0.15 * fbHash(floor(sc)));
+      float moss = step(0.55, fbHash(floor(sc * 0.5) + 3.0)) * (1.0 - clamp(fbY / 30.0, 0.0, 1.0));
+      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.28, 0.42, 0.2), moss * 0.6);
+    } else if (fbStyle == 14) {
+      // Corteza
+      diffuseColor.rgb *= 0.75 + 0.3 * fbHash(vec2(floor(fbU * 2.0), floor(fbY / 4.0)));
     }
     fbWin *= step(4.0, fbY);
     // Bajos comerciales
@@ -180,12 +222,28 @@ float fbHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453
       roof = diffuseColor.rgb * (0.85 + 0.12 * speck);
     } else if (fbStyle == 0) {
       roof = mix(vec3(0.45, 0.46, 0.48), diffuseColor.rgb, 0.35) * (0.85 + 0.2 * speck);
+    } else if (fbStyle == 8) {
+      roof = diffuseColor.rgb * (0.95 + 0.15 * speck) + vec3(0.05, 0.03, 0.0);
+    } else if (fbStyle == 10 || fbStyle == 11) {
+      roof = vec3(0.93, 0.96, 1.0) * (0.94 + 0.07 * speck);
+    } else if (fbStyle == 9) {
+      float leaf = fbHash(floor(vWPos.xz * 0.5) + fbSeed * 7.0);
+      roof = diffuseColor.rgb * (0.85 + 0.45 * leaf);
+    } else if (fbStyle == 12) {
+      roof = mix(diffuseColor.rgb * 0.6, vec3(0.35, 0.32, 0.28), speck * 0.6);
+    } else if (fbStyle == 13 || fbStyle == 14) {
+      roof = diffuseColor.rgb * (0.85 + 0.2 * speck);
+    } else if (fbStyle == 15) {
+      roof = mix(vec3(0.16, 0.36, 0.13), vec3(0.24, 0.48, 0.18), speck);
     }
-    if (fbStyle != 7 && fbStyle != 5 && fbStyle != 4) {
+    if (fbStyle < 7 && fbStyle != 5 && fbStyle != 4) {
       fbRoofEdge = step(edge, 0.035);
       roof = mix(roof, diffuseColor.rgb * 1.08 + 0.04, fbRoofEdge);
     }
     diffuseColor.rgb = roof;
+  } else {
+    // Cara inferior (copas de árbol, arcos, losas caídas): en sombra
+    diffuseColor.rgb *= 0.55;
   }`,
       )
       .replace(
@@ -214,7 +272,10 @@ export class ChunkManager {
   private propMat: THREE.MeshLambertMaterial;
   private cloudMat: THREE.MeshLambertMaterial;
   private beaconMat: THREE.MeshBasicMaterial;
+  private smokeMat: THREE.MeshLambertMaterial;
+  private fireMat: THREE.MeshBasicMaterial;
   private night: boolean;
+  private biome: string;
   /** Luz del último píxel calculado (solo de noche) */
   private px: RGB | null = null;
   private colors: {
@@ -258,7 +319,10 @@ export class ChunkManager {
       opacity: 0.92,
     });
     this.beaconMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 0.2, 0.15) });
+    this.smokeMat = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.42, depthWrite: false });
+    this.fireMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(1, 0.45, 0.1) });
     this.night = st.night;
+    this.biome = st.biome ?? 'city';
     const p = st.palette;
     const lot = rgb(p.lot);
     this.colors = {
@@ -295,6 +359,9 @@ export class ChunkManager {
     // Balizas rojas parpadeantes
     const blink = Math.sin(performance.now() * 0.004) > 0.55 ? 3 : 0.25;
     this.beaconMat.color.setRGB(blink, blink * 0.07, blink * 0.05);
+    // Llamas que titilan (zona de guerra)
+    const fl = 0.8 + 0.2 * Math.sin(performance.now() * 0.023) * Math.sin(performance.now() * 0.0071);
+    this.fireMat.color.setRGB(fl, 0.42 * fl, 0.08);
     const cx = Math.floor(x / CHUNK);
     const cz = Math.floor(z / CHUNK);
     if (cx !== this.lastCx || cz !== this.lastCz) {
@@ -405,12 +472,32 @@ export class ChunkManager {
     const buildings: Box[] = [];
     const props: Box[] = [];
     const beacons: Box[] = [];
+    const smoke: Box[] = [];
+    const fires: Box[] = [];
     for (let i = 0; i < n; i++) {
       for (let j = 0; j < n; j++) {
         const b = this.gen.block(b0 + i, bz0 + j);
         for (const box of b.buildings) buildings.push(box);
         for (const t of b.trees) props.push(t);
         for (const l of b.lights) beacons.push({ x0: l.x - 0.7, z0: l.z - 0.7, x1: l.x + 0.7, z1: l.z + 0.7, y0: l.y - 0.7, h: 1.4, color: 0xffffff });
+        // Columnas de humo con fuego en la base (zona de guerra)
+        for (const src of b.smoke ?? []) {
+          const seed = hash2(Math.floor(src.x), Math.floor(src.z), 99);
+          for (let k = 0; k < 13; k++) {
+            const sz = 6 + k * 2.4;
+            const x = src.x + k * k * 0.4 + (hash2(k, Math.floor(src.x), 5) - 0.5) * 6;
+            const z = src.z + (hash2(k, Math.floor(src.z), 6) - 0.5) * 6 + seed * k;
+            const shade = Math.min(1, 0.22 + k * 0.035);
+            const g = Math.round(255 * shade);
+            smoke.push({ x0: x - sz / 2, z0: z - sz / 2, x1: x + sz / 2, z1: z + sz / 2, y0: src.y + k * 11, h: sz * 0.9, color: (g << 16) | (Math.round(g * 0.95) << 8) | Math.round(g * 0.9) });
+          }
+          for (let k = 0; k < 3; k++) {
+            const fx = src.x + (hash2(k, 1, Math.floor(src.x)) - 0.5) * 8;
+            const fz = src.z + (hash2(k, 2, Math.floor(src.z)) - 0.5) * 8;
+            const fs = 2.5 + k;
+            fires.push({ x0: fx - fs / 2, z0: fz - fs / 2, x1: fx + fs / 2, z1: fz + fs / 2, y0: src.y - 1, h: fs * 1.2, color: 0xffffff });
+          }
+        }
       }
     }
     const clouds = this.gen.cloudsForChunk(cx, cz);
@@ -431,6 +518,15 @@ export class ChunkManager {
     if (clouds.length) {
       chunk.clouds = this.instanced(clouds, this.cloudMat);
       group.add(chunk.clouds);
+    }
+    if (smoke.length) {
+      chunk.smoke = this.instanced(smoke, this.smokeMat);
+      chunk.smoke.renderOrder = 2;
+      group.add(chunk.smoke);
+    }
+    if (fires.length) {
+      chunk.fires = this.instanced(fires, this.fireMat);
+      group.add(chunk.fires);
     }
     this.scene.add(group);
     this.chunks.set(`${cx},${cz}`, chunk);
@@ -470,6 +566,106 @@ export class ChunkManager {
   }
 
   private groundColor(x: number, z: number): RGB {
+    switch (this.biome) {
+      case 'jungle':
+        return this.jungleGround(x, z);
+      case 'canyon':
+        return this.canyonGround(x, z);
+      case 'ice':
+        return this.iceGround(x, z);
+      case 'war':
+        return this.warGround(x, z);
+    }
+    return this.cityGround(x, z);
+  }
+
+  // ---------------------------------------------------------------- Suelos de los biomas
+  private jungleGround(x: number, z: number): RGB {
+    const g = this.gen;
+    const wv = g.waterValue(x, z);
+    const level = g.stage.waterLevel;
+    const n = hash2(Math.floor(x / 4), Math.floor(z / 4), g.stage.seed + 3);
+    if (wv < level) {
+      if (hash2(Math.floor(x / 2), Math.floor(z / 2), 11) > 0.996) return [220, 236, 220];
+      const d = level - wv;
+      return d < 0.006 ? [110, 120, 80] : d < 0.018 ? [74, 104, 70] : [58, 88, 60];
+    }
+    if (wv - level < 0.008) return n < 0.5 ? [122, 92, 60] : [108, 82, 54];
+    const bx = Math.floor(x / PERIOD);
+    const bz = Math.floor(z / PERIOD);
+    const block = g.block(bx, bz);
+    const lx = x - bx * PERIOD - PERIOD / 2;
+    const lz = z - bz * PERIOD - PERIOD / 2;
+    if (block.kind === 'plaza') {
+      const tile = (Math.floor(x / 3) + Math.floor(z / 3)) % 2 === 0;
+      return Math.hypot(lx, lz) < 40 ? (tile ? [150, 146, 126] : [134, 130, 112]) : n < 0.5 ? [60, 108, 46] : [52, 96, 40];
+    }
+    if (block.kind === 'park' && Math.hypot(lx, lz) < 30) return Math.hypot(lx, lz) < 3 ? [70, 60, 50] : n < 0.6 ? [168, 140, 96] : [150, 124, 84];
+    if (tepuiH(g, x, z) > 0) return [96, 84, 70];
+    if (jungleClearing(g, x, z)) return n < 0.5 ? [96, 150, 62] : [86, 138, 56];
+    const m = fbm(x / 60, z / 60, g.stage.seed + 4, 2);
+    return m > 0.6 ? [56, 104, 44] : n < 0.5 ? [38, 82, 32] : [32, 72, 28];
+  }
+
+  private canyonGround(x: number, z: number): RGB {
+    const g = this.gen;
+    const wv = g.waterValue(x, z);
+    const level = g.stage.waterLevel;
+    const n = hash2(Math.floor(x / 3), Math.floor(z / 3), g.stage.seed + 3);
+    if (wv < level) {
+      if (hash2(Math.floor(x / 2), Math.floor(z / 2), 11) > 0.996) return [230, 245, 240];
+      return level - wv < 0.01 ? [90, 170, 160] : [42, 120, 130];
+    }
+    if (wv - level < 0.02) return n < 0.5 ? [86, 140, 60] : [74, 124, 52];
+    if (canyonH(g, x, z) > 0) return n < 0.5 ? [176, 98, 60] : [160, 88, 54];
+    if (canyonFloor(g, x, z)) return n < 0.12 ? [120, 90, 70] : n < 0.55 ? [180, 116, 76] : [166, 104, 68];
+    // Dunas
+    const rip = Math.sin((x * 0.8 + z * 0.45) / 7 + fbm(x / 320, z / 320, g.stage.seed + 9, 2) * 14);
+    return rip > 0.4 ? [236, 196, 136] : rip > -0.3 ? [222, 180, 120] : [204, 162, 106];
+  }
+
+  private iceGround(x: number, z: number): RGB {
+    const g = this.gen;
+    const wv = g.waterValue(x, z);
+    const level = g.stage.waterLevel;
+    const n = hash2(Math.floor(x / 4), Math.floor(z / 4), g.stage.seed + 3);
+    if (wv < level) {
+      const d = level - wv;
+      const floe = fbm(x / 70, z / 70, g.stage.seed + 61, 2);
+      if (d < 0.1 && floe > 0.62) return floe > 0.66 ? [230, 240, 250] : [190, 214, 236];
+      if (d < 0.012) return [60, 130, 170];
+      return d < 0.05 ? [24, 64, 110] : [14, 40, 78];
+    }
+    if (nunatakH(g, x, z) > 0) return [90, 94, 104];
+    const cr = Math.abs(fbm(x / 260, z / 260, g.stage.seed + 62, 2) - 0.5);
+    if (cr < 0.006) return [70, 110, 170];
+    const sas = Math.sin((x * 0.3 - z * 0.9) / 5) > 0.7;
+    return sas ? [214, 228, 244] : n < 0.5 ? [232, 240, 250] : [224, 234, 248];
+  }
+
+  private warGround(x: number, z: number): RGB {
+    const g = this.gen;
+    let c = this.cityGround(x, z);
+    if (g.isWater(x, z)) return c;
+    // Cráteres de bomba
+    const cs = 36;
+    const ix = Math.floor(x / cs);
+    const iz = Math.floor(z / cs);
+    if (hash2(ix, iz, g.stage.seed + 71) < 0.22) {
+      const ccx = (ix + 0.25 + hash2(ix, iz, 72) * 0.5) * cs;
+      const ccz = (iz + 0.25 + hash2(ix, iz, 73) * 0.5) * cs;
+      const r = 5 + hash2(ix, iz, 74) * 9;
+      const d = Math.hypot(x - ccx, z - ccz);
+      if (d < r * 0.7) return hash2(Math.floor(x), Math.floor(z), 75) < 0.5 ? [40, 34, 28] : [52, 44, 36];
+      if (d < r) return [104, 92, 76];
+    }
+    // Zonas quemadas y escombros sueltos
+    if (fbm(x / 130, z / 130, g.stage.seed + 76, 2) > 0.6) c = [c[0] * 0.55, c[1] * 0.52, c[2] * 0.5];
+    if (hash2(Math.floor(x / 2), Math.floor(z / 2), g.stage.seed + 77) > 0.975) return [128, 122, 112];
+    return c;
+  }
+
+  private cityGround(x: number, z: number): RGB {
     const g = this.gen;
     const C = this.colors;
     const N = this.night;
@@ -614,6 +810,8 @@ export class ChunkManager {
     ch.ltex?.dispose();
     ch.props?.dispose();
     ch.clouds?.dispose();
+    ch.smoke?.dispose();
+    ch.fires?.dispose();
     this.onChunkRemoved?.(ch.cx, ch.cz);
   }
 
@@ -625,6 +823,8 @@ export class ChunkManager {
     this.propMat.dispose();
     this.cloudMat.dispose();
     this.beaconMat.dispose();
+    this.smokeMat.dispose();
+    this.fireMat.dispose();
   }
 }
 

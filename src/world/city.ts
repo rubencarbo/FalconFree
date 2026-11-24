@@ -1,5 +1,6 @@
 import type { Stage } from '../stages';
 import { fbm, hash2, hash3, mulberry32 } from './noise';
+import { genCanyonBlock, genIceBlock, genJungleBlock, ruinBlock } from './biomes';
 
 /** Ancho de calle (m) */
 export const ROAD = 16;
@@ -35,6 +36,8 @@ export interface Box {
   style?: number;
   /** Aleatorio 0..1 propio del edificio */
   seed?: number;
+  /** Losa o arco con hueco debajo: se puede pasar por debajo (no cuenta como suelo) */
+  arch?: boolean;
 }
 
 export type BlockKind = 'buildings' | 'park' | 'plaza' | 'parking' | 'sports';
@@ -47,6 +50,8 @@ export interface BlockData {
   /** Balizas rojas (antenas y azoteas muy altas) */
   lights: { x: number; y: number; z: number }[];
   maxH: number;
+  /** Columnas de humo (zona de guerra) */
+  smoke?: { x: number; y: number; z: number }[];
 }
 
 export type RingKind = 'normal' | 'ammo' | 'repair' | 'missile' | 'turbo' | 'gold' | 'sea';
@@ -70,6 +75,23 @@ export class CityGen {
 
   /** Valor bruto del ruido de agua (menor = más profundo) */
   waterValue(x: number, z: number): number {
+    const st = this.stage;
+    if (st.biome === 'jungle') {
+      // Ríos que serpentean (ruido "en cresta") y alguna laguna
+      const wx = x + (fbm(x / 500, z / 500, st.seed + 7, 2) - 0.5) * 380;
+      const wz = z + (fbm(x / 500, z / 500, st.seed + 8, 2) - 0.5) * 380;
+      const n = fbm(wx / 2600, wz / 2600, st.seed, 3);
+      const lake = fbm(x / 1100, z / 1100, st.seed + 3, 2);
+      return Math.min(0.3 + Math.abs(n - 0.5) * 2.6, lake + 0.1);
+    }
+    if (st.biome === 'canyon') {
+      // Río al fondo de los cañones y oasis en la llanura
+      const n = fbm(x / 1500, z / 1500, st.seed + 11, 3);
+      const plain = fbm(x / 2600, z / 2600, st.seed + 13, 2);
+      const river = plain >= 0.36 ? 0.29 + Math.abs(n - 0.5) * 4 : 1;
+      const oasis = 0.2 + fbm(x / 500, z / 500, st.seed + 14, 2) * 0.6;
+      return Math.min(river, plain < 0.3 ? oasis : 1);
+    }
     const s = this.stage.waterScale;
     // Distorsión ligera para costas más orgánicas
     const wx = x + (fbm(x / 400, z / 400, this.stage.seed + 7, 2) - 0.5) * 300;
@@ -104,6 +126,20 @@ export class CityGen {
   private genBlock(bx: number, bz: number): BlockData {
     const st = this.stage;
     const rand = mulberry32(Math.floor(hash2(bx, bz, st.seed) * 4294967296));
+    if (st.biome === 'jungle' || st.biome === 'canyon' || st.biome === 'ice') {
+      const out: BlockData = { kind: 'buildings', park: false, buildings: [], trees: [], lights: [], maxH: 0 };
+      if (st.biome === 'jungle') genJungleBlock(this, bx, bz, rand, out);
+      else if (st.biome === 'canyon') genCanyonBlock(this, bx, bz, rand, out);
+      else genIceBlock(this, bx, bz, rand, out);
+      return out;
+    }
+    const out = this.genCityBlock(bx, bz, rand);
+    if (st.biome === 'war') ruinBlock(this, bx, bz, rand, out);
+    return out;
+  }
+
+  private genCityBlock(bx: number, bz: number, rand: () => number): BlockData {
+    const st = this.stage;
     const x0 = bx * PERIOD + ROAD;
     const z0 = bz * PERIOD + ROAD;
     const buildings: Box[] = [];
@@ -331,17 +367,24 @@ export class CityGen {
     };
   }
 
-  /** Altura del obstáculo más alto en (x, z). 0 = suelo/agua. */
+  /** En la ciudad las calles están siempre libres (atajo rápido) */
+  private get roadsFree() {
+    return !this.stage.biome || this.stage.biome === 'city';
+  }
+
+  /** Altura del obstáculo más alto en (x, z). 0 = suelo/agua. (Ignora arcos y losas con hueco) */
   heightAt(x: number, z: number): number {
     const bx = Math.floor(x / PERIOD);
     const bz = Math.floor(z / PERIOD);
     const lx = x - bx * PERIOD;
     const lz = z - bz * PERIOD;
-    if (lx < ROAD || lz < ROAD) return 0;
+    if (this.roadsFree && (lx < ROAD || lz < ROAD)) return 0;
     const b = this.block(bx, bz);
     let h = 0;
     for (const box of b.buildings) {
-      if (x >= box.x0 && x <= box.x1 && z >= box.z0 && z <= box.z1 && box.h > h) h = box.h;
+      if (box.arch) continue;
+      const top = box.y0 + box.h;
+      if (x >= box.x0 && x <= box.x1 && z >= box.z0 && z <= box.z1 && top > h) h = top;
     }
     return h;
   }
@@ -352,12 +395,26 @@ export class CityGen {
     const bz = Math.floor(z / PERIOD);
     const lx = x - bx * PERIOD;
     const lz = z - bz * PERIOD;
-    if (lx < ROAD || lz < ROAD) return null;
+    if (this.roadsFree && (lx < ROAD || lz < ROAD)) return null;
     let best: Box | null = null;
     for (const box of this.block(bx, bz).buildings) {
-      if (x >= box.x0 && x <= box.x1 && z >= box.z0 && z <= box.z1 && (!best || box.h > best.h)) best = box;
+      if (box.arch) continue;
+      if (x >= box.x0 && x <= box.x1 && z >= box.z0 && z <= box.z1 && (!best || box.y0 + box.h > best.y0 + best.h)) best = box;
     }
     return best;
+  }
+
+  /** Caja sólida que ocupa el punto (x, y, z), incluidos arcos y copas de árbol (para choques) */
+  solidAt(x: number, y: number, z: number): Box | null {
+    const bx = Math.floor(x / PERIOD);
+    const bz = Math.floor(z / PERIOD);
+    const lx = x - bx * PERIOD;
+    const lz = z - bz * PERIOD;
+    if (this.roadsFree && (lx < ROAD || lz < ROAD)) return null;
+    for (const box of this.block(bx, bz).buildings) {
+      if (x >= box.x0 && x <= box.x1 && z >= box.z0 && z <= box.z1 && y < box.y0 + box.h + 0.5 && y > box.y0 - 0.5) return box;
+    }
+    return null;
   }
 
   /** Altura máxima aproximada en un radio (por manzanas) */

@@ -16,7 +16,7 @@
             ".validate": "newData.val() === 'free' || newData.val() === 'race' || newData.val() === 'battle'"
           },
           "stage": {
-            ".validate": "newData.val() === 'metropolis' || newData.val() === 'archipelago' || newData.val() === 'dusk'"
+            ".validate": "newData.val() === 'metropolis' || newData.val() === 'archipelago' || newData.val() === 'dusk' || newData.val() === 'jungle' || newData.val() === 'warzone' || newData.val() === 'canyon' || newData.val() === 'glacier'"
           },
           "course": {
             ".validate": "newData.isString() && newData.val().length <= 20"

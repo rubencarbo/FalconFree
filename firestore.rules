@@ -54,7 +54,7 @@ service cloud.firestore {
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.author is string && request.resource.data.author.size() <= 16
         && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 28
-        && request.resource.data.stage in ['metropolis', 'archipelago', 'dusk']
+        && request.resource.data.stage in ['metropolis', 'archipelago', 'dusk', 'jungle', 'warzone', 'canyon', 'glacier']
         && request.resource.data.g is string && request.resource.data.g.size() <= 400
         && request.resource.data.createdAt == request.time;
       allow update, delete: if false;
@@ -111,7 +111,7 @@ service cloud.firestore {
       return d.keys().hasOnly(['uid', 'name', 'stage', 'rings', 'maxSpeed', 'updatedAt'])
         && d.uid == request.auth.uid
         && d.name is string && d.name.size() > 0 && d.name.size() <= 16
-        && d.stage in ['metropolis', 'archipelago', 'dusk']
+        && d.stage in ['metropolis', 'archipelago', 'dusk', 'jungle', 'warzone', 'canyon', 'glacier']
         && d.rings is int && d.rings >= 0 && d.rings <= 500
         && d.maxSpeed is number && d.maxSpeed >= 0 && d.maxSpeed <= 3000
         && d.updatedAt == request.time;
