@@ -79,6 +79,9 @@
             },
             "plane": {
               ".validate": "newData.isString() && newData.val().length <= 12"
+            },
+            "av": {
+              ".validate": "newData.isString() && newData.val().length <= 14000"
             }
           }
         },

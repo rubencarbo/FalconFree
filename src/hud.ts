@@ -12,6 +12,8 @@ export interface PilotTag {
   color: string;
   pos: THREE.Vector3;
   enemy: boolean;
+  /** URL del avatar (o null) */
+  av?: string | null;
 }
 
 const _up = new THREE.Vector3(0, 7, 0);
@@ -138,8 +140,9 @@ export class Hud {
   private pilotEls = new Map<string, HTMLElement>();
 
   /** Etiquetas de los otros pilotos: icono, nombre y distancia (en el borde si no se ven) */
-  updatePilots(camera: THREE.PerspectiveCamera, me: THREE.Vector3, list: PilotTag[]) {
+  updatePilots(camera: THREE.PerspectiveCamera, me: THREE.Vector3, list: PilotTag[], avatarSize = 44) {
     const root = $('pilots');
+    root.style.setProperty('--avs', `${avatarSize}px`);
     const W = window.innerWidth;
     const H = window.innerHeight - this.panelH;
     const seen = new Set<string>();
@@ -149,7 +152,7 @@ export class Hud {
       if (!el) {
         el = document.createElement('div');
         el.className = 'pilot';
-        el.innerHTML = '<span class="pi-icon"></span><span class="pi-name"></span><span class="pi-dist"></span>';
+        el.innerHTML = '<span class="pi-icon"></span><span class="pi-name"></span><span class="pi-dist"></span><img class="pi-av" alt="" hidden />';
         root.append(el);
         this.pilotEls.set(p.id, el);
       }
@@ -158,6 +161,14 @@ export class Hud {
       const d = p.pos.distanceTo(me);
       (el.children[2] as HTMLElement).textContent = d > 1000 ? `${(d / 1000).toFixed(1)} km` : `${Math.round(d)} m`;
       el.style.setProperty('--pc', p.color);
+      const img = el.children[3] as HTMLImageElement;
+      if (p.av) {
+        if (img.dataset.src !== p.av) {
+          img.dataset.src = p.av;
+          img.src = p.av;
+        }
+        img.hidden = false;
+      } else img.hidden = true;
       el.classList.toggle('enemy', p.enemy);
       const v = this.v.copy(p.pos).add(_up).project(camera);
       const behind = v.z > 1;

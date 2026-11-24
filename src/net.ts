@@ -69,6 +69,8 @@ export interface PlayerInfo {
   team?: Team;
   icon?: IconId;
   plane?: PlaneVariant;
+  /** avatar (predefinido «e:N» o foto en data URL) */
+  av?: string;
 }
 
 /** Pausa común de la sala */
@@ -586,7 +588,7 @@ export class Room {
   }
 
   /** Cambia nombre, color o icono del piloto (desde la sala) */
-  async setProfile(patch: { name?: string; color?: number; icon?: IconId; plane?: PlaneVariant }) {
+  async setProfile(patch: { name?: string; color?: number; icon?: IconId; plane?: PlaneVariant; av?: string | null }) {
     if (patch.name !== undefined) {
       patch.name = patch.name.trim().slice(0, 16) || 'Piloto';
       this.name = patch.name;

@@ -46,6 +46,8 @@ export interface Settings {
   /** Oír los mensajes de voz de otros pilotos */
   voice: boolean;
   trail: TrailSettings;
+  /** tamaño (px) de los avatares de otros pilotos; 0 = ocultos */
+  avatarSize: number;
   controls: Record<ControlId, ControlLayout>;
 }
 
@@ -95,6 +97,7 @@ function defaults(): Settings {
     ghost: true,
     voice: true,
     trail: { style: 'chevrons', tune: {} },
+    avatarSize: 44,
     controls: defaultControls(),
   };
 }
@@ -132,6 +135,7 @@ export function loadSettings(): Settings {
       ghost: s.ghost ?? true,
       voice: s.voice ?? true,
       trail: sanitizeTrail(s.trail),
+      avatarSize: clamp(Number(s.avatarSize ?? 44), 0, 96) || 0,
       controls,
     };
   } catch {

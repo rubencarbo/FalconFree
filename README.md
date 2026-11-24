@@ -65,8 +65,9 @@ Para no perderse en un mundo abierto, sin mover los hitos (sería injusto en la 
 - **Haz de luz** vertical en el siguiente hito (y uno tenue en el posterior), visible a km.
 - **Flecha 3D** delante del avión apuntando al siguiente hito.
 - **Radar** orientado al rumbo, con el siguiente hito, el posterior y la ruta.
-- **Fuera de ruta**: si te alejas, aparece *Volver a la ruta* (tecla R): vuelves al último hito
-  con 3 s de penalización.
+- **Fuera de ruta**: si te alejas, aparece arriba una píldora discreta *Fuera de ruta · ↩ Volver
+  (+3 s)* (o tecla R): vuelves al último hito con 3 s de penalización. Se oculta sola a los 6 s y,
+  si sigues fuera de ruta, se recuerda cada 30 s.
 
 ## Más modos
 
@@ -122,6 +123,19 @@ reto (y en batallas por equipos, cada equipo el suyo): cualquiera suma aros o se
 completarlo, todos reciben el premio y el siguiente reto aparece delante de quien lo terminó.
 El estado vive en `rooms/{código}/mission` y se actualiza con transacciones (necesita publicar
 las reglas nuevas: `npm run deploy:multijugador`).
+
+## Avatar del piloto
+
+En **Ajustes → Piloto → Avatar** eliges uno de 20 avatares predefinidos o creas el tuyo con
+**«📷 Crear desde una foto»**: arrastras la foto y amplías (deslizador, rueda del ratón o
+pellizcando con dos dedos) hasta que la cara quede dentro del círculo, y pulsas *Usar esta cara*.
+Se guarda una imagen pequeña (JPEG de ~128 px, menos de 14 KB) en el dispositivo y en la copia en
+la nube.
+
+En multijugador el avatar aparece en la lista de la sala y **encima del avión de cada piloto**
+(sobre su etiqueta). En **Ajustes → Tamaño de los avatares de otros pilotos** eliges el tamaño
+(0 = ocultos). Viaja en `rooms/{código}/players/{uid}/av`, sin Firebase Storage (plan gratuito);
+hay que publicar las reglas nuevas (`npm run deploy:multijugador`).
 
 ## Multijugador: pausa común
 

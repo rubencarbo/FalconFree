@@ -11,6 +11,7 @@ import { Flight, JetModel, CRUISE_KMH, BOOST_KMH, BRAKE_KMH, KMH, type FlightInp
 import { CameraRig, CAMERA_LABELS, CAMERA_MODES } from './cameraRig';
 import { Contrails, FarGround, Rings, Sky, RING_INFO, type RingPickup } from './effects';
 import { ICONS, ICON_GLYPH, ICON_NAMES, hexColor, type IconId } from './identity';
+import { AVATAR_PRESETS, AvatarCropper, avatarSrc, loadAvatar, saveAvatar } from './avatar';
 import { Fx } from './fx';
 import { Guns, MAX_AMMO, type Target } from './combat';
 import { Drones } from './drones';
@@ -190,6 +191,7 @@ class Game {
   private replayReturn: string | null = null;
   private routeBest = Infinity;
   private offRouteT = 0;
+  private offRouteShown = 0;
   private lowFlightT = 0;
   private remoteFlares = new Set<string>();
   private missileBeep = 0;
@@ -236,6 +238,9 @@ class Game {
   private missionT0 = 0;
   private frameStart = new THREE.Vector3();
   private probe = new THREE.Vector3();
+  /** Mi avatar («e:N» o foto) */
+  private avatar = loadAvatar();
+  private cropper: AvatarCropper | null = null;
   // Santuario del cielo (aterrizaje) y sus maravillas
   landed: FloatingRealm | null = null;
   private usedWonders = new Set<string>();
@@ -2459,7 +2464,12 @@ class Game {
       const away = f.forward().dot(toGate) < -0.2;
       if ((d > this.routeBest + 400 && d > 800) || (away && d > 700)) this.offRouteT += dt;
       else this.offRouteT = Math.max(0, this.offRouteT - dt * 2);
-      this.hud.offRoute(this.offRouteT > 2.5);
+      // Aviso discreto: se muestra 6 s y se oculta solo; si sigues fuera, se recuerda cada 30 s
+      const want = this.offRouteT > 2.5;
+      if (want) this.offRouteShown += dt;
+      else if (this.offRouteT === 0) this.offRouteShown = 0;
+      if (this.offRouteShown > 36) this.offRouteShown = 0;
+      this.hud.offRoute(want && this.offRouteShown < 6);
     }
 
     this.audio.engine(THREE.MathUtils.clamp(f.speedKmh / BOOST_KMH, 0, 1), f.thrust, !f.frozen);
@@ -2851,7 +2861,7 @@ class Game {
   }
 
   /** Identidad visible de otro piloto o bot */
-  private pilotInfo(id: string): { name: string; icon: IconId; color: string; teamColor: string } {
+  private pilotInfo(id: string): { name: string; icon: IconId; color: string; teamColor: string; av: string | null } {
     const room = this.room;
     const p = room?.players.get(id);
     const bot = this.bots.find((b) => b.spec.id === id);
@@ -2862,7 +2872,8 @@ class Game {
     const color = p?.color ?? bot?.spec.color ?? remote?.info.color ?? 0xffffff;
     const team = this.battle?.teamOf(id);
     const teamColor = team && this.battle?.config.kind === 'teams' ? TEAM_COLORS[team] : color;
-    return { name, icon, color: hexColor(color), teamColor: hexColor(teamColor) };
+    const av = avatarSrc(p?.av ?? remote?.info.av);
+    return { name, icon, color: hexColor(color), teamColor: hexColor(teamColor), av };
   }
 
   private onRaceEvent(ev: RaceEvent) {
@@ -3977,11 +3988,11 @@ class Game {
         const pi = this.pilotInfo(t.id);
         const tagMode = this.battle?.config.kind === 'tag';
         const enemy = tagMode ? t.id === this.battle!.it : this.battle ? this.battle.enemies(this.myId, t.id) : false;
-        tags.push({ id: t.id, name: pi.name, glyph: ICON_GLYPH[pi.icon], color: pi.teamColor, pos: t.pos, enemy });
+        tags.push({ id: t.id, name: pi.name, glyph: ICON_GLYPH[pi.icon], color: pi.teamColor, pos: t.pos, enemy, av: this.settings.avatarSize ? pi.av : null });
       }
       for (const [i, r] of this.rivals.entries()) if (!r.ghost.finished) tags.push({ id: `rival${i}`, name: `${r.label}: ${r.name}`, glyph: '👻', color: r.color, pos: r.ghost.pos, enemy: false });
     }
-    this.hud.updatePilots(this.camera, f.pos, tags);
+    this.hud.updatePilots(this.camera, f.pos, tags, this.settings.avatarSize);
     this.arrow.update(f.pos, f.yaw, arrowTarget, this.alive && this.screen === 'playing' && this.rig.mode !== 'cockpit' && this.rig.mode !== 'top', arrowColor);
     if (this.rig.mode === 'cockpit') this.layoutControls();
   }
@@ -4289,6 +4300,7 @@ class Game {
 
   private attachRoom(room: Room) {
     this.room = room;
+    if (this.avatar) room.setProfile({ av: this.avatar }).catch(() => this.rulesMissing('avatar'));
     $('mp-error').textContent = '';
     show('mp-panel', false);
     this.stopPublicList();
@@ -4518,7 +4530,16 @@ class Game {
           dot.textContent = ICON_GLYPH[p.icon ?? 'o'];
           const name = document.createElement('span');
           name.textContent = p.name + (uid === room.uid ? ' (tú)' : '');
-          li.append(dot, name);
+          li.append(dot);
+          const avs = avatarSrc(p.av);
+          if (avs) {
+            const img = document.createElement('img');
+            img.className = 'lp-av';
+            img.alt = '';
+            img.src = avs;
+            li.append(img);
+          }
+          li.append(name);
           if (teamMode && p.team) {
             const t = document.createElement('small');
             t.className = 'team';
@@ -4667,6 +4688,83 @@ class Game {
     $('set-trail-op-val').textContent = `${Math.round(tune.opacity * 100)} %`;
   }
 
+  // ------------------------------------------------------------ Avatar
+  private renderAvatarPreview() {
+    const el = $('set-avatar-preview');
+    const src = avatarSrc(this.avatar);
+    el.style.backgroundImage = src ? `url("${src}")` : '';
+    el.textContent = src ? '' : '👤';
+    const sz = this.settings.avatarSize;
+    $<HTMLInputElement>('set-avsize').value = String(sz);
+    $('set-avsize-val').textContent = sz ? `${sz} px` : 'Ocultos';
+  }
+
+  private openAvatarPicker() {
+    const grid = $('av-grid');
+    if (!grid.childElementCount) {
+      grid.append(
+        ...AVATAR_PRESETS.map((_, i) => {
+          const b = document.createElement('button');
+          b.dataset.av = `e:${i}`;
+          b.setAttribute('aria-label', `Avatar ${i + 1}`);
+          const img = document.createElement('img');
+          img.alt = '';
+          img.src = avatarSrc(`e:${i}`) ?? '';
+          b.append(img);
+          b.addEventListener('click', () => this.setAvatar(`e:${i}`));
+          return b;
+        }),
+      );
+    }
+    for (const b of grid.querySelectorAll<HTMLElement>('button')) b.setAttribute('aria-pressed', String(b.dataset.av === this.avatar));
+    show('av-choose', true);
+    show('av-crop', false);
+    show('avatar-picker', true);
+  }
+
+  private setAvatar(v: string) {
+    this.avatar = v;
+    saveAvatar(v);
+    this.renderAvatarPreview();
+    show('avatar-picker', false);
+    this.hud.toast(v ? 'Avatar guardado' : 'Avatar quitado', 1200);
+    this.room?.setProfile({ av: v || null }).catch(() => this.rulesMissing('avatar'));
+  }
+
+  private setupAvatarUi() {
+    this.cropper = new AvatarCropper($<HTMLCanvasElement>('av-canvas'), $<HTMLInputElement>('av-zoom'));
+    const file = $<HTMLInputElement>('av-file');
+    $('btn-avatar').addEventListener('click', () => this.openAvatarPicker());
+    $('btn-av-photo').addEventListener('click', () => file.click());
+    $('btn-av-back').addEventListener('click', () => file.click());
+    file.addEventListener('change', async () => {
+      const f = file.files?.[0];
+      file.value = '';
+      if (!f) return;
+      try {
+        show('av-choose', false);
+        show('av-crop', true);
+        await this.cropper!.load(f);
+      } catch {
+        show('av-choose', true);
+        show('av-crop', false);
+        this.hud.toast('No se ha podido abrir esa imagen', 1800);
+      }
+    });
+    $('btn-av-use').addEventListener('click', () => {
+      const url = this.cropper?.export();
+      if (url) this.setAvatar(url);
+      else this.hud.toast('No se ha podido recortar la foto', 1500);
+    });
+    $('btn-av-none').addEventListener('click', () => this.setAvatar(''));
+    $('set-avsize').addEventListener('input', () => {
+      this.settings.avatarSize = Number($<HTMLInputElement>('set-avsize').value);
+      this.persist();
+      this.renderAvatarPreview();
+    });
+    this.renderAvatarPreview();
+  }
+
   private persist() {
     saveSettings(this.settings);
     this.applySettings();
@@ -4736,6 +4834,7 @@ class Game {
   }
 
   private setupUi() {
+    this.setupAvatarUi();
     const name = $<HTMLInputElement>('pilot-name');
     name.value = this.settings.name;
     name.addEventListener('change', () => {
