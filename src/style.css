@@ -3951,46 +3951,65 @@ html.standalone .install {
 }
 
 /* ================================================================ Retos encadenados */
+/* Píldora compacta de una línea; la descripción solo se despliega unos segundos */
 #mission {
   position: absolute;
   top: calc(252px + var(--safe-top));
   right: calc(12px + var(--safe-right, 0px));
-  width: 210px;
-  padding: 7px 10px 8px;
-  border-radius: 12px;
-  background: var(--glass);
-  border: 1px solid rgba(190, 150, 255, 0.45);
+  max-width: 230px;
+  padding: 4px 9px 0;
+  border-radius: 10px;
+  background: rgba(20, 26, 40, 0.42);
   font-size: 12px;
   line-height: 1.3;
   pointer-events: none;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
-  transition: transform 0.25s, border-color 0.25s;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+  overflow: hidden;
+  transition: transform 0.25s;
 }
 #mission .ms-head {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 13px;
+  gap: 5px;
+  white-space: nowrap;
 }
 #mission .ms-head b {
-  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 700;
 }
-#mission .ms-head small {
-  padding: 1px 6px;
-  border-radius: 8px;
-  background: rgba(176, 128, 255, 0.35);
+#mission-prog {
+  margin-left: auto;
   font-weight: 800;
 }
+#mission-lvl {
+  padding: 0 5px;
+  border-radius: 6px;
+  background: rgba(176, 128, 255, 0.4);
+  font-weight: 800;
+  font-size: 10px;
+}
+#mission-frenzy {
+  font-style: normal;
+  font-weight: 800;
+  color: #ffd040;
+}
+#mission-frenzy:empty {
+  display: none;
+}
 #mission-desc {
-  display: block;
-  margin: 3px 0 5px;
+  display: none;
+  margin: 2px 0 3px;
   opacity: 0.9;
+  font-size: 11px;
+}
+#mission.info #mission-desc {
+  display: block;
 }
 #mission .ms-bar {
-  height: 5px;
-  border-radius: 3px;
-  background: rgba(255, 255, 255, 0.15);
-  overflow: hidden;
+  height: 2px;
+  margin: 3px -9px 0;
+  background: rgba(255, 255, 255, 0.12);
 }
 #mission .ms-bar i {
   display: block;
@@ -3999,62 +4018,48 @@ html.standalone .install {
   background: linear-gradient(90deg, #a070ff, #60e0ff);
   transition: width 0.25s;
 }
-#mission #mission-prog {
-  display: block;
-  margin-top: 3px;
-  text-align: right;
-  font-weight: 700;
-}
-#mission.team {
-  border-color: rgba(120, 220, 160, 0.55);
-}
-#mission.frenzy {
-  border-color: #ffd040;
-  transform: scale(1.04);
+#mission.team .ms-bar i {
+  background: linear-gradient(90deg, #40d090, #60e0ff);
 }
 #mission.pop {
-  transform: scale(1.1);
-  border-color: #ffd040;
+  transform: scale(1.08);
 }
+#hud:has(#battle-score:not(.hidden)) #mission,
+#hud:has(#race-timer:not(.hidden)) #mission {
+  top: calc(296px + var(--safe-top));
+}
+/* Móvil en vertical: a la izquierda, bajo los indicadores (lejos del avión) */
+@media (max-width: 600px) {
+  #mission {
+    top: calc(168px + var(--safe-top));
+    right: auto;
+    left: calc(10px + var(--safe-left));
+    max-width: 52vw;
+    font-size: 11px;
+    transform-origin: left top;
+  }
+  #hud:has(#battle-score:not(.hidden)) #mission,
+  #hud:has(#race-timer:not(.hidden)) #mission {
+    top: calc(212px + var(--safe-top));
+  }
+}
+/* Móvil en horizontal: arriba en el centro, una sola línea */
 @media (max-height: 500px) {
   #mission {
     top: calc(4px + var(--safe-top));
     right: auto;
     left: 50%;
     transform: translateX(-50%);
-    width: 250px;
-    padding: 3px 9px 4px;
-    font-size: 10.5px;
+    max-width: 260px;
+    font-size: 11px;
+    padding-top: 3px;
   }
-  #mission .ms-head {
-    font-size: 11.5px;
-  }
-  #mission #mission-desc {
-    margin: 1px 0 2px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  #mission #mission-prog {
-    margin-top: 0;
-    line-height: 1.1;
-  }
-  #mission.frenzy,
   #mission.pop {
-    transform: translateX(-50%) scale(1.05);
+    transform: translateX(-50%) scale(1.06);
   }
-}
-#hud:has(#battle-score:not(.hidden)) #mission,
-#hud:has(#race-timer:not(.hidden)) #mission {
-  top: calc(296px + var(--safe-top));
-}
-@media (max-height: 500px) {
-  #hud:has(#battle-score:not(.hidden)) #mission,
-  #hud:has(#race-timer:not(.hidden)) #mission {
+  #hud:has(#battle-score:not(.hidden)) #mission {
     top: calc(48px + var(--safe-top));
   }
-}
-@media (max-height: 500px) {
   #hud:has(#race-timer:not(.hidden)) #mission {
     top: calc(84px + var(--safe-top));
   }

@@ -492,6 +492,7 @@ class Game {
     this.hazards?.dispose();
     this.hazards = null;
     this.missionTeam = '';
+    this.missionHudLvl = 0;
     show('mission', false);
     this.endWonders();
     this.endEditor();
@@ -763,25 +764,31 @@ class Game {
     }
   }
 
-  /** Tarjeta del reto en pantalla */
+  /** Píldora del reto en pantalla (la descripción solo se despliega unos segundos) */
   private updateMissionHud() {
     const m = this.missions?.state;
     const on = !!m && this.screen === 'playing';
     show('mission', on);
     if (!on || !m) return;
+    const M = this.missions!;
+    if (m.lvl !== this.missionHudLvl) {
+      this.missionHudLvl = m.lvl;
+      this.missionInfoUntil = this.time + 5;
+    }
     const i = MISSION_INFO[m.kind];
     $('mission-icon').textContent = i.icon;
-    $('mission-title').textContent = i.title + (this.missionTeam ? ' · equipo' : '');
+    $('mission-title').textContent = i.title;
     $('mission-lvl').textContent = `Nv ${m.lvl}`;
-    const fr = this.missions!.frenzy;
-    let desc = i.desc(m);
-    if (m.kind === 'slalom' && m.prog > 0 && this.missions!.slalomLeft < 99) desc = `¡Siguiente aro! ${Math.max(0, this.missions!.slalomLeft).toFixed(1)} s`;
-    if (fr > 0) desc = `⚡ FRENESÍ ×3 · ${Math.ceil(fr)} s · ` + desc;
-    $('mission-desc').textContent = desc;
-    $('mission-prog').textContent = this.missions!.progressText();
+    let prog = M.progressText();
+    if (m.kind === 'slalom' && m.prog > 0 && M.slalomLeft < 99) prog += ` · ${Math.max(0, M.slalomLeft).toFixed(1)} s`;
+    $('mission-prog').textContent = prog;
+    $('mission-frenzy').textContent = M.frenzy > 0 ? `×3 ${Math.ceil(M.frenzy)}s` : '';
+    $('mission-desc').textContent = i.desc(m) + (this.missionTeam ? ' · reto de equipo' : '');
     $('mission-bar').style.width = `${Math.min(100, (m.prog / m.goal) * 100)}%`;
-    $('mission').classList.toggle('frenzy', fr > 0);
+    $('mission').classList.toggle('info', this.time < this.missionInfoUntil);
   }
+  private missionHudLvl = 0;
+  private missionInfoUntil = 0;
 
   /** Túneles de viento, globos, pasos imposibles, pájaros, rampas y piezas legendarias */
   private startSkyFun() {
