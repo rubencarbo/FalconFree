@@ -245,6 +245,8 @@ class Game {
   private missionT0 = 0;
   private frameStart = new THREE.Vector3();
   private probe = new THREE.Vector3();
+  private canyonChain = 0;
+  private canyonLast = -99;
   private stageAurora: AuroraSky | null = null;
   /** Mi avatar («e:N» o foto) */
   private avatar = loadAvatar();
@@ -2944,6 +2946,18 @@ class Game {
       if (g.kind !== 'normal') msgs.push(info.label);
       if (g.kind === 'gold' || g.kind === 'sea') this.fx.sparks(this.flight.pos, null, 40, 70);
       if (g.kind === 'sea') this.progress.add('seaRings');
+      if (g.kind === 'canyon') {
+        // Pasos del cañón encadenados: cuanto más seguidos, más puntos
+        this.canyonChain = this.time - this.canyonLast < 14 ? this.canyonChain + 1 : 1;
+        this.canyonLast = this.time;
+        this.fx.sparks(this.flight.pos, null, 50, 80);
+        const agl = this.flight.pos.y - this.gen.heightAt(this.flight.pos.x, this.flight.pos.z);
+        this.stunts.trick(this.canyonChain > 1 ? `Cadena de pasos ×${this.canyonChain}` : 'Paso del cañón', 150 + 60 * (this.canyonChain - 1) + (agl < 25 ? 80 : 0));
+        if (this.canyonChain > 1) msgs.push(`cadena ×${this.canyonChain}`);
+        if (agl < 25) msgs.push('¡rozando el río!');
+        this.earn(10 * this.canyonChain);
+        continue;
+      }
       this.stunts.trick(this.flight.speedKmh > 1200 ? 'Aro supersónico' : g.kind === 'sea' ? 'Aro marino' : 'Aro', this.flight.speedKmh > 1200 ? 120 : 50);
     }
     this.audio.ring();
@@ -4165,7 +4179,9 @@ class Game {
     }
     // Retos: aros en el radar; flecha al siguiente si no hay otro objetivo
     if (this.missions) {
-      for (const p of this.missions.radarPoints()) items.push({ pos: p.pos, kind: 'ring', color: p.color });
+      // Del reto, solo el siguiente objetivo (no todos los aros)
+      const mt = this.missions.nearest(f.pos);
+      if (mt) items.push({ pos: mt, kind: 'gate2', color: '#b080ff' });
       if (!arrowTarget && !this.race && this.mode !== 'delivery') {
         const t = this.missions.nearest(f.pos);
         if (t && t.distanceTo(f.pos) > 120 && t.distanceTo(f.pos) < 4000) {
@@ -4174,9 +4190,10 @@ class Game {
         }
       }
     }
-    if (this.hazards) for (const p of this.hazards.radarPoints(f.pos)) items.push({ pos: p, kind: 'drone' });
+    // Minas y barreras: solo las que están cerca (peligro inmediato)
+    if (this.hazards) for (const p of this.hazards.radarPoints(f.pos)) if (p.distanceTo(f.pos) < 500) items.push({ pos: p, kind: 'drone', color: '#ff4040' });
     this.updateMissionHud();
-    this.radar.draw(f.pos, f.yaw, items, route, circles);
+    this.radar.draw(f.pos, f.yaw, this.radarFilter(items, f.pos), route, circles);
     const night = this.stage.night;
     const trailColor = this.race ? (this.race.nextGate === 0 ? 0xffc040 : night ? 0x9fe8ff : 0xfff0a0) : 0xffb060;
     this.trail.update(this.lastHudDt, this.screen === 'playing' && this.alive ? this.routePoints() : null, trailColor, this.routeEnd);
@@ -4197,6 +4214,45 @@ class Game {
     this.hud.updatePilots(this.camera, f.pos, tags, this.settings.avatarSize);
     this.arrow.update(f.pos, f.yaw, arrowTarget, this.alive && this.screen === 'playing' && this.rig.mode !== 'cockpit' && this.rig.mode !== 'top', arrowColor);
     if (this.rig.mode === 'cockpit') this.layoutControls();
+  }
+
+  /**
+   * El radar solo enseña lo importante: objetivos, hitos y pilotos siempre; del resto,
+   * únicamente lo más cercano (unos pocos aros, recompensas, drones y puntos de interés).
+   */
+  private radarFilter(items: RadarItem[], me: THREE.Vector3): RadarItem[] {
+    const keep: RadarItem[] = [];
+    const groups = new Map<string, { it: RadarItem; d: number }[]>();
+    const caps: Record<string, [number, number]> = {
+      ring: [4, 1500],
+      power: [2, 900],
+      poi: [3, 1600],
+      drone: [5, 1300],
+      enemy: [8, 4000],
+    };
+    for (const it of items) {
+      // Siempre: hitos, objetivos, fantasmas, pilotos (con icono) y marcas especiales
+      if (it.kind === 'gate' || it.kind === 'gate2' || it.kind === 'ghost' || it.kind === 'ally' || it.icon || (it.label && it.label !== '?' && it.kind !== 'power') || it.label === '?') {
+        keep.push(it);
+        continue;
+      }
+      const key = it.kind === 'power' && it.label ? 'poi' : it.kind;
+      const cap = caps[key];
+      if (!cap) {
+        keep.push(it);
+        continue;
+      }
+      const d = it.pos.distanceTo(me);
+      if (d > cap[1]) continue;
+      let g = groups.get(key);
+      if (!g) groups.set(key, (g = []));
+      g.push({ it, d });
+    }
+    for (const [key, g] of groups) {
+      g.sort((a, b) => a.d - b.d);
+      for (const x of g.slice(0, caps[key][0])) keep.push(x.it);
+    }
+    return keep;
   }
 
   private resize() {

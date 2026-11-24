@@ -381,7 +381,7 @@ export class Missions {
     }
     for (const [i, r] of this.rings.entries()) {
       if (!r.mesh.visible) continue;
-      if (segDist(prev, pos, r.pos) > RING_R * 1.05) continue;
+      if (segDist(prev, pos, r.pos) > RING_R + 8) continue;
       if (m.kind === 'blink') {
         const x3 = this.blinking(i, t) || this.frenzy > 0;
         this.hooks.ring(x3, x3 ? 'Aro relámpago ×3' : 'Aro relámpago');

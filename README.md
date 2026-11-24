@@ -94,6 +94,11 @@ Para no perderse en un mundo abierto, sin mover los hitos (sería injusto en la 
   «Mis circuitos» o con el enlace `?circuito=CODIGO`. En las salas de carrera, el anfitrión puede
   elegir sus circuitos publicados (★).
 
+## Aros, hitos y radar
+
+- **Tocar cuenta**: rozar un aro con el ala o pasar pegado al marco de un hito vale igual que cruzarlo por el centro.
+- **Radar limpio**: siempre muestra hitos, objetivos y pilotos; del resto solo lo más cercano (4 aros, 2 recompensas, 5 drones, 3 puntos de interés, minas a menos de 500 m y el siguiente aro del reto).
+
 ## Escenarios
 
 Además de Metrópolis, Archipiélago y Ciudad nocturna hay cuatro mundos nuevos, generados igual
@@ -104,8 +109,10 @@ funcionan en todos):
 | --- | --- |
 | 🌴 **Selva amazónica** | Ríos que serpentean, árboles gigantes con copa (se puede volar entre los troncos, por debajo de las copas) y algunos en flor, tepuyes con la cima verde y cascadas, templos escalonados y aldeas en los claros. Lluvia y niebla frecuentes. |
 | 🏚️ **Zona de guerra** | Ciudad en ruinas: rascacielos partidos, montones de escombros, esqueletos de edificio con forjados por los que se puede pasar, **losas caídas sobre las calles que forman arcos**, cráteres, zonas quemadas, columnas de humo con fuego y cielo de polvo. |
-| 🏜️ **Cañones del desierto** | Mesetas rojas en terrazas, gargantas con un río al fondo, **arcos de roca** sobre el cañón, chimeneas de hadas, dunas, cactus y oasis con palmeras. Perfecto para vuelo rasante. |
+| 🏜️ **Cañones del desierto** | Mesetas rojas en terrazas, gargantas con un río al fondo, **arcos de roca** sobre el cañón, chimeneas de hadas, dunas, cactus y oasis con palmeras. **Pasos del cañón**: aros dorados sobre el río, entre las dos paredes (×3; encadenados en menos de 14 s suben de valor, y si pasas rozando el agua hay bonus). |
 | 🧊 **Glaciar polar** | Crepúsculo con **aurora boreal permanente**, mar oscuro con témpanos, icebergs, arcos de hielo, frente del glaciar, montañas nevadas y una base científica. Nieve frecuente. |
+
+El humo de la zona de guerra es distinto en cada columna (negro de combustible, gris, polvo o vapor), se inclina con el viento y se mece.
 
 Los arcos y losas tienen hueco debajo: chocar por debajo empuja hacia abajo y pasar por debajo no
 cuenta como choque.

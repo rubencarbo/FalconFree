@@ -1,6 +1,6 @@
 import type { Stage } from '../stages';
 import { fbm, hash2, hash3, mulberry32 } from './noise';
-import { genCanyonBlock, genIceBlock, genJungleBlock, ruinBlock } from './biomes';
+import { canyonFloor, canyonH, genCanyonBlock, genIceBlock, genJungleBlock, ruinBlock } from './biomes';
 
 /** Ancho de calle (m) */
 export const ROAD = 16;
@@ -38,6 +38,8 @@ export interface Box {
   seed?: number;
   /** Losa o arco con hueco debajo: se puede pasar por debajo (no cuenta como suelo) */
   arch?: boolean;
+  /** Giro sobre el eje vertical (rad), solo decorativo (humo) */
+  rot?: number;
 }
 
 export type BlockKind = 'buildings' | 'park' | 'plaza' | 'parking' | 'sports';
@@ -54,7 +56,7 @@ export interface BlockData {
   smoke?: { x: number; y: number; z: number }[];
 }
 
-export type RingKind = 'normal' | 'ammo' | 'repair' | 'missile' | 'turbo' | 'gold' | 'sea';
+export type RingKind = 'normal' | 'ammo' | 'repair' | 'missile' | 'turbo' | 'gold' | 'sea' | 'canyon';
 
 export interface RingSpawn {
   id: string;
@@ -439,6 +441,27 @@ export class CityGen {
       const k = hash3(cx, cz, 5, seed);
       const kind: RingKind = k < 0.52 ? 'normal' : k < 0.63 ? 'ammo' : k < 0.74 ? 'repair' : k < 0.83 ? 'missile' : k < 0.93 ? 'turbo' : 'gold';
       out.push({ id: `${cx}_${cz}`, kind, x, y, z, yaw });
+    }
+    // Cañones: pasos sobre el río, entre las dos paredes, orientados según el cauce
+    if (this.stage.biome === 'canyon') {
+      const ns = this.stage.seed + 11;
+      const nAt = (x: number, z: number) => fbm(x / 1500, z / 1500, ns, 3);
+      for (let t = 0; t < 10; t++) {
+        const x = (cx + 0.1 + hash3(cx, cz, 40 + t, seed) * 0.8) * CHUNK;
+        const z = (cz + 0.1 + hash3(cx, cz, 60 + t, seed) * 0.8) * CHUNK;
+        if (!this.isWater(x, z) || !canyonFloor(this, x, z)) continue;
+        const e = 8;
+        const gx = nAt(x + e, z) - nAt(x - e, z);
+        const gz = nAt(x, z + e) - nAt(x, z - e);
+        const gl = Math.hypot(gx, gz) || 1;
+        const sx = gx / gl;
+        const sz = gz / gl;
+        const wallA = canyonH(this, x + sx * 95, z + sz * 95);
+        const wallB = canyonH(this, x - sx * 95, z - sz * 95);
+        if (Math.min(wallA, wallB) < 48) continue;
+        out.push({ id: `k${cx}_${cz}`, kind: 'canyon', x, y: 26, z, yaw: Math.atan2(-sz, sx) });
+        break;
+      }
     }
     // Aros marinos gigantes, medio sumergidos en aguas abiertas
     if (hash2(cx, cz, seed + 9) < 0.5) {

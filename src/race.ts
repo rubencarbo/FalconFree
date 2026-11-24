@@ -73,6 +73,9 @@ function yawFromDir(d: THREE.Vector3) {
 }
 
 /** Genera un circuito determinista para el escenario */
+/** Margen alrededor del hueco del hito: el marco (5 m) y la envergadura (m) */
+const GATE_TOUCH = 12;
+
 export function buildCourse(gen: CityGen, def: CourseDef): Course {
   const rand = mulberry32(gen.stage.seed * 31 + def.seedOffset);
   const N = def.gates;
@@ -459,7 +462,8 @@ export class Race {
       // No se puede saltar la meta: es siempre el final
       if (j > 0 && (this.nextGate === 0 || (this.nextGate + j - 1) % N === 0)) break;
       const g = this.course.gates[idx];
-      if (this.crossed(this.gateVis[idx].group, prev, cur, g.w / 2, g.h / 2, false)) {
+      // Tocar el marco con el avión también cuenta (marco de 5 m + media envergadura)
+      if (this.crossed(this.gateVis[idx].group, prev, cur, g.w / 2 + GATE_TOUCH, g.h / 2 + GATE_TOUCH, false)) {
         reached = idx;
         skipped = j;
         break;
@@ -513,7 +517,7 @@ export class Race {
       if (b.pos.distanceToSquared(cur) > 60 * 60) continue;
       const m = this.bonusMeshes.get(b.id)!;
       const r = b.kind === 'time' ? 13 : b.kind === 'gold' ? 19 : 17;
-      if (this.crossed(m, prev, cur, r, r, true)) {
+      if (this.crossed(m, prev, cur, r + 8, r + 8, true)) {
         this.taken.add(b.id);
         m.visible = false;
         if (b.kind === 'time') this.bonusTime += TIME_BONUS;

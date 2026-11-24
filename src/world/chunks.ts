@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Stage } from '../stages';
 import { CHUNK, CityGen, PERIOD, ROAD, hexToInt, type Box } from './city';
-import { fbm, hash2 } from './noise';
+import { fbm, hash2, mulberry32 } from './noise';
 import { canyonFloor, canyonH, jungleClearing, nunatakH, tepuiH } from './biomes';
 
 /** Metros por píxel de la textura del suelo (look pixelado) */
@@ -273,6 +273,7 @@ export class ChunkManager {
   private cloudMat: THREE.MeshLambertMaterial;
   private beaconMat: THREE.MeshBasicMaterial;
   private smokeMat: THREE.MeshLambertMaterial;
+  private smokeTime = { value: 0 };
   private fireMat: THREE.MeshBasicMaterial;
   private night: boolean;
   private biome: string;
@@ -319,7 +320,26 @@ export class ChunkManager {
       opacity: 0.92,
     });
     this.beaconMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 0.2, 0.15) });
-    this.smokeMat = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.42, depthWrite: false });
+    this.smokeMat = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.5, depthWrite: false });
+    // El humo se mece con el viento: cuanto más alto, más se desplaza
+    const uTime = this.smokeTime;
+    this.smokeMat.onBeforeCompile = (shader) => {
+      shader.uniforms.uTime = uTime;
+      shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nuniform float uTime;').replace(
+        '#include <project_vertex>',
+        `vec4 mvPosition = vec4( transformed, 1.0 );
+#ifdef USE_INSTANCING
+  mvPosition = instanceMatrix * mvPosition;
+#endif
+  vec4 fbW = modelMatrix * mvPosition;
+  float fbHg = max(fbW.y, 0.0);
+  fbW.x += sin(uTime * 0.35 + fbW.y * 0.018 + fbW.z * 0.004) * min(fbHg * 0.05, 10.0);
+  fbW.z += cos(uTime * 0.27 + fbW.y * 0.021 + fbW.x * 0.004) * min(fbHg * 0.04, 8.0);
+  fbW.y += sin(uTime * 0.6 + fbW.x * 0.05) * 1.2;
+  mvPosition = viewMatrix * fbW;
+  gl_Position = projectionMatrix * mvPosition;`,
+      );
+    };
     this.fireMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(1, 0.45, 0.1) });
     this.night = st.night;
     this.biome = st.biome ?? 'city';
@@ -359,6 +379,7 @@ export class ChunkManager {
     // Balizas rojas parpadeantes
     const blink = Math.sin(performance.now() * 0.004) > 0.55 ? 3 : 0.25;
     this.beaconMat.color.setRGB(blink, blink * 0.07, blink * 0.05);
+    this.smokeTime.value = performance.now() / 1000;
     // Llamas que titilan (zona de guerra)
     const fl = 0.8 + 0.2 * Math.sin(performance.now() * 0.023) * Math.sin(performance.now() * 0.0071);
     this.fireMat.color.setRGB(fl, 0.42 * fl, 0.08);
@@ -480,24 +501,8 @@ export class ChunkManager {
         for (const box of b.buildings) buildings.push(box);
         for (const t of b.trees) props.push(t);
         for (const l of b.lights) beacons.push({ x0: l.x - 0.7, z0: l.z - 0.7, x1: l.x + 0.7, z1: l.z + 0.7, y0: l.y - 0.7, h: 1.4, color: 0xffffff });
-        // Columnas de humo con fuego en la base (zona de guerra)
-        for (const src of b.smoke ?? []) {
-          const seed = hash2(Math.floor(src.x), Math.floor(src.z), 99);
-          for (let k = 0; k < 13; k++) {
-            const sz = 6 + k * 2.4;
-            const x = src.x + k * k * 0.4 + (hash2(k, Math.floor(src.x), 5) - 0.5) * 6;
-            const z = src.z + (hash2(k, Math.floor(src.z), 6) - 0.5) * 6 + seed * k;
-            const shade = Math.min(1, 0.22 + k * 0.035);
-            const g = Math.round(255 * shade);
-            smoke.push({ x0: x - sz / 2, z0: z - sz / 2, x1: x + sz / 2, z1: z + sz / 2, y0: src.y + k * 11, h: sz * 0.9, color: (g << 16) | (Math.round(g * 0.95) << 8) | Math.round(g * 0.9) });
-          }
-          for (let k = 0; k < 3; k++) {
-            const fx = src.x + (hash2(k, 1, Math.floor(src.x)) - 0.5) * 8;
-            const fz = src.z + (hash2(k, 2, Math.floor(src.z)) - 0.5) * 8;
-            const fs = 2.5 + k;
-            fires.push({ x0: fx - fs / 2, z0: fz - fs / 2, x1: fx + fs / 2, z1: fz + fs / 2, y0: src.y - 1, h: fs * 1.2, color: 0xffffff });
-          }
-        }
+        // Columnas de humo con fuego en la base (zona de guerra): cada una distinta
+        for (const src of b.smoke ?? []) smokeColumn(src, smoke, fires);
       }
     }
     const clouds = this.gen.cloudsForChunk(cx, cz);
@@ -550,9 +555,12 @@ export class ChunkManager {
     const pos = new THREE.Vector3();
     const scl = new THREE.Vector3();
     const q = new THREE.Quaternion();
+    const up = new THREE.Vector3(0, 1, 0);
     boxes.forEach((b, i) => {
       pos.set((b.x0 + b.x1) / 2, b.y0, (b.z0 + b.z1) / 2);
       scl.set(b.x1 - b.x0, b.h, b.z1 - b.z0);
+      if (b.rot) q.setFromAxisAngle(up, b.rot);
+      else q.identity();
       this.tmpM.compose(pos, q, scl);
       mesh.setMatrixAt(i, this.tmpM);
       this.tmpC.setHex(b.color);
@@ -843,4 +851,67 @@ const CARS: RGB[] = [
 
 function shade(c: RGB, k: number): RGB {
   return [Math.min(255, c[0] * k), Math.min(255, c[1] * k), Math.min(255, c[2] * k)];
+}
+
+
+/** Tipos de humo: [color en la base, color arriba, ¿con fuego?] */
+const SMOKE_TYPES: [number, number, boolean][] = [
+  [0x1c1a18, 0x4a4642, true], // incendio de combustible: negro espeso
+  [0x2a2826, 0x5c5854, true],
+  [0x46444a, 0x8c8a8c, true], // gris
+  [0x6a5a48, 0x9e8e78, false], // polvo pardo de derrumbe
+  [0xbcbcbc, 0xececec, false], // vapor blanco
+];
+
+function mixHex(a: number, b: number, k: number) {
+  const ar = (a >> 16) & 255, ag = (a >> 8) & 255, ab = a & 255;
+  const br = (b >> 16) & 255, bg = (b >> 8) & 255, bb = b & 255;
+  return (Math.round(ar + (br - ar) * k) << 16) | (Math.round(ag + (bg - ag) * k) << 8) | Math.round(ab + (bb - ab) * k);
+}
+
+/**
+ * Columna de humo realista con cajas: racimos de bocanadas giradas y de tamaños distintos que
+ * crecen con la altura, se inclinan con el viento y se abren en penacho arriba.
+ */
+function smokeColumn(src: { x: number; y: number; z: number }, smoke: Box[], fires: Box[]) {
+  const r = mulberry32(Math.floor(hash2(Math.floor(src.x), Math.floor(src.z), 1234) * 4294967296));
+  const tr = r();
+  const type = SMOKE_TYPES[tr < 0.3 ? 0 : tr < 0.5 ? 1 : tr < 0.72 ? 2 : tr < 0.88 ? 3 : 4];
+  const levels = 8 + Math.floor(r() * 13);
+  const step = 9 + r() * 5;
+  const base = 3.5 + r() * 4.5;
+  const grow = 1.2 + r() * 1.6;
+  // Viento común de la ciudad con algo de variación por columna
+  const wind = 0.55 + (r() - 0.5) * 0.6;
+  const lean = 0.18 + r() * 0.5;
+  const wx = Math.cos(wind);
+  const wz = Math.sin(wind);
+  const shade = 0.9 + r() * 0.2;
+  for (let k = 0; k < levels; k++) {
+    const y = src.y + k * step;
+    const drift = Math.pow(k * step, 1.3) * lean * 0.08;
+    const top = k >= levels - 3;
+    const cx = src.x + wx * drift + (r() - 0.5) * 3;
+    const cz = src.z + wz * drift + (r() - 0.5) * 3;
+    const n = 2 + Math.floor(r() * 2) + (top ? 1 : 0);
+    const kk = k / Math.max(1, levels - 1);
+    for (let i = 0; i < n; i++) {
+      const size = (base + k * grow) * (0.55 + r() * 0.65) * (top ? 1.35 : 1);
+      const ox = (r() - 0.5) * size * 0.9 + (top ? wx * size * 0.5 : 0);
+      const oz = (r() - 0.5) * size * 0.9 + (top ? wz * size * 0.5 : 0);
+      const h = size * (top ? 0.55 : 0.8 + r() * 0.3);
+      let c = mixHex(type[0], type[1], Math.min(1, kk * 1.1 + (r() - 0.5) * 0.15));
+      c = mixHex(c, shade > 1 ? 0xffffff : 0x000000, Math.abs(shade - 1) * 0.6);
+      smoke.push({ x0: cx + ox - size / 2, z0: cz + oz - size / 2, x1: cx + ox + size / 2, z1: cz + oz + size / 2, y0: y + (r() - 0.5) * step * 0.6, h, color: c, rot: r() * Math.PI });
+    }
+  }
+  if (type[2]) {
+    const n = 3 + Math.floor(r() * 3);
+    for (let k = 0; k < n; k++) {
+      const fx = src.x + (r() - 0.5) * 10;
+      const fz = src.z + (r() - 0.5) * 10;
+      const fs = 1.8 + r() * 3;
+      fires.push({ x0: fx - fs / 2, z0: fz - fs / 2, x1: fx + fs / 2, z1: fz + fs / 2, y0: src.y - 1, h: fs * (1 + r()), color: 0xffffff, rot: r() * Math.PI });
+    }
+  }
 }

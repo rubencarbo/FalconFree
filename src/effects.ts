@@ -235,6 +235,9 @@ export interface RingInfo {
   css: string;
 }
 
+/** Margen para que tocar un aro con el ala cuente (m) */
+const TOUCH = 8;
+
 export const RING_INFO: Record<RingKind, RingInfo> = {
   normal: { label: 'Anillo', value: 1, radius: 24, tube: 3.2, color: 0xffa020, emissive: 0xff6a00, css: '#ff9a2a' },
   ammo: { label: 'Munición completa', value: 1, radius: 20, tube: 3.2, color: 0xffe040, emissive: 0xc8a000, css: '#ffe040' },
@@ -243,6 +246,7 @@ export const RING_INFO: Record<RingKind, RingInfo> = {
   turbo: { label: 'Acelerón', value: 1, radius: 22, tube: 3.2, color: 0xff4a4a, emissive: 0xc01010, css: '#ff5a5a' },
   gold: { label: 'Aro dorado ×5', value: 5, radius: 15, tube: 2.6, color: 0xffe9a0, emissive: 0xffc020, css: '#ffd040' },
   sea: { label: 'Aro marino ×3', value: 3, radius: 46, tube: 4.5, color: 0x9ff0ff, emissive: 0x2aa0c8, css: '#7fe8ff' },
+  canyon: { label: 'Paso del cañón ×3', value: 3, radius: 22, tube: 2.8, color: 0xffd27a, emissive: 0xb86a18, css: '#ffc860' },
 };
 
 export interface RingPickup {
@@ -293,7 +297,7 @@ export class Rings {
   }
 
   removeChunk(cx: number, cz: number) {
-    for (const id of [`${cx}_${cz}`, `s${cx}_${cz}`]) {
+    for (const id of [`${cx}_${cz}`, `s${cx}_${cz}`, `k${cx}_${cz}`]) {
       const r = this.rings.get(id);
       if (r) {
         this.scene.remove(r.mesh);
@@ -333,17 +337,21 @@ export class Rings {
       }
       if (r.kind !== 'sea') r.mesh.rotation.z += dt * (r.kind === 'gold' ? 2 : 0.6);
       // Comprobar si el segmento prev->cur cruza el plano del anillo dentro del radio
-      const rad = RING_INFO[r.kind].radius + 3;
+      // Cuenta también si lo tocas con el ala: radio + tubo + media envergadura
+      const info = RING_INFO[r.kind];
+      const rad = info.radius + info.tube + TOUCH;
       if (cur.distanceToSquared(r.mesh.position) > (rad + 100) * (rad + 100)) continue;
       this.inv.copy(r.mesh.matrixWorld).invert();
       const a = this.local.copy(prev).applyMatrix4(this.inv);
       const az = a.z, ax = a.x, ay = a.y;
       const b = this.local.copy(cur).applyMatrix4(this.inv);
-      if ((az <= 0 && b.z >= 0) || (az >= 0 && b.z <= 0)) {
+      // Roce de lado (sin cruzar el plano): cerca del tubo
+      const rim = Math.hypot(Math.hypot(b.x, b.y) - info.radius, b.z) < info.tube + TOUCH;
+      if (rim || (az <= 0 && b.z >= 0) || (az >= 0 && b.z <= 0)) {
         const t = az / (az - b.z || 1e-6);
         const ix = ax + (b.x - ax) * t;
         const iy = ay + (b.y - ay) * t;
-        if (ix * ix + iy * iy < rad * rad) {
+        if (rim || ix * ix + iy * iy < rad * rad) {
           got.push({ id, kind: r.kind });
           this.collected.add(id);
           this.lastCollected.push(id);
