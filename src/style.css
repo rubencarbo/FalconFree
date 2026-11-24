@@ -1267,7 +1267,8 @@ input[type='range'] {
 #loading {
   position: absolute;
   left: 50%;
-  top: calc(52px + var(--safe-top));
+  bottom: calc(46px + var(--safe-bottom, 0px));
+  opacity: 0.8;
   transform: translateX(-50%);
   background: var(--glass-strong);
   padding: 6px 14px;
@@ -4203,4 +4204,144 @@ html.standalone .install {
 }
 .mode-card.war {
   background: linear-gradient(135deg, rgba(120, 96, 60, 0.55), rgba(60, 50, 40, 0.55));
+}
+
+/* ================================================================ Avisos arriba (pila) */
+/* Todos los mensajes salen apilados en la franja superior, bajo el cronómetro o el marcador,
+   en píldoras compactas: nunca tapan el avión ni el centro de la pantalla. */
+#top-msgs {
+  position: absolute;
+  top: calc(52px + var(--safe-top));
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: min(92vw, 560px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  pointer-events: none !important;
+  z-index: 6;
+}
+#hud:has(#race-timer:not(.hidden)) #top-msgs {
+  top: calc(86px + var(--safe-top));
+}
+#top-msgs > * {
+  position: static !important;
+  transform: none !important;
+  left: auto !important;
+  top: auto !important;
+  margin: 0;
+  max-width: 100%;
+}
+#top-msgs #offroute,
+#top-msgs #offroute button {
+  pointer-events: auto !important;
+}
+#top-msgs #toast {
+  display: none;
+  padding: 4px 12px;
+  border-radius: 10px;
+  background: rgba(10, 14, 26, 0.55);
+  font-size: 14px;
+  font-weight: 700;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.3;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+#top-msgs #toast.show {
+  display: block;
+  animation: msgIn 1.2s ease-out forwards;
+}
+#top-msgs #race-split {
+  display: none;
+  white-space: normal;
+  text-align: center;
+  font-size: 13px;
+  padding: 5px 12px;
+}
+#top-msgs #race-split.show {
+  display: flex;
+  animation: msgFade 2.6s ease-out forwards;
+}
+#top-msgs #penalty {
+  padding: 5px 14px;
+  flex-direction: row;
+  gap: 8px;
+  border-radius: 12px;
+}
+#top-msgs #penalty.show {
+  display: flex;
+  animation: msgFade 2.6s ease-out forwards;
+}
+#top-msgs #penalty b {
+  font-size: 20px;
+}
+#top-msgs #warning {
+  font-size: 14px;
+  padding: 3px 12px;
+}
+#top-msgs #mode-banner {
+  font-size: 12px;
+  padding: 4px 12px;
+  white-space: normal;
+  text-align: center;
+}
+@keyframes msgIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  12%,
+  75% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes msgFade {
+  0% {
+    opacity: 0;
+  }
+  8%,
+  85% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+/* Móvil en vertical: bajo los indicadores y el radar, por encima del avión */
+@media (max-width: 600px) {
+  #top-msgs,
+  #hud:has(#race-timer:not(.hidden)) #top-msgs {
+    top: calc(236px + var(--safe-top));
+    max-width: 94vw;
+  }
+  #top-msgs #toast {
+    font-size: 13px;
+  }
+}
+/* Móvil en horizontal: justo debajo de la píldora del reto */
+@media (max-height: 500px) {
+  #top-msgs {
+    top: calc(46px + var(--safe-top));
+    max-width: 52vw;
+  }
+  #hud:has(#battle-score:not(.hidden)) #top-msgs {
+    top: calc(92px + var(--safe-top));
+  }
+  #hud:has(#race-timer:not(.hidden)) #top-msgs {
+    top: calc(126px + var(--safe-top));
+  }
+  #top-msgs #toast {
+    font-size: 12px;
+    padding: 3px 10px;
+  }
+  #top-msgs #race-split {
+    font-size: 12px;
+  }
 }

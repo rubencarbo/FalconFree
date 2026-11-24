@@ -144,6 +144,12 @@
             ".validate": "newData.hasChildren(['from', 'n', 't', 'ms', 'd']) && newData.child('from').val() === auth.uid && newData.child('d').isString() && newData.child('d').val().length <= 60000 && newData.child('ms').isNumber() && newData.child('ms').val() <= 5500"
           }
         },
+        "vs": {
+          "$k": {
+            ".write": "auth != null && ((!data.exists() && newData.child('u').val() === auth.uid && root.child('rooms/' + $code + '/talk/uid').val() === auth.uid && root.child('rooms/' + $code + '/players/' + auth.uid).exists()) || (data.exists() && !newData.exists() && data.child('u').val() === auth.uid))",
+            ".validate": "!newData.exists() || (newData.hasChildren(['u', 'n', 's', 'i', 'd', 'e', 't']) && newData.child('u').val() === auth.uid && newData.child('d').isString() && newData.child('d').val().length <= 12000 && newData.child('i').isNumber() && newData.child('i').val() <= 40 && newData.child('n').isString() && newData.child('n').val().length <= 16)"
+          }
+        },
         "pause": {
           ".write": "auth != null && root.child('rooms/' + $code + '/players/' + auth.uid).exists()",
           ".validate": "!newData.exists() || (newData.hasChildren(['by', 'n', 'at']) && newData.child('by').val() === auth.uid && newData.child('at').isNumber() && newData.child('n').isString())"

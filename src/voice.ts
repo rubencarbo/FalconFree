@@ -5,6 +5,12 @@
  */
 export const VOICE_MAX_MS = 3000;
 const RATE = 8000;
+/** Duración de cada trozo enviado mientras se habla (s) */
+const CHUNK_S = 0.4;
+/** El primero sale antes para que se empiece a oír cuanto antes */
+const FIRST_CHUNK_S = 0.25;
+/** Colchón al empezar a reproducir un mensaje en directo (s) */
+const JITTER_S = 0.25;
 /** Frecuencia de reproducción (Safari no acepta buffers de 8 kHz) */
 const PLAY_RATE = 24000;
 
@@ -19,6 +25,15 @@ export class VoiceRecorder {
   startedAt = 0;
   /** Se llama al terminar (por tiempo o al soltar) con el clip codificado */
   onDone?: (clip: { data: string; ms: number } | null) => void;
+  /**
+   * Envío por trozos mientras se graba (baja latencia): se llama cada ~0,4 s con el audio
+   * codificado; «last» = último trozo.
+   */
+  onChunk?: (data: string, index: number, last: boolean) => void;
+  private pending: Float32Array[] = [];
+  private pendingLen = 0;
+  private chunkIndex = 0;
+  private runPeak = 0.05;
 
   static get supported() {
     return !!navigator.mediaDevices?.getUserMedia && !!(window.AudioContext || (window as unknown as { webkitAudioContext?: unknown }).webkitAudioContext);
@@ -48,10 +63,17 @@ export class VoiceRecorder {
     await resumed.catch(() => undefined);
     this.inRate = ctx.sampleRate;
     const src = ctx.createMediaStreamSource(this.stream);
-    this.node = ctx.createScriptProcessor(4096, 1, 1);
+    this.node = ctx.createScriptProcessor(2048, 1, 1);
     this.chunks = [];
     this.node.onaudioprocess = (e) => {
-      if (this.recording) this.chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+      if (!this.recording) return;
+      const buf = new Float32Array(e.inputBuffer.getChannelData(0));
+      this.chunks.push(buf);
+      if (this.onChunk) {
+        this.pending.push(buf);
+        this.pendingLen += buf.length;
+        if (this.pendingLen >= this.inRate * (this.chunkIndex === 0 ? FIRST_CHUNK_S : CHUNK_S)) this.flush(false);
+      }
     };
     // Conectar a un destino mudo (si no, algunos navegadores no procesan)
     const mute = ctx.createGain();
@@ -64,6 +86,10 @@ export class VoiceRecorder {
   begin(ms = VOICE_MAX_MS) {
     if (!this.node || this.recording) return;
     this.chunks = [];
+    this.pending = [];
+    this.pendingLen = 0;
+    this.chunkIndex = 0;
+    this.runPeak = 0.05;
     this.recording = true;
     this.duration = ms;
     this.startedAt = performance.now();
@@ -79,11 +105,29 @@ export class VoiceRecorder {
     this.begin();
   }
 
+  /** Codifica y entrega lo acumulado como un trozo */
+  private flush(last: boolean) {
+    if (!this.onChunk) return;
+    const pcm = concat(this.pending);
+    this.pending = [];
+    this.pendingLen = 0;
+    if (!pcm.length && !last) return;
+    const down = downsample(pcm, this.inRate, RATE);
+    // Ganancia automática suave (como «normalize» pero sobre la marcha)
+    let peak = 0;
+    for (const v of down) peak = Math.max(peak, Math.abs(v));
+    this.runPeak = Math.max(this.runPeak * 0.9, peak);
+    const g = Math.min(4, Math.max(1, 0.9 / Math.max(this.runPeak, 0.01)));
+    if (g !== 1) for (let i = 0; i < down.length; i++) down[i] = Math.max(-1, Math.min(1, down[i] * g));
+    this.onChunk(encodeMuLaw(down), this.chunkIndex++, last);
+  }
+
   /** Termina la grabación y entrega el clip */
   stop() {
     if (!this.recording) return;
     this.recording = false;
     clearTimeout(this.timer);
+    this.flush(true);
     const ms = Math.min(VOICE_MAX_MS, performance.now() - this.startedAt);
     this.cleanup();
     const pcm = concat(this.chunks);
@@ -97,6 +141,9 @@ export class VoiceRecorder {
   }
 
   cancel() {
+    this.onChunk = undefined;
+    this.pending = [];
+    this.pendingLen = 0;
     this.recording = false;
     clearTimeout(this.timer);
     this.cleanup();
@@ -151,7 +198,67 @@ export class VoicePlayer {
   private unlocked = false;
 
   get playing() {
-    return this.isPlaying;
+    return this.isPlaying || this.streams.size > 0;
+  }
+
+  private streams = new Map<string, { cursor: number; timer: number; onEnd?: () => void }>();
+
+  /**
+   * Reproduce un trozo de un mensaje en directo. Los trozos de la misma clave se encadenan
+   * sin huecos; el primero espera un pequeño colchón por si la red va a tirones.
+   */
+  playChunk(key: string, data: string, last: boolean, onStart?: () => void, onEnd?: () => void) {
+    if (!this.enabled) return;
+    const ctx = this.context();
+    if (!ctx) return;
+    void ctx.resume();
+    const now = ctx.currentTime;
+    let st = this.streams.get(key);
+    if (!st) {
+      st = { cursor: now + JITTER_S, timer: 0, onEnd };
+      this.streams.set(key, st);
+      onStart?.();
+    }
+    // Si un trozo llega tarde, se reengancha sin acumular retraso
+    if (st.cursor < now + 0.03) st.cursor = now + 0.06;
+    try {
+      const pcm = upsample(decodeMuLaw(data), RATE, PLAY_RATE);
+      if (pcm.length) {
+        const buf = ctx.createBuffer(1, pcm.length, PLAY_RATE);
+        buf.getChannelData(0).set(pcm);
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        src.connect(this.chain(ctx));
+        src.start(st.cursor);
+        st.cursor += buf.duration;
+      }
+    } catch {
+      /* trozo dañado: se salta */
+    }
+    clearTimeout(st.timer);
+    const s = st;
+    st.timer = window.setTimeout(
+      () => {
+        this.streams.delete(key);
+        s.onEnd?.();
+      },
+      (st.cursor - now) * 1000 + (last ? 80 : 1600),
+    );
+  }
+
+  /** Filtro «de radio» compartido */
+  private chainNode: AudioNode | null = null;
+  private chain(ctx: AudioContext) {
+    if (!this.chainNode) {
+      const hp = ctx.createBiquadFilter();
+      hp.type = 'highpass';
+      hp.frequency.value = 280;
+      const gain = ctx.createGain();
+      gain.gain.value = 1.4;
+      hp.connect(gain).connect(ctx.destination);
+      this.chainNode = hp;
+    }
+    return this.chainNode;
   }
 
   private context() {

@@ -42,18 +42,25 @@
         <div id="race-timer" class="hidden">0:00.00</div>
         <div id="race-medal" class="hidden"></div>
         <div id="battle-score" class="hidden"></div>
-        <div id="race-split"></div>
-        <div id="penalty" aria-live="polite"><b>+5 s</b><span>HITO SALTADO</span></div>
         <div id="killfeed"></div>
         <div id="countdown"></div>
+        <!-- Avisos: una sola pila arriba, sin tapar el centro de la pantalla -->
+        <div id="top-msgs">
+          <div id="warning">¡ASCIENDE!</div>
+          <div id="race-split"></div>
+          <div id="penalty" aria-live="polite"><b>+5 s</b><span>HITO SALTADO</span></div>
+          <div id="toast"></div>
+          <div id="mode-banner"></div>
+          <div id="offroute">
+            <span>Fuera de ruta</span>
+            <button id="btn-route-reset" class="pill">↩ Volver (+3 s) · R</button>
+          </div>
+        </div>
         <div id="guide-arrow" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M24 3 L45 42 L24 32 L3 42 Z" /></svg></div>
         <div id="ring-marker"><span class="diamond"></span><span id="ring-label"></span><span id="ring-dist"></span></div>
         <div id="lock"><span id="lock-name"></span></div>
         <div id="hitmarker"></div>
-        <div id="toast"></div>
-        <div id="warning">¡ASCIENDE!</div>
         <div id="missile-warning"><span class="mw-arrow"></span><b>MISIL</b><small>Bengalas: G / botón</small></div>
-        <div id="mode-banner"></div>
         <div id="mission" class="hidden" aria-live="polite"><div class="ms-head"><span id="mission-icon">⚡</span><b id="mission-title">Reto</b><em id="mission-frenzy"></em><strong id="mission-prog"></strong><small id="mission-lvl">Nv 1</small></div><span id="mission-desc"></span><div class="ms-bar"><i id="mission-bar"></i></div></div><span id="mission-desc"></span><div class="ms-bar"><i id="mission-bar"></i></div><small id="mission-prog"></small></div>
         <div id="boss-bar"><span class="bb-name"></span><span class="bb-track"><i></i></span></div>
         <div id="chat-feed"></div>
@@ -71,10 +78,6 @@
         <div id="combo"><span class="cb-name"></span><b class="cb-mult"></b><span class="cb-pts"></span><span class="cb-bar"><i></i></span></div>
         <div id="pilots"></div>
         <div id="leash"><span>¡Te alejas del escuadrón!</span><b></b><small>Sigue la flecha verde o te reagruparemos</small></div>
-        <div id="offroute">
-          <span>Fuera de ruta</span>
-          <button id="btn-route-reset" class="pill">↩ Volver (+3 s) · R</button>
-        </div>
         <div id="ach-banner"><span class="medal"></span><div><span>Logro desbloqueado</span><b></b><small></small></div></div>
         <div id="joy-zone"><div id="joy-base"><div id="joy-knob"></div></div></div>
         <button id="btn-fire" class="round">Disparo</button>

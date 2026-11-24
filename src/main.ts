@@ -20,7 +20,7 @@ import { Input } from './input';
 import { Hud } from './hud';
 import { GameAudio } from './audio';
 import { firebase, countryName, playerCountry } from './firebase';
-import { Room, NetError, type PauseState, formatCode, normalizeCode, MAX_PLAYERS, PLAYER_COLORS, type NetEvent, type PublicRoom, type RoomMeta, type RoomMode } from './net';
+import { Room, NetError, type PauseState, formatCode, normalizeCode, MAX_PLAYERS, PLAYER_COLORS, type NetEvent, type PublicRoom, type RoomMeta, type RoomMode, type VoiceChunk } from './net';
 import { RemotePlayers, bodyTint } from './remote';
 import { loadSettings, saveSettings, store, type Settings } from './settings';
 import { applyControlLayout, ControlsEditor } from './controls';
@@ -3377,34 +3377,27 @@ class Game {
         this.hud.toast(denied ? 'Permite el micrófono en el navegador (icono del candado junto a la dirección)' : 'No se pudo abrir el micrófono', 3000);
         return;
       }
-      // 2) Pedir el turno de palabra
-      const ok = await room.takeTalk(VOICE_MAX_MS + 4000);
-      if (ok === 'denied') {
-        this.voiceRec.cancel();
-        this.rulesMissing('voz');
-        return;
-      }
-      if (!ok) {
-        this.voiceRec.cancel();
-        this.hud.toast(`Espera: está hablando ${room.talk?.n ?? 'otro piloto'}`, 1400);
-        return;
-      }
-      // 3) Grabar 5 s; al terminar se envía solo
-      this.voiceRec.onDone = async (clip) => {
+      // 2) Grabar YA y enviar por trozos (~0,4 s): los demás lo oyen casi en directo.
+      //    Mientras llega el turno de palabra, los primeros trozos esperan en cola.
+      const sid = Math.round(room.serverNow());
+      let granted: boolean | null = null;
+      const queue: [string, number, boolean][] = [];
+      let sentLast = false;
+      this.voiceRec.onChunk = (d, i, last) => {
+        if (granted === true) {
+          room.sendVoiceChunk(sid, i, d, last);
+          if (last) sentLast = true;
+        } else if (granted === null) queue.push([d, i, last]);
+      };
+      this.voiceRec.onDone = (clip) => {
         clearInterval(this.talkTimer);
         show('mic-live', false);
-        if (!clip) {
-          room.releaseTalk();
-          this.hud.toast('No se ha oído nada: revisa el micrófono', 1600);
-        } else if ((await room.takeTalk(clip.ms + 1500)) === true) {
-          room.sendVoice(clip.data, clip.ms);
-          setTimeout(() => {
-            if (!this.voiceRec.recording) room.releaseTalk();
-          }, clip.ms + 1500);
-          this.hud.chat(this.pilotName(), hex(room.myColor), '🎙️ mensaje de voz enviado');
-        } else {
-          this.hud.toast(`No se ha enviado: ha empezado a hablar ${room.talk?.n ?? 'otro piloto'}`, 1800);
-        }
+        if (!clip) this.hud.toast('No se ha oído nada: revisa el micrófono', 1600);
+        else if (granted) this.hud.chat(this.pilotName(), hex(room.myColor), '🎙️ mensaje de voz enviado');
+        // Soltar el turno cuando los demás hayan terminado de oírlo
+        if (granted) setTimeout(() => {
+          if (!this.voiceRec.recording) room.releaseTalk();
+        }, 1400);
         this.updateTalkUi();
       };
       this.voiceRec.begin();
@@ -3412,6 +3405,26 @@ class Game {
       show('mic-live', true);
       clearInterval(this.talkTimer);
       this.talkTimer = window.setInterval(() => this.updateTalkUi(), 100);
+      // Turno de palabra: la escritura sale ya y los trozos van justo detrás (sin esperar)
+      const claim = room.claimTalkFast(VOICE_MAX_MS + 4000);
+      granted = true;
+      for (const [d, i, last] of queue) {
+        room.sendVoiceChunk(sid, i, d, last);
+        if (last) sentLast = true;
+      }
+      queue.length = 0;
+      const ok = await claim;
+      if (ok !== true) {
+        granted = false;
+        this.voiceRec.onDone = undefined;
+        this.voiceRec.cancel();
+        clearInterval(this.talkTimer);
+        show('mic-live', false);
+        if (ok === 'denied') this.rulesMissing('voz');
+        else this.hud.toast(`Espera: está hablando ${room.talk?.n ?? 'otro piloto'}`, 1400);
+        return;
+      }
+      void sentLast;
     } finally {
       this.talkPending = false;
       this.updateTalkUi();
@@ -3514,6 +3527,28 @@ class Game {
       $('mic-live-time').textContent = `${Math.ceil(left / 1000)} s`;
       ($('mic-live-level') as HTMLElement).style.transform = `scaleX(${0.08 + this.voiceRec.level() * 0.92})`;
     }
+  }
+
+  /** Trozo de un mensaje de voz en directo */
+  private onVoiceChunk(v: VoiceChunk) {
+    if (!this.settings.voice) return;
+    const color = hex(this.room?.players.get(v.u)?.color ?? 0xffffff);
+    this.voicePlayer.playChunk(
+      `${v.u}:${v.s}`,
+      v.d,
+      v.e === 1,
+      () => {
+        $('voice-live-name').textContent = v.n;
+        ($('voice-live') as HTMLElement).style.setProperty('--vc', color);
+        show('voice-live', true);
+        this.hud.chat(v.n, color, '🔊 mensaje de voz');
+        this.updateTalkUi();
+      },
+      () => {
+        show('voice-live', false);
+        this.updateTalkUi();
+      },
+    );
   }
 
   private onVoice(v: { from: string; n: string; d: string }) {
@@ -4509,6 +4544,7 @@ class Game {
     room.onTalk = () => this.updateTalkUi();
     room.onPause = (st) => this.applyRoomPause(st);
     room.onRulesMissing = (what) => this.rulesMissing(what);
+    room.onVoiceChunk = (v) => this.onVoiceChunk(v);
     room.onVoice = (v) => this.onVoice(v);
     this.updateTalkUi();
     room.onBoss = (st) => {

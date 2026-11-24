@@ -90,6 +90,8 @@ export class Hud {
 
   toast(text: string, ms = 1200) {
     this.toastEl.textContent = text;
+    // La animación dura lo que pide cada mensaje (los largos se leen con calma)
+    this.toastEl.style.animationDuration = `${Math.max(900, ms)}ms`;
     this.toastEl.classList.remove('show');
     void this.toastEl.offsetWidth;
     this.toastEl.classList.add('show');

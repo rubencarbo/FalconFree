@@ -73,6 +73,19 @@ export interface PlayerInfo {
   av?: string;
 }
 
+/** Trozo de voz en directo */
+export interface VoiceChunk {
+  u: string;
+  n: string;
+  /** id del mensaje (hora de inicio) */
+  s: number;
+  i: number;
+  d: string;
+  /** 1 = último trozo */
+  e: number;
+  t: number;
+}
+
 /** Pausa común de la sala */
 export interface PauseState {
   /** quién la ha puesto */
@@ -191,6 +204,7 @@ export class Room {
   onPause?: (p: PauseState | null) => void;
   /** Firebase rechaza algo por reglas antiguas (para avisar al jugador) */
   onRulesMissing?: (what: string) => void;
+  onVoiceChunk?: (v: VoiceChunk) => void;
   /** Pilla-pilla: quién la lleva */
   onTagIt?: (id: string, seq: number) => void;
   /** Retos de equipo (clave: 'all', 'A' o 'B') */
@@ -387,6 +401,11 @@ export class Room {
         // Solo los recientes (no reproducir mensajes viejos al entrar)
         if (this.serverNow() - v.t < 15000) this.onVoice?.(v);
       }),
+      onChildAdded(ref(db, `rooms/${this.code}/vs`), (s) => {
+        const v = s.val() as VoiceChunk | null;
+        if (!v || v.u === this.uid) return;
+        if (this.serverNow() - v.t < 15000) this.onVoiceChunk?.(v);
+      }),
       onValue(ref(db, `rooms/${this.code}/boss`), (s) => {
         this.onBoss?.((s.val() as BossNet | null) ?? null);
       }),
@@ -535,6 +554,28 @@ export class Room {
     }
   }
 
+  /**
+   * Turno de palabra rápido: una escritura directa (las reglas impiden quitárselo a quien
+   * habla). Los trozos de voz se envían justo detrás por la misma conexión, sin esperar.
+   */
+  async claimTalkFast(ms: number): Promise<boolean | 'denied'> {
+    if (this.closed) return false;
+    const db = firebase.database()!;
+    try {
+      await set(ref(db, `rooms/${this.code}/talk`), { uid: this.uid, n: this.name.slice(0, 16), until: Math.round(this.serverNow() + ms) });
+      return true;
+    } catch (e) {
+      if (!/permission/i.test(String((e as Error)?.message ?? e))) return false;
+      // ¿Habla otro piloto o faltan las reglas?
+      const cur = (await get(ref(db, `rooms/${this.code}/talk`)).catch(() => null))?.val() as TalkState | null | undefined;
+      if (cur && cur.uid !== this.uid && cur.until > this.serverNow()) {
+        this.talk = cur;
+        return false;
+      }
+      return 'denied';
+    }
+  }
+
   /** Alarga el turno hasta que los demás terminen de oír el mensaje */
   extendTalk(ms: number) {
     if (this.closed) return;
@@ -547,6 +588,15 @@ export class Room {
   }
 
   /** Alarga el turno (se usa al enviar) */
+
+  /** Trozo de un mensaje de voz en directo (se borra solo a los 20 s) */
+  sendVoiceChunk(sid: number, i: number, d: string, last: boolean) {
+    if (this.closed) return;
+    const r = push(ref(firebase.database()!, `rooms/${this.code}/vs`));
+    // Si el turno no se concede, los trozos se rechazan: el aviso lo da claimTalkFast
+    set(r, { u: this.uid, n: this.name.slice(0, 16), s: sid, i, d, e: last ? 1 : 0, t: Math.round(this.serverNow()) }).catch(() => undefined);
+    setTimeout(() => remove(r).catch(() => undefined), 20000);
+  }
 
   /** Envía un mensaje de voz (se borra solo a los 20 s) */
   sendVoice(d: string, ms: number) {
