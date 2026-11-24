@@ -186,6 +186,8 @@ export class Room {
   /** Milisegundos acumulados en pausa (para que los relojes de partida sigan sincronizados) */
   pausedMs = 0;
   onPause?: (p: PauseState | null) => void;
+  /** Firebase rechaza algo por reglas antiguas (para avisar al jugador) */
+  onRulesMissing?: (what: string) => void;
   /** Pilla-pilla: quién la lleva */
   onTagIt?: (id: string, seq: number) => void;
   onScores?: () => void;
@@ -502,15 +504,23 @@ export class Room {
     return !t || t.uid === this.uid || t.until < this.serverNow();
   }
 
-  /** Pide el turno de palabra. Devuelve false si otro piloto está hablando. */
-  async takeTalk(ms: number): Promise<boolean> {
+  /**
+   * Pide el turno de palabra. true = concedido, false = otro piloto está hablando,
+   * 'denied' = Firebase lo rechaza (reglas de la base de datos sin publicar).
+   */
+  async takeTalk(ms: number): Promise<boolean | 'denied'> {
     if (this.closed) return false;
     const now = this.serverNow();
-    const res = await runTransaction(ref(firebase.database()!, `rooms/${this.code}/talk`), (cur: TalkState | null) => {
-      if (cur && cur.uid !== this.uid && cur.until > now) return undefined;
-      return { uid: this.uid, n: this.name.slice(0, 16), until: Math.round(now + ms) };
-    });
-    return res.committed;
+    try {
+      const res = await runTransaction(ref(firebase.database()!, `rooms/${this.code}/talk`), (cur: TalkState | null) => {
+        if (cur && cur.uid !== this.uid && cur.until > now) return undefined;
+        return { uid: this.uid, n: this.name.slice(0, 16), until: Math.round(now + ms) };
+      });
+      return res.committed;
+    } catch (e) {
+      console.warn('[voz] turno rechazado', e);
+      return /permission/i.test(String((e as Error)?.message ?? e)) ? 'denied' : false;
+    }
   }
 
   /** Alarga el turno hasta que los demás terminen de oír el mensaje */
@@ -524,11 +534,16 @@ export class Room {
     remove(ref(firebase.database()!, `rooms/${this.code}/talk`)).catch(() => undefined);
   }
 
+  /** Alarga el turno (se usa al enviar) */
+
   /** Envía un mensaje de voz (se borra solo a los 20 s) */
   sendVoice(d: string, ms: number) {
     if (this.closed) return;
     const r = push(ref(firebase.database()!, `rooms/${this.code}/voice`));
-    set(r, { from: this.uid, n: this.name.slice(0, 16), t: Math.round(this.serverNow()), ms, d }).catch(() => undefined);
+    set(r, { from: this.uid, n: this.name.slice(0, 16), t: Math.round(this.serverNow()), ms, d }).catch((e) => {
+      console.warn('[voz] mensaje rechazado', e);
+      this.onRulesMissing?.('voz');
+    });
     setTimeout(() => remove(r).catch(() => undefined), 20000);
   }
 

@@ -1,9 +1,9 @@
 /**
- * Mensajes de voz «pulsa y habla» (máx. 5 s).
+ * Mensajes de voz «pulsa y habla» (3 s).
  * Se graba con WebAudio, se reduce a 8 kHz y se codifica en µ-law (calidad telefónica,
  * ~8 KB por segundo). Así funciona igual en iPhone y Android sin depender de códecs.
  */
-export const VOICE_MAX_MS = 5000;
+export const VOICE_MAX_MS = 3000;
 const RATE = 8000;
 /** Frecuencia de reproducción (Safari no acepta buffers de 8 kHz) */
 const PLAY_RATE = 24000;

@@ -3900,3 +3900,52 @@ html.standalone .install {
   content: ' ✔';
   color: var(--green);
 }
+
+/* Botón HABLAR redondo junto a los controles (se puede mover en «Personalizar controles») */
+#btn-talk.hud-talk {
+  position: absolute;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 22px;
+  background: radial-gradient(circle at 35% 30%, #9a7cff, #4a3ad0);
+  border: 3px solid rgba(255, 255, 255, 0.85);
+  z-index: 3;
+}
+
+#btn-talk.hud-talk b {
+  font-size: 22px;
+  letter-spacing: 0;
+}
+
+#btn-talk.hud-talk.rec {
+  background: radial-gradient(circle at 35% 30%, #ff8090, #d01030) !important;
+  animation: talkPulse 0.9s ease-in-out infinite;
+}
+
+#btn-talk.hud-talk.busy,
+#btn-talk.hud-talk:disabled {
+  background: radial-gradient(circle at 35% 30%, #5a6070, #2a2e38) !important;
+}
+
+#btn-talk.hidden {
+  display: none !important;
+}
+
+.ce-talk {
+  background: radial-gradient(circle at 35% 30%, #9a7cff, #4a3ad0);
+}
+
+/* En escritorio, junto a la esquina inferior derecha */
+@media (hover: hover) and (pointer: fine) {
+  #btn-talk.hud-talk {
+    width: 64px !important;
+    height: 64px !important;
+    left: auto !important;
+    top: auto !important;
+    right: calc(20px + var(--safe-right));
+    bottom: calc(60px + var(--safe-bottom));
+  }
+}

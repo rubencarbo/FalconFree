@@ -2408,14 +2408,15 @@ class Game {
       if (holder) {
         for (const p of this.allPlanes()) {
           if (p.id === it || !p.alive || (p.id === this.lastTagger && this.time < this.lastTaggerUntil)) continue;
-          if (p.pos.distanceTo(holder.pos) < 24) {
+          // Más fácil pillar siendo tú (40 m) que para los bots (26 m)
+          if (p.pos.distanceTo(holder.pos) < (it === this.myId ? 40 : 26)) {
             this.passTag(p.id, it!);
             break;
           }
         }
       }
     }
-    this.flight.speedMul = this.progress.modifiers.speed * (it === this.myId ? 1.1 : 1);
+    this.flight.speedMul = this.progress.modifiers.speed * (it === this.myId ? 1.15 : 1);
     const holderName = b.fighters.get(it ?? '')?.name ?? '?';
     this.hud.banner(it === this.myId ? '¡LA LLEVAS! Toca a otro avión' : `La lleva ${holderName} · ¡huye!`, it === this.myId ? 'bad' : 'info');
   }
@@ -2424,7 +2425,7 @@ class Game {
     const b = this.battle!;
     b.it = to;
     this.lastTagger = from;
-    this.lastTaggerUntil = this.time + 6;
+    this.lastTaggerUntil = this.time + 8;
     this.tagImmune = 2.5;
     this.tagSeq++;
     this.room?.setTagIt(to, this.tagSeq);
@@ -2969,6 +2970,11 @@ class Game {
       }
       // 2) Pedir el turno de palabra
       const ok = await room.takeTalk(VOICE_MAX_MS + 4000);
+      if (ok === 'denied') {
+        this.voiceRec.cancel();
+        this.rulesMissing('voz');
+        return;
+      }
       if (!ok) {
         this.voiceRec.cancel();
         this.hud.toast(`Espera: está hablando ${room.talk?.n ?? 'otro piloto'}`, 1400);
@@ -2981,7 +2987,7 @@ class Game {
         if (!clip) {
           room.releaseTalk();
           this.hud.toast('No se ha oído nada: revisa el micrófono', 1600);
-        } else if (await room.takeTalk(clip.ms + 1500)) {
+        } else if ((await room.takeTalk(clip.ms + 1500)) === true) {
           room.sendVoice(clip.data, clip.ms);
           setTimeout(() => {
             if (!this.voiceRec.recording) room.releaseTalk();
@@ -3062,6 +3068,21 @@ class Game {
     }, 80);
   }
 
+  /** Firebase rechaza la voz o la pausa: las reglas del multijugador publicadas son antiguas */
+  private rulesWarned = 0;
+  private rulesMissing(what: string) {
+    const msg = `No funciona la ${what} en sala: tu Firebase tiene reglas antiguas. Ejecuta «npm run deploy:multijugador» desde la carpeta nueva del proyecto.`;
+    this.hud.toast(msg, 6000);
+    if (!$('lobby').classList.contains('hidden')) {
+      $('lobby-wait').textContent = msg;
+      show('lobby-wait', true);
+    }
+    if (performance.now() - this.rulesWarned > 30000) {
+      this.rulesWarned = performance.now();
+      console.warn('[FalconSky] ' + msg);
+    }
+  }
+
   /** Estado de los botones HABLAR (grabando, libre u ocupado por otro) */
   private updateTalkUi() {
     const room = this.room;
@@ -3073,7 +3094,11 @@ class Game {
       b.classList.toggle('rec', rec);
       b.classList.toggle('busy', !!other);
       b.disabled = !!other || this.talkPending;
-      b.querySelector('b')!.textContent = rec ? `🔴 GRABANDO · ${Math.ceil(left / 1000)} s` : other ? `🔊 Habla ${other.n}` : this.talkPending ? '…' : '🎙️ HABLAR';
+      const round = id === 'btn-talk';
+      b.querySelector('b')!.textContent = round
+        ? rec ? `🔴${Math.ceil(left / 1000)}` : other ? '🔊' : this.talkPending ? '…' : '🎙️'
+        : rec ? `🔴 GRABANDO · ${Math.ceil(left / 1000)} s` : other ? `🔊 Habla ${other.n}` : this.talkPending ? '…' : '🎙️ HABLAR';
+      b.title = other ? `Habla ${other.n}` : 'Hablar 3 s';
       (b.querySelector('.tk-bar') as HTMLElement).style.transform = `scaleX(${rec ? 1 - left / VOICE_MAX_MS : 0})`;
     }
     if (rec) {
@@ -4043,6 +4068,7 @@ class Game {
     room.onMeta = (m) => this.onRoomMeta(m);
     room.onTalk = () => this.updateTalkUi();
     room.onPause = (st) => this.applyRoomPause(st);
+    room.onRulesMissing = (what) => this.rulesMissing(what);
     room.onVoice = (v) => this.onVoice(v);
     this.updateTalkUi();
     room.onBoss = (st) => {
@@ -4055,7 +4081,7 @@ class Game {
       b.it = id;
       this.tagSeq = Math.max(this.tagSeq, seq);
       this.lastTagger = prev;
-      this.lastTaggerUntil = this.time + 6;
+      this.lastTaggerUntil = this.time + 8;
       this.tagImmune = 2.5;
       this.onTagChanged(id, prev);
     };

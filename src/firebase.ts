@@ -83,7 +83,8 @@ const config = {
   messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID,
   appId: env.VITE_FIREBASE_APP_ID || (useEmulators ? 'demo-app' : undefined),
   databaseURL:
-    env.VITE_FIREBASE_DATABASE_URL || (useEmulators ? `http://127.0.0.1:9000?ns=${env.VITE_FIREBASE_PROJECT_ID || 'demo-falconsky'}` : undefined),
+    // En el emulador, la base «-default-rtdb» es la que tiene cargadas las reglas de database.rules.json
+    env.VITE_FIREBASE_DATABASE_URL || (useEmulators ? `http://127.0.0.1:9000?ns=${env.VITE_FIREBASE_PROJECT_ID || 'demo-falconsky'}-default-rtdb` : undefined),
 };
 
 class FirebaseService {

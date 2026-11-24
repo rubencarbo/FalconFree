@@ -117,7 +117,7 @@ export class Bot {
     if (this.aimAt) {
       dist = this.aimAt.pos.distanceTo(f.pos);
       // Persecución (pilla-pilla): poca anticipación para ir directo a por el avión
-      const lead = opts.chase ? Math.min(0.5, dist / 700) : Math.min(1.5, dist / 900) * this.skill;
+      const lead = opts.chase ? Math.min(0.3, dist / 1000) : Math.min(1.5, dist / 900) * this.skill;
       goal = this.aimAt.pos.clone().addScaledVector(this.aimAt.vel, lead);
     } else {
       // Patrulla en círculo alrededor del centro
@@ -155,11 +155,12 @@ export class Bot {
     const input: FlightInput = {
       x: THREE.MathUtils.clamp(-yawErr * 2.4, -1, 1),
       y: THREE.MathUtils.clamp((desiredPitch - f.pitch) * 3, -1, 1),
-      boost: opts.chase ? true : opts.flee ? f.pos.distanceTo(opts.flee) < 900 : dist > 700 && dist < 4000,
+      // Pilla-pilla: quien la lleva solo usa turbo si estás lejos; quien huye, solo si se le acercan
+      boost: opts.chase ? dist > 150 : opts.flee ? f.pos.distanceTo(opts.flee) < 500 : dist > 700 && dist < 4000,
       climb: false,
     };
-    // Quien la lleva en pilla-pilla va algo más rápido (igual que los humanos)
-    f.speedMul = opts.chase ? 1.12 : 1;
+    // Pilla-pilla equilibrado: los bots no son más rápidos que el jugador
+    f.speedMul = opts.chase ? 1.06 : opts.flee ? 0.92 : 1;
     f.update(dt, input);
     this.target.vel.copy(f.forward()).multiplyScalar(f.speed);
 
