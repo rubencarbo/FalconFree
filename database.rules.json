@@ -13,7 +13,7 @@
             ".validate": "newData.isString()"
           },
           "mode": {
-            ".validate": "newData.val() === 'free' || newData.val() === 'race' || newData.val() === 'battle'"
+            ".validate": "newData.val() === 'free' || newData.val() === 'race' || newData.val() === 'battle' || newData.val() === 'war'"
           },
           "stage": {
             ".validate": "newData.val() === 'metropolis' || newData.val() === 'archipelago' || newData.val() === 'dusk' || newData.val() === 'jungle' || newData.val() === 'warzone' || newData.val() === 'canyon' || newData.val() === 'glacier'"

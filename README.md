@@ -94,6 +94,46 @@ Para no perderse en un mundo abierto, sin mover los hitos (sería injusto en la 
   «Mis circuitos» o con el enlace `?circuito=CODIGO`. En las salas de carrera, el anfitrión puede
   elegir sus circuitos publicados (★).
 
+## Escenarios
+
+Además de Metrópolis, Archipiélago y Ciudad nocturna hay cuatro mundos nuevos, generados igual
+(cajas sobre la cuadrícula de manzanas de 80 m, así que carreras, retos, Mensajero y multijugador
+funcionan en todos):
+
+| Escenario | Qué tiene |
+| --- | --- |
+| 🌴 **Selva amazónica** | Ríos que serpentean, árboles gigantes con copa (se puede volar entre los troncos, por debajo de las copas) y algunos en flor, tepuyes con la cima verde y cascadas, templos escalonados y aldeas en los claros. Lluvia y niebla frecuentes. |
+| 🏚️ **Zona de guerra** | Ciudad en ruinas: rascacielos partidos, montones de escombros, esqueletos de edificio con forjados por los que se puede pasar, **losas caídas sobre las calles que forman arcos**, cráteres, zonas quemadas, columnas de humo con fuego y cielo de polvo. |
+| 🏜️ **Cañones del desierto** | Mesetas rojas en terrazas, gargantas con un río al fondo, **arcos de roca** sobre el cañón, chimeneas de hadas, dunas, cactus y oasis con palmeras. Perfecto para vuelo rasante. |
+| 🧊 **Glaciar polar** | Crepúsculo con **aurora boreal permanente**, mar oscuro con témpanos, icebergs, arcos de hielo, frente del glaciar, montañas nevadas y una base científica. Nieve frecuente. |
+
+Los arcos y losas tienen hueco debajo: chocar por debajo empuja hacia abajo y pasar por debajo no
+cuenta como choque.
+
+## Misiones de guerra
+
+Modo **Misiones de guerra** (Un jugador → Combate, o en grupo desde Multijugador → «Misión de
+guerra»). Cada misión tiene su escenario, una sesión informativa con un poco de historia, tiempo
+límite y medallas (★ cumplida, ★ con más del 30 % de tiempo de sobra, ★ con más del 60 % de
+blindaje). Inspiradas en episodios reales, sin nombres de bandos ni insignias:
+
+| Misión | Año | Inspirada en | Objetivo |
+| --- | --- | --- | --- |
+| La batalla del cielo | 1940 | la Batalla de Inglaterra | Derribar 8 bombarderos (con cazas de escolta que te disparan) antes de que 4 lleguen al centro |
+| Puente aéreo | 1948 | el puente aéreo de Berlín | Lanzar 6 cargas en vuelo bajo esquivando los cables de los globos de barrera |
+| Escolta | 1943 | las misiones de escolta | Derribar las pasadas de cazas para que al menos 2 de 4 bombarderos aliados lleguen |
+| Los rompepresas | 1943 | la Operación Chastise | Vuelo rasante por el cañón y bomba rebotante: < 40 m, < 800 km/h y a 200–480 m de la presa (3 pasadas) |
+| Cazadores de radares | 1942 | la Operación Biting | Destruir 6 radares; si un reflector te ilumina llega el fuego antiaéreo |
+| Operación Escarcha | inventada | — | Rescatar 4 tripulaciones en el glaciar (bajo y despacio) con ventisca y volver a la base |
+| Operación Liana | inventada | — | Encontrar y destruir 5 depósitos escondidos bajo la selva (solo se ven de cerca) |
+
+En grupo, todo lo que se mueve depende del reloj común de la sala, así que todos ven lo mismo; lo
+que destruye o recoge un piloto cuenta para todos (se comparte en `rooms/{código}/rings/w_…`).
+Logro nuevo: *Veterano* (5 misiones cumplidas).
+
+> Publica las reglas nuevas (`npm run deploy`): el modo `war` y los escenarios nuevos se validan
+> en Realtime Database y en Firestore (circuitos y tiempos).
+
 ## Retos encadenados
 
 En vuelo libre, Mensajero, carreras en solitario (también el desafío diario) y batallas por

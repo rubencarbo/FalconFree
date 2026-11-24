@@ -27,7 +27,7 @@ import type { PlaneVariant } from './jet';
 import type { BossNet } from './boss';
 import { advanceMission, type MissionAction, type MissionNet } from './missions';
 
-export type RoomMode = 'free' | 'race' | 'battle';
+export type RoomMode = 'free' | 'race' | 'battle' | 'war';
 export type RoomState = 'lobby' | 'countdown' | 'running';
 
 export interface RoomMeta {

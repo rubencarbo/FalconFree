@@ -175,6 +175,7 @@ export interface Stats {
   impossiblePasses: number;
   missions: number;
   missionLevel: number;
+  warWins: number;
 }
 
 export interface Achievement {
@@ -214,6 +215,7 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'arquitecto', name: 'Arquitecto', description: 'Crea y guarda un circuito propio.', reward: 150, done: (s) => s.circuitsMade >= 1 },
   { id: 'leyenda', name: 'Leyenda', description: 'Reúne las 20 piezas del avión legendario.', reward: 1000, done: (s) => s.legendPieces >= 20 },
   { id: 'globos', name: 'Revientaglobos', description: 'Revienta 5 racimos de globos a tiempo.', reward: 200, done: (s) => s.balloonClusters >= 5 },
+  { id: 'veterano', name: 'Veterano', description: 'Cumple 5 misiones de guerra.', reward: 400, done: (s) => s.warWins >= 5 },
   { id: 'retos', name: 'Cazador de retos', description: 'Completa 15 retos encadenados.', reward: 300, done: (s) => s.missions >= 15 },
   { id: 'reto8', name: 'Sin techo', description: 'Llega al nivel 8 de retos en una partida.', reward: 400, done: (s) => s.missionLevel >= 8 },
   { id: 'imposible', name: 'Imposible', description: 'Cruza 10 pasos imposibles.', reward: 250, done: (s) => s.impossiblePasses >= 10 },
@@ -256,7 +258,7 @@ function emptyStats(): Stats {
     rings: 0, drones: 0, kills: 0, deaths: 0, races: 0, battlesWon: 0, battles: 0, missileHits: 0, flaresDodged: 0,
     scrapes: 0, powerups: 0, ghostBeaten: 0, dailies: 0, mpGames: 0, bestStreak: 0, maxSpeed: 0, lowFlight: 0, timeBonuses: 0,
     deliveries: 0, wavesBest: 0, kothWins: 0, tagFree: 0, formationTime: 0, stuntPoints: 0, bestCombo: 0, seaRings: 0,
-    royaleWins: 0, bossWins: 0, cityEvents: 0, circuitsMade: 0, legendPieces: 0, balloonClusters: 0, impossiblePasses: 0, missions: 0, missionLevel: 0,
+    royaleWins: 0, bossWins: 0, cityEvents: 0, circuitsMade: 0, legendPieces: 0, balloonClusters: 0, impossiblePasses: 0, missions: 0, missionLevel: 0, warWins: 0,
   };
 }
 

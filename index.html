@@ -141,6 +141,7 @@
           <section class="mode-group">
             <h3>Combate <small>Contra bots</small></h3>
             <div class="mode-grid">
+              <button class="mode-card war" data-mode="war"><b>Misiones de guerra</b><small>Episodios históricos e inventados · solo o en grupo</small></button>
               <button class="mode-card battle" data-mode="battle"><b>Batalla</b><small>Todos contra todos, equipos o contra la máquina</small></button>
               <button class="mode-card tagm" data-mode="tag"><b>Pilla-pilla</b><small>Sin disparos: ¡que no te pillen!</small></button>
               <button class="mode-card royale" data-mode="royale"><b>Supervivencia</b><small>La tormenta se cierra: último en pie</small></button>
@@ -172,6 +173,10 @@
               <div class="pf-plane-info"><b id="pf-plane-name"></b><small id="pf-plane-weapon"></small></div>
             </div>
             <div id="pf-planes" class="plane-strip"></div>
+          </div>
+          <div id="pf-war" class="field hidden">
+            <span>Misión</span>
+            <div id="war-list" class="stage-list compact"></div>
           </div>
           <div id="pf-course" class="field hidden">
             <span>Circuito</span>
@@ -279,9 +284,11 @@
                   <option value="free">Vuelo libre en equipo</option>
                   <option value="race">Carrera en grupo</option>
                   <option value="battle">Batalla</option>
+                  <option value="war">Misión de guerra (en grupo)</option>
                 </select>
               </label>
               <label id="mp-course-field" class="field hidden"><span>Circuito</span><select id="mp-course"></select></label>
+              <label id="mp-war-field" class="field hidden"><span>Misión</span><select id="mp-war"></select></label>
               <div id="mp-battle" class="hidden battle-opts">
                 <label class="field"><span>Tipo de batalla</span>
                   <select id="mp-bkind">
@@ -355,10 +362,12 @@
                 <option value="free">Vuelo libre en equipo</option>
                 <option value="race">Carrera en grupo</option>
                 <option value="battle">Batalla</option>
+                <option value="war">Misión de guerra (en grupo)</option>
               </select>
             </label>
-            <label class="field"><span>Escenario</span><select id="lobby-stage"></select></label>
+            <label id="lobby-stage-field" class="field"><span>Escenario</span><select id="lobby-stage"></select></label>
             <label id="lobby-course-field" class="field"><span>Circuito</span><select id="lobby-course"></select></label>
+            <label id="lobby-war-field" class="field hidden"><span>Misión</span><select id="lobby-war"></select></label>
           </div>
           <div id="lobby-battle" class="battle-opts hidden">
             <label class="field"><span>Tipo de batalla</span>

@@ -4186,3 +4186,21 @@ html.standalone .install {
   font-weight: 800;
   vertical-align: middle;
 }
+
+.war-card {
+  align-items: center;
+}
+.war-card .war-stars {
+  margin-left: auto;
+  color: #ffd040;
+  font-style: normal;
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+.war-year {
+  background: #8a6a3a;
+  color: #fff3d8;
+}
+.mode-card.war {
+  background: linear-gradient(135deg, rgba(120, 96, 60, 0.55), rgba(60, 50, 40, 0.55));
+}

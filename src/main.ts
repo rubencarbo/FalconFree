@@ -71,6 +71,7 @@ import type { WeatherKind } from './weather';
 import { VoicePlayer, VoiceRecorder, VOICE_MAX_MS, decodeMuLaw } from './voice';
 import { PlanePreview, type PreviewMode } from './planePreview';
 import { Missions, Hazards, makeMission, advanceMission, rewardFor, MISSION_INFO, type MissionAction, type MissionNet, type MissionReward } from './missions';
+import { WAR_MISSIONS, WarOps, warMission, warStarsKey, type WarMission } from './warops';
 import { AutoQuality, QUALITY_LABELS, qualityPreset, type QualityPreset } from './quality';
 import type { QualityLevel, QualitySetting, TrailStyleSetting } from './settings';
 
@@ -79,9 +80,9 @@ const show = (id: string, v: boolean) => $(id).classList.toggle('hidden', !v);
 const hex = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
 
 type Screen = 'menu' | 'playing' | 'crashed' | 'results' | 'lobby';
-type Mode = 'free' | 'race' | 'battle' | 'delivery' | 'waves' | 'editor';
+type Mode = 'free' | 'race' | 'battle' | 'delivery' | 'waves' | 'editor' | 'war';
 /** Modos que se eligen en la pantalla «Un jugador» */
-type PfMode = 'free' | 'delivery' | 'race' | 'daily' | 'battle' | 'koth' | 'tag' | 'waves' | 'royale' | 'boss' | 'circuits';
+type PfMode = 'free' | 'delivery' | 'race' | 'daily' | 'battle' | 'koth' | 'tag' | 'waves' | 'royale' | 'boss' | 'circuits' | 'war';
 
 const PF_INFO: Record<PfMode, { title: string; desc: string }> = {
   free: { title: 'Vuelo libre', desc: 'Explora la ciudad, atraviesa aros de colores, derriba drones y recoge recompensas. Sin prisa.' },
@@ -95,6 +96,7 @@ const PF_INFO: Record<PfMode, { title: string; desc: string }> = {
   royale: { title: 'Supervivencia', desc: 'Una sola vida. La tormenta violeta cierra el cielo poco a poco y fuera de la zona pierdes blindaje. Gana el último avión en pie.' },
   boss: { title: 'Jefe final', desc: 'Un dirigible gigante patrulla la ciudad. Fase 1: destruye sus 4 torretas. Fase 2: sus 2 motores (lanza misiles y cazas de escolta). Fase 3: el núcleo queda expuesto. Puedes llevar bots aliados.' },
   circuits: { title: 'Mis circuitos', desc: '' },
+  war: { title: 'Misiones de guerra', desc: 'Episodios inspirados en la historia de la aviación y operaciones inventadas. Elige misión: cada una tiene su escenario y su objetivo. También se pueden jugar en grupo desde Multijugador.' },
 };
 
 const isTouch = matchMedia('(hover: none), (pointer: coarse)').matches;
@@ -199,6 +201,11 @@ class Game {
   private ringsToMissile = 0;
   private pfMode: PfMode = 'free';
   private pfCourse: CourseDef = COURSES[0];
+  private pfWar: WarMission = WAR_MISSIONS[0];
+  /** Misión de guerra en curso */
+  war: WarOps | null = null;
+  private warGoAt = 0;
+  private warEnded = false;
   stunts!: Stunts;
   season: Season;
   delivery: Delivery | null = null;
@@ -499,6 +506,8 @@ class Game {
     this.skyfun = null;
     this.missions?.dispose();
     this.missions = null;
+    this.war?.dispose();
+    this.war = null;
     this.hazards?.dispose();
     this.hazards = null;
     this.missionTeam = '';
@@ -1074,6 +1083,125 @@ class Game {
     this.hud.toast('Atraviesa la esfera verde para recoger el paquete', 2400);
   }
 
+  /** Misión de guerra (solo o en grupo: todos con el mismo reloj) */
+  startWar(def: WarMission, gridIndex = 0, gridSize = 1, startAt?: number) {
+    this.audio.init();
+    if (def.stage !== this.stage.id) this.loadStage(getStage(def.stage));
+    this.mode = 'war';
+    this.pfWar = def;
+    this.resetSession();
+    this.drones.setActive(false);
+    this.rings.enabled = false;
+    this.rings.respawnAll([]);
+    this.powerups.setEnabled(true, this.chunks.loaded());
+    if (def.weather && this.settings.weather) this.weather.set(def.weather);
+    this.warEnded = false;
+    this.war = new WarOps(this.scene, this.gen, def, {
+      damage: (n, what) => {
+        if (!this.alive || this.invuln > 0) return;
+        this.audio.damaged();
+        this.rig.addShake(3);
+        this.hud.toast(what, 900);
+        this.takeDamage(n, undefined, true);
+      },
+      crash: (what) => {
+        if (!this.alive || this.invuln > 0) return;
+        this.hud.toast(what, 1500);
+        this.destroy();
+      },
+      toast: (t, ms) => this.hud.toast(t, ms),
+      big: (t, tone) => this.hud.split(t, tone ?? 'neutral'),
+      sound: (k) => {
+        if (k === 'boom') this.audio.explosion();
+        else if (k === 'hit') this.audio.damaged();
+        else if (k === 'drop' || k === 'pickup') this.audio.reload();
+        else if (k === 'alarm') this.audio.warning();
+        else if (k === 'win') this.audio.gate(true);
+        else if (k === 'flak') this.audio.hitMarker();
+      },
+      explosion: (pos, scale) => {
+        this.fx.explosion(pos, new THREE.Vector3(), scale);
+        this.recorder.event('explosion', pos, scale);
+      },
+      claim: (id) => this.room?.claimRing(id),
+      score: (name, pts) => {
+        this.stunts.trick(name, pts);
+        this.earn(Math.round(pts / 10));
+      },
+    });
+    for (const id of this.room?.rings ?? []) if (id.startsWith('w_')) this.war.markDestroyed(id);
+    const w = this.war;
+    const yaw = w.startYaw;
+    const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+    const pos = w.start.clone().addScaledVector(right, (gridIndex - (gridSize - 1) / 2) * 40);
+    this.spawnAt(pos, yaw);
+    this.chunks.warmup(pos.x, pos.z, 16);
+    this.flight.frozen = true;
+    this.warGoAt = startAt ?? this.now() + 4500;
+    this.lastCountdown = -1;
+    this.setScreen('playing');
+    this.hud.split(`${def.year}${def.inspired ? ` · Inspirada en ${def.inspired}` : ' · Operación inventada'}`, 'neutral');
+    setTimeout(() => this.war === w && this.hud.toast(def.brief, 4200), 1600);
+  }
+
+  private updateWar(dt: number) {
+    const w = this.war!;
+    const f = this.flight;
+    const t = (this.now() - this.warGoAt) / 1000;
+    if (t < 0) {
+      f.frozen = true;
+      const left = Math.ceil(-t);
+      if (left !== this.lastCountdown && left <= 3) {
+        this.lastCountdown = left;
+        this.hud.countdown(String(left));
+        this.audio.countdown(false);
+      }
+    } else if (f.frozen && !this.paused) {
+      f.frozen = false;
+      this.hud.countdown('¡YA!');
+      this.audio.countdown(true);
+      setTimeout(() => this.hud.countdown(null), 900);
+    }
+    w.update(dt, t, this.frameStart, f.pos, this.myTarget.vel, f.speedKmh, this.alive && !this.landed && t >= 0);
+    const tl = Math.max(0, w.timeLeft);
+    this.hud.battleScore(`${w.def.title} · ${w.objective()}`, `${Math.floor(tl / 60)}:${String(Math.floor(tl % 60)).padStart(2, '0')}`);
+    if (w.state !== 'running' && !this.warEnded) {
+      this.warEnded = true;
+      if (w.state === 'won') this.hud.split(`🏅 ${w.reason.toUpperCase()}`, 'good');
+      else this.hud.split(`❌ ${w.reason.toUpperCase()}`, 'bad');
+      setTimeout(() => this.finishWar(), 2600);
+    }
+  }
+
+  private finishWar() {
+    const w = this.war;
+    if (!w || this.screen !== 'playing') return;
+    this.screen = 'results';
+    const won = w.state === 'won';
+    const hpK = this.hp / Math.max(1, this.maxHp);
+    const stars = won ? 1 + (w.timeLeft > w.def.time * 0.3 ? 1 : 0) + (hpK > 0.6 && this.alive ? 1 : 0) : 0;
+    const key = warStarsKey(w.def.id);
+    const prev = Number(store.get(key) ?? 0);
+    if (stars > prev) {
+      store.set(key, String(stars));
+      this.earn(150 * (stars - prev));
+    }
+    if (won) this.progress.add('warWins');
+    $('sum-title').textContent = won ? `¡Misión cumplida! · ${w.def.title}` : `Misión fallida · ${w.def.title}`;
+    $('sum-big').textContent = won ? '★'.repeat(stars) + '☆'.repeat(3 - stars) : '✕';
+    $('sum-unit').textContent = won ? 'medallas' : '';
+    const used = w.def.time - w.timeLeft;
+    $('sum-rows').innerHTML = `<li><span>${won ? 'Resultado' : 'Motivo'}</span><b></b></li><li><span>Tiempo</span><b>${Math.floor(used / 60)}:${String(Math.floor(used % 60)).padStart(2, '0')}</b></li><li><span>Mejor</span><b>${'★'.repeat(Math.max(prev, stars)) || '—'}</b></li><li><span>Estilo</span><b>${this.stunts.total}</b></li>`;
+    ($('sum-rows').querySelector('li b') as HTMLElement).textContent = w.reason;
+    $('sum-credits').textContent = `+${this.sessionCredits} créditos`;
+    show('btn-sum-replay', this.recorder.hasContent);
+    $('btn-sum-retry').textContent = this.room ? 'Repetir con el grupo' : 'Repetir misión';
+    show('btn-sum-retry', !this.room || this.room.isHost);
+    $('btn-sum-menu').textContent = this.room ? 'Volver a la sala' : 'Menú principal';
+    show('btn-sum-menu', !this.room || this.room.isHost);
+    this.setScreen('results');
+  }
+
   /** Oleadas: sobrevive y mejora tu avión entre oleadas */
   startWaves() {
     this.audio.init();
@@ -1473,7 +1601,7 @@ class Game {
     show('crash', false);
     show('race-results', s === 'results' && this.mode === 'race');
     show('battle-results', s === 'results' && this.mode === 'battle');
-    show('summary', s === 'results' && (this.mode === 'delivery' || this.mode === 'waves'));
+    show('summary', s === 'results' && (this.mode === 'delivery' || this.mode === 'waves' || this.mode === 'war'));
     show('lobby', s === 'lobby');
     show('pause', false);
     this.paused = false;
@@ -1696,6 +1824,9 @@ class Game {
     } else if (this.battle) {
       const p = this.arenaSpawn();
       this.spawnAt(p, Math.atan2(p.x, p.z));
+    } else if (this.war?.respawnPoint()) {
+      const r = this.war.respawnPoint()!;
+      this.spawnAt(r.pos, r.yaw);
     } else {
       const p = this.flight.pos.clone();
       p.y = Math.max(p.y + 150, this.safeAltitude(p.x, p.z));
@@ -1827,6 +1958,7 @@ class Game {
   // ================================================================ Combate
   /** Lista de objetivos enemigos para mis armas */
   private enemyTargets(): Target[] {
+    if (this.war) return this.war.targets();
     if (this.mode === 'waves') return [...this.drones.list, ...this.bots.map((b) => b.target)];
     if (this.battle?.config.kind === 'tag') return [];
     if (this.battle) {
@@ -1878,6 +2010,16 @@ class Game {
       else if (this.room?.meta) {
         this.room.sendEvent(this.room.meta.host, 'bhit', dmg, `bot:${t.id}`);
         this.battle?.addPoints(this.myId, dmg);
+      }
+      return;
+    }
+    if (t.id.startsWith('w_')) {
+      const destroyed = this.war?.hit(t.id, dmg) ?? false;
+      this.hud.hitMarker(destroyed);
+      if (destroyed) {
+        this.kills++;
+        this.guns.reload(20);
+        this.recorder.highlight('Objetivo destruido');
       }
       return;
     }
@@ -2356,7 +2498,7 @@ class Game {
     this.recorder.tick(dt, () => this.sampleActors());
 
     if (!this.alive) {
-      if (this.mode === 'race' || this.mode === 'battle' || this.mode === 'delivery' || this.room) {
+      if (this.mode === 'race' || this.mode === 'battle' || this.mode === 'delivery' || this.mode === 'war' || this.room) {
         this.respawnTimer -= dt;
         if (this.respawnTimer <= 0) this.respawn();
       }
@@ -2398,6 +2540,8 @@ class Game {
       if (!f.frozen && this.checkCollision()) break;
     }
     if (!this.alive) return;
+
+    if (this.war) this.updateWar(dt);
 
     // Retos y obstáculos del cielo
     if (this.missions || this.hazards) {
@@ -3853,6 +3997,18 @@ class Game {
       arrowColor = pick ? 0x5cff8a : 0xffa040;
       items.push({ pos: target, kind: 'gate', color: pick ? '#5cff8a' : '#ffa040' });
     }
+    if (this.war) {
+      for (const r of this.war.radar()) items.push({ pos: r.pos, kind: r.kind, color: r.color });
+      if (this.war.nav) {
+        navTarget = this.war.nav;
+        navLabel = this.war.navLabel;
+        navGate = true;
+        arrowTarget = this.war.nav;
+        arrowColor = 0xff7040;
+      }
+      scoreLabel = 'Derribos';
+      scoreValue = String(this.kills);
+    }
     if (this.zone) {
       navTarget = this.zone.center;
       navGate = true;
@@ -4264,7 +4420,11 @@ class Game {
 
   private async createRoom() {
     const mode = ($<HTMLSelectElement>('mp-mode').value as RoomMode) || 'free';
-    const course = $<HTMLSelectElement>('mp-course').value || COURSES[0].id;
+    const course = mode === 'war' ? $<HTMLSelectElement>('mp-war').value || WAR_MISSIONS[0].id : $<HTMLSelectElement>('mp-course').value || COURSES[0].id;
+    if (mode === 'war') {
+      const wm = warMission(course);
+      if (wm && wm.stage !== this.stage.id) this.loadStage(getStage(wm.stage));
+    }
     const custom = mode === 'race' && course.startsWith('c:') ? loadCircuits().find((c) => c.code === course.slice(2)) : null;
     if (custom && custom.stage !== this.stage.id) this.loadStage(getStage(custom.stage));
     const bc = this.readBattleForm('mp');
@@ -4374,6 +4534,10 @@ class Game {
       if (this.screen === 'results') this.renderRoomResults();
     };
     room.onRing = (id, uid) => {
+      if (id.startsWith('w_')) {
+        if (uid !== room.uid) this.war?.markDestroyed(id);
+        return;
+      }
       if (uid !== room.uid) {
         this.rings.takenByOther(id);
         if (this.screen === 'playing') this.hud.toast(`${room.players.get(uid)?.name ?? 'Equipo'}: +1 anillo`, 900);
@@ -4447,7 +4611,7 @@ class Game {
       return;
     }
     const modeLabel = (r: PublicRoom) =>
-      r.mode === 'race' ? 'Carrera' : r.mode === 'battle' ? `Batalla · ${BATTLE_LABELS[r.bk ?? 'ffa']}` : 'Vuelo en equipo';
+      r.mode === 'race' ? 'Carrera' : r.mode === 'battle' ? `Batalla · ${BATTLE_LABELS[r.bk ?? 'ffa']}` : r.mode === 'war' ? 'Misión de guerra' : 'Vuelo en equipo';
     ul.replaceChildren(
       ...list.map((r) => {
         const li = document.createElement('li');
@@ -4517,6 +4681,8 @@ class Game {
         this.startRace(def, idx, Math.max(order.length, 1), m.startAt);
       } else if (m.mode === 'battle') {
         this.startBattle({ kind: m.bk ?? 'ffa', bots: m.bb ?? 2, killLimit: m.bl ?? 10, timeLimit: m.bt ?? 300 }, m.startAt);
+      } else if (m.mode === 'war') {
+        this.startWar(warMission(m.course) ?? WAR_MISSIONS[0], idx, Math.max(order.length, 1), m.startAt);
       } else {
         this.startCoopFree(idx);
       }
@@ -4616,11 +4782,18 @@ class Game {
     $<HTMLSelectElement>('lobby-blimit').value = String(m.bl ?? 10);
     $<HTMLSelectElement>('lobby-btime').value = String(m.bt ?? 300);
     show('lobby-course-field', m.mode === 'race');
+    show('lobby-war-field', m.mode === 'war');
+    show('lobby-stage-field', m.mode !== 'war');
+    if (m.mode === 'war') {
+      const lw = $<HTMLSelectElement>('lobby-war');
+      lw.disabled = !host;
+      lw.value = warMission(m.course)?.id ?? WAR_MISSIONS[0].id;
+    }
     show('lobby-battle', m.mode === 'battle');
     show('btn-team', teamMode);
     show('btn-lobby-start', host);
     show('lobby-wait', !host);
-    $('btn-lobby-start').textContent = m.mode === 'race' ? 'Empezar carrera' : m.mode === 'battle' ? 'Empezar batalla' : 'Empezar vuelo';
+    $('btn-lobby-start').textContent = m.mode === 'race' ? 'Empezar carrera' : m.mode === 'battle' ? 'Empezar batalla' : m.mode === 'war' ? 'Empezar misión' : 'Empezar vuelo';
     if (m.state !== 'lobby' && m.mode === 'free') $('lobby-wait').textContent = 'Partida en curso…';
     else $('lobby-wait').textContent = 'Esperando a que el anfitrión empiece…';
   }
@@ -4887,8 +5060,21 @@ class Game {
       setTimeout(() => $<HTMLInputElement>('pilot-name').focus(), 50);
     });
     $('btn-season').addEventListener('click', () => this.openSeason());
-    $('btn-sum-retry').addEventListener('click', () => (this.mode === 'delivery' ? this.startDelivery() : this.startWaves()));
-    $('btn-sum-menu').addEventListener('click', () => this.setScreen('menu'));
+    $('btn-sum-retry').addEventListener('click', () => {
+      if (this.mode === 'war') {
+        if (this.room) void this.room.startRound();
+        else this.startWar(this.pfWar);
+      } else if (this.mode === 'delivery') this.startDelivery();
+      else this.startWaves();
+      $('btn-sum-retry').textContent = 'Jugar otra vez';
+      $('btn-sum-menu').textContent = 'Menú principal';
+    });
+    $('btn-sum-menu').addEventListener('click', () => {
+      if (this.room) void this.room.backToLobby();
+      else this.setScreen('menu');
+      $('btn-sum-retry').textContent = 'Jugar otra vez';
+      $('btn-sum-menu').textContent = 'Menú principal';
+    });
     $('btn-sum-replay').addEventListener('click', () => this.startReplay('summary'));
     $('btn-mp').addEventListener('click', () => this.openMpPanel());
     $('mp-visibility').addEventListener('click', () => {
@@ -5075,8 +5261,18 @@ class Game {
     for (const sel of [mpCourse, lobbyCourse]) this.fillCourseSelect(sel);
     const lobbyStage = $<HTMLSelectElement>('lobby-stage');
     for (const s of STAGES) lobbyStage.append(new Option(s.name, s.id));
+    for (const id of ['mp-war', 'lobby-war']) {
+      const sel = $<HTMLSelectElement>(id);
+      sel.replaceChildren(...WAR_MISSIONS.map((wm) => new Option(`${wm.title} (${wm.year})`, wm.id)));
+    }
+    $('lobby-war').addEventListener('change', (e) => {
+      const v = (e.target as HTMLSelectElement).value;
+      const wm = warMission(v);
+      void this.room?.setMeta(wm ? { course: v, stage: wm.stage } : { course: v });
+    });
     $<HTMLSelectElement>('mp-mode').addEventListener('change', (e) => {
       const v = (e.target as HTMLSelectElement).value;
+      show('mp-war-field', v === 'war');
       show('mp-course-field', v === 'race');
       show('mp-battle', v === 'battle');
     });
@@ -5098,7 +5294,16 @@ class Game {
       const me = this.room?.players.get(this.room.uid);
       if (me) void this.room!.setTeam(me.team === 'A' ? 'B' : 'A');
     });
-    $('lobby-mode').addEventListener('change', (e) => void this.room?.setMeta({ mode: (e.target as HTMLSelectElement).value as RoomMode }));
+    $('lobby-mode').addEventListener('change', (e) => {
+      const v = (e.target as HTMLSelectElement).value as RoomMode;
+      const room = this.room;
+      if (!room) return;
+      if (v === 'war') {
+        const wm = warMission(room.meta?.course) ?? WAR_MISSIONS[0];
+        void room.setMeta({ mode: v, course: wm.id, stage: wm.stage });
+      } else if (room.meta?.mode === 'war') void room.setMeta({ mode: v, course: COURSES[0].id });
+      else void room.setMeta({ mode: v });
+    });
     lobbyStage.addEventListener('change', (e) => void this.room?.setMeta({ stage: (e.target as HTMLSelectElement).value as StageId }));
     lobbyCourse.addEventListener('change', (e) => {
       const v = (e.target as HTMLSelectElement).value;
@@ -5558,7 +5763,9 @@ class Game {
     $('pf-desc').textContent = PF_INFO[mode].desc;
     const battleLike = mode === 'battle' || mode === 'koth' || mode === 'tag' || mode === 'royale' || mode === 'boss';
     show('pf-course', mode === 'race');
-    show('pf-stage', mode !== 'daily');
+    show('pf-stage', mode !== 'daily' && mode !== 'war');
+    show('pf-war', mode === 'war');
+    if (mode === 'war') this.renderWarList();
     show('pf-daily', mode === 'daily');
     if (mode === 'daily') {
       const d = dailyChallenge();
@@ -5587,6 +5794,38 @@ class Game {
     show('play', false);
     show('preflight', true);
     this.renderPlanePicker();
+  }
+
+  /** Lista de misiones de guerra (con medallas y un poco de historia) */
+  private renderWarList() {
+    const pick = this.pfWar;
+    $('pf-desc').textContent = `${pick.history} Objetivo: ${pick.brief}`;
+    $('war-list').replaceChildren(
+      ...WAR_MISSIONS.map((m) => {
+        const b = document.createElement('button');
+        b.className = `stage-card war-card${m.id === pick.id ? ' active' : ''}`;
+        const stars = Number(store.get(warStarsKey(m.id)) ?? 0);
+        const txt = document.createElement('span');
+        const t = document.createElement('b');
+        t.textContent = m.title;
+        const y = document.createElement('em');
+        y.className = 'stage-tag war-year';
+        y.textContent = m.year;
+        t.append(y);
+        const d = document.createElement('small');
+        d.textContent = `${m.inspired ? `Inspirada en ${m.inspired}` : 'Operación inventada'} · ${getStage(m.stage).name}`;
+        const st = document.createElement('i');
+        st.className = 'war-stars';
+        st.textContent = '★'.repeat(stars) + '☆'.repeat(3 - stars);
+        txt.append(t, d);
+        b.append(txt, st);
+        b.addEventListener('click', () => {
+          this.pfWar = m;
+          this.renderWarList();
+        });
+        return b;
+      }),
+    );
   }
 
   private renderDailyChoice() {
@@ -5639,6 +5878,9 @@ class Game {
         break;
       case 'daily':
         this.startDaily(this.dailyVariant);
+        break;
+      case 'war':
+        this.startWar(this.pfWar);
         break;
       default:
         this.startBattle(this.readBattleForm('bp'));
