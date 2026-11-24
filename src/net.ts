@@ -25,6 +25,7 @@ import type { BattleKind } from './battle';
 import { ICONS, type IconId } from './identity';
 import type { PlaneVariant } from './jet';
 import type { BossNet } from './boss';
+import { advanceMission, type MissionAction, type MissionNet } from './missions';
 
 export type RoomMode = 'free' | 'race' | 'battle';
 export type RoomState = 'lobby' | 'countdown' | 'running';
@@ -190,6 +191,9 @@ export class Room {
   onRulesMissing?: (what: string) => void;
   /** Pilla-pilla: quién la lleva */
   onTagIt?: (id: string, seq: number) => void;
+  /** Retos de equipo (clave: 'all', 'A' o 'B') */
+  missions: Record<string, MissionNet> = {};
+  onMission?: (team: string, m: MissionNet | null) => void;
   onScores?: () => void;
 
   onMeta?: (m: RoomMeta) => void;
@@ -383,6 +387,12 @@ export class Room {
       }),
       onValue(ref(db, `rooms/${this.code}/boss`), (s) => {
         this.onBoss?.((s.val() as BossNet | null) ?? null);
+      }),
+      onValue(ref(db, `rooms/${this.code}/mission`), (s) => {
+        const v = (s.val() ?? {}) as Record<string, MissionNet>;
+        const keys = new Set([...Object.keys(v), ...Object.keys(this.missions)]);
+        this.missions = v;
+        for (const k of keys) this.onMission?.(k, v[k] ?? null);
       }),
       onValue(ref(db, `rooms/${this.code}/tagit`), (s) => {
         const v = s.val() as { id: string; s: number } | null;
@@ -634,6 +644,7 @@ export class Room {
     await remove(ref(db, `rooms/${this.code}/score`)).catch(() => undefined);
     await remove(ref(db, `rooms/${this.code}/tagit`)).catch(() => undefined);
     await remove(ref(db, `rooms/${this.code}/boss`)).catch(() => undefined);
+    await remove(ref(db, `rooms/${this.code}/mission`)).catch(() => undefined);
     await remove(ref(db, `rooms/${this.code}/pause`)).catch(() => undefined);
     await set(ref(db, `rooms/${this.code}/pausedMs`), 0).catch(() => undefined);
     await this.setMeta({ state: 'countdown', startAt: Math.round(this.serverNow() + 5000), round: this.meta.round + 1 });
@@ -650,6 +661,23 @@ export class Room {
       name: this.name,
       time: Math.round(time * 1000) / 1000,
       round: this.meta.round,
+    });
+  }
+
+  /** Crea el reto del equipo si aún no hay ninguno */
+  ensureMission(team: string, first: MissionNet) {
+    if (this.closed) return;
+    runTransaction(ref(firebase.database()!, `rooms/${this.code}/mission/${team}`), (cur: MissionNet | null) => (cur === null ? first : undefined)).catch((e) => {
+      if (/permission/i.test(String(e))) this.onRulesMissing?.('retos');
+    });
+  }
+
+  /** Suma progreso al reto del equipo (transacción: nadie pisa a nadie) */
+  missionAct(team: string, a: MissionAction, me: { x: number; y: number; z: number; yaw: number; name: string }) {
+    if (this.closed) return;
+    const seed = Math.floor(Math.random() * 2 ** 31);
+    runTransaction(ref(firebase.database()!, `rooms/${this.code}/mission/${team}`), (cur: MissionNet | null) => (cur ? advanceMission(cur, a, me, seed) : undefined)).catch((e) => {
+      if (/permission/i.test(String(e))) this.onRulesMissing?.('retos');
     });
   }
 

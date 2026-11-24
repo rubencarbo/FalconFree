@@ -30,6 +30,7 @@ export interface HudData {
   cockpit: boolean;
   hp01: number;
   ammo: number;
+  infiniteAmmo?: boolean;
   maxAmmo: number;
   lockPos: THREE.Vector3 | null;
   lockStrength: number;
@@ -392,8 +393,8 @@ export class Hud {
     this.hpBar.style.transform = `scaleX(${hp})`;
     this.hpBar.classList.toggle('low', hp < 0.3);
     this.ammoBar.style.transform = `scaleX(${d.ammo / d.maxAmmo})`;
-    this.ammoText.textContent = String(d.ammo);
-    this.ammoBar.classList.toggle('low', d.ammo < d.maxAmmo * 0.15);
+    this.ammoText.textContent = d.infiniteAmmo ? '∞' : String(d.ammo);
+    this.ammoBar.classList.toggle('low', !d.infiniteAmmo && d.ammo < d.maxAmmo * 0.15);
     this.updateMarker(d);
     this.updateLock(d);
     if (d.cockpit) this.drawCockpit(d);
@@ -592,7 +593,7 @@ export class Hud {
     const rowY = y0 + 20;
     ctx.fillStyle = '#ffb347';
     ctx.textAlign = 'left';
-    ctx.fillText(`${d.scoreLabel} ${d.scoreValue} · Balas ${d.ammo}`, x0 + 6, rowY);
+    ctx.fillText(`${d.scoreLabel} ${d.scoreValue} · Balas ${d.infiniteAmmo ? '∞' : d.ammo}`, x0 + 6, rowY);
     ctx.fillStyle = '#cfd6e0';
     ctx.textAlign = 'center';
     const barW = Math.min(110, innerW * 0.22);

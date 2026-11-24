@@ -6,10 +6,17 @@ export interface DeliveryEvent {
   reward?: number;
   tip?: number;
   label?: string;
+  /** segundos añadidos al reloj */
+  bonus?: number;
+  /** distancia hasta la entrega (m) */
+  dist?: number;
 }
 
-const START_TIME = 120;
-const TIME_PER_DELIVERY = 40;
+const START_TIME = 90;
+const TIME_PER_DELIVERY = 10;
+/** Distancia entre recogida y entrega: aleatoria entre 1 y 10 km */
+const LEG_MIN = 1000;
+const LEG_MAX = 10000;
 /** Radio de la esfera de recogida/entrega (se atraviesa en el aire) */
 const ZONE_R = 42;
 /** Altura de la esfera sobre la azotea */
@@ -113,7 +120,7 @@ export class Delivery {
     this.score = 0;
     this.over = false;
     this.pkg.visible = false;
-    this.setTarget(this.pickRoof(from, 900, 1600));
+    this.setTarget(this.pickRoof(from, 700, 1500));
   }
 
   private setTarget(p: THREE.Vector3) {
@@ -175,23 +182,27 @@ export class Delivery {
     if (this.state === 'pickup') {
       this.state = 'deliver';
       this.pkg.visible = true;
-      const dest = this.pickRoof(this.target, 1800, 3000);
-      this.legDist = dest.distanceTo(this.target);
+      const want = LEG_MIN + this.rand() * (LEG_MAX - LEG_MIN);
+      const dest = this.pickRoof(this.target, want * 0.97, want * 1.03);
+      this.legDist = Math.hypot(dest.x - this.target.x, dest.z - this.target.z);
       this.setTarget(dest);
-      return { type: 'pickup' };
+      // Tiempo para el trayecto según la distancia; cada entrega aprieta un poco más
+      const bonus = Math.round(8 + this.legDist / (190 + Math.min(80, this.delivered * 8)));
+      this.timeLeft += bonus;
+      return { type: 'pickup', bonus, dist: this.legDist };
     }
     // Entrega: base + propina por rapidez y por volar bajo
     this.delivered++;
     const par = this.legDist / 220;
     const fast = Math.max(0, par - this.legTime);
     const tip = Math.round(fast * 14);
-    const reward = 150 + tip;
+    const reward = 100 + Math.round(this.legDist / 25) + tip;
     this.score += reward;
     this.timeLeft += TIME_PER_DELIVERY;
     this.state = 'pickup';
     this.pkg.visible = false;
-    this.setTarget(this.pickRoof(this.target, 900, 1600));
-    return { type: 'deliver', reward, tip, label: fast > 3 ? '¡Entrega exprés!' : 'Entregado' };
+    this.setTarget(this.pickRoof(this.target, 700, 1500));
+    return { type: 'deliver', reward, tip, bonus: TIME_PER_DELIVERY, label: fast > 3 ? '¡Entrega exprés!' : 'Entregado' };
   }
 
   get legDistance() {

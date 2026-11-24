@@ -54,6 +54,7 @@
         <div id="warning">¡ASCIENDE!</div>
         <div id="missile-warning"><span class="mw-arrow"></span><b>MISIL</b><small>Bengalas: G / botón</small></div>
         <div id="mode-banner"></div>
+        <div id="mission" class="hidden" aria-live="polite"><div class="ms-head"><span id="mission-icon">⚡</span><b id="mission-title">Reto</b><small id="mission-lvl">Nv 1</small></div><span id="mission-desc"></span><div class="ms-bar"><i id="mission-bar"></i></div><small id="mission-prog"></small></div>
         <div id="boss-bar"><span class="bb-name"></span><span class="bb-track"><i></i></span></div>
         <div id="chat-feed"></div>
         <div id="mic-live" class="hidden" aria-live="polite"><span class="ml-dot"></span><b>🎙️ MICRO ABIERTO</b><span id="mic-live-time">5 s</span><span class="ml-meter"><i id="mic-live-level"></i></span></div>
@@ -141,9 +142,7 @@
             <h3>Combate <small>Contra bots</small></h3>
             <div class="mode-grid">
               <button class="mode-card battle" data-mode="battle"><b>Batalla</b><small>Todos contra todos, equipos o contra la máquina</small></button>
-              <button class="mode-card koth" data-mode="koth"><b>Rey del cielo</b><small>Domina la zona dorada</small></button>
               <button class="mode-card tagm" data-mode="tag"><b>Pilla-pilla</b><small>Sin disparos: ¡que no te pillen!</small></button>
-              <button class="mode-card waves" data-mode="waves"><b>Oleadas</b><small>Sobrevive y mejora tu avión</small><em data-best="waves"></em></button>
               <button class="mode-card royale" data-mode="royale"><b>Supervivencia</b><small>La tormenta se cierra: último en pie</small></button>
               <button class="mode-card boss" data-mode="boss"><b>Jefe final</b><small>Derriba el dirigible gigante</small></button>
             </div>
@@ -184,7 +183,6 @@
                 <option value="ffa">Todos contra todos</option>
                 <option value="teams">Equipos: tú y bots aliados contra bots</option>
                 <option value="coop">Tú contra la máquina</option>
-                <option value="koth">Rey del cielo</option>
                 <option value="tag">Pilla-pilla</option>
                 <option value="royale">Supervivencia</option>
                 <option value="boss">Jefe final</option>
@@ -290,7 +288,6 @@
                     <option value="ffa">Todos contra todos</option>
                     <option value="teams">Equipos: Naranja vs Azul</option>
                     <option value="coop">Todos contra la máquina</option>
-                    <option value="koth">Rey del cielo</option>
                     <option value="tag">Pilla-pilla</option>
                     <option value="royale">Supervivencia</option>
                     <option value="boss">Jefe final: el dirigible</option>
@@ -369,7 +366,6 @@
                 <option value="ffa">Todos contra todos</option>
                 <option value="teams">Equipos: Naranja vs Azul</option>
                 <option value="coop">Todos contra la máquina</option>
-                    <option value="koth">Rey del cielo</option>
                     <option value="tag">Pilla-pilla</option>
                     <option value="royale">Supervivencia</option>
                     <option value="boss">Jefe final: el dirigible</option>

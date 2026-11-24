@@ -122,7 +122,7 @@ export class Bot {
     } else {
       // Patrulla en círculo alrededor del centro
       const a = time * 0.15 + this.spec.id.length;
-      goal = arena.clone().add(new THREE.Vector3(Math.cos(a) * 900, 450, Math.sin(a) * 900));
+      goal = arena.clone().add(new THREE.Vector3(Math.cos(a) * 550, 450, Math.sin(a) * 550));
     }
     // Objetivo del modo (zona del Rey del cielo): ir a ella salvo combate cercano
     if (opts.goal && (!this.aimAt || dist > 650)) {
@@ -135,9 +135,9 @@ export class Bot {
       if (away.lengthSq() < 1) away.set(1, 0, 0);
       goal = f.pos.clone().addScaledVector(away.normalize(), 900).setY(Math.max(300, f.pos.y));
       // no salir de la arena
-      if (goal.distanceTo(arena) > 2200) goal.lerp(arena.clone().setY(400), 0.6);
+      if (goal.distanceTo(arena) > 1400) goal.lerp(arena.clone().setY(400), 0.6);
     }
-    if (f.pos.distanceTo(arena) > 3200) goal = arena.clone().setY(450);
+    if (Math.hypot(f.pos.x - arena.x, f.pos.z - arena.z) > 1700) goal = arena.clone().setY(Math.max(450, f.pos.y));
 
     // Evitar el suelo y los edificios
     const ahead = f.pos.clone().addScaledVector(fwd, 250);

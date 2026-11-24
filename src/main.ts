@@ -69,6 +69,7 @@ import type { GhostData } from './ghost';
 import type { WeatherKind } from './weather';
 import { VoicePlayer, VoiceRecorder, VOICE_MAX_MS, decodeMuLaw } from './voice';
 import { PlanePreview, type PreviewMode } from './planePreview';
+import { Missions, Hazards, makeMission, advanceMission, rewardFor, MISSION_INFO, type MissionAction, type MissionNet, type MissionReward } from './missions';
 import { AutoQuality, QUALITY_LABELS, qualityPreset, type QualityPreset } from './quality';
 import type { QualityLevel, QualitySetting, TrailStyleSetting } from './settings';
 
@@ -105,6 +106,8 @@ const RESPAWN_TIME = 3;
 const NET_RATE = 10;
 const ROUTE_PENALTY = 3;
 const ARENA = new THREE.Vector3(0, 0, 0);
+/** margen vertical al comprobar si un aro de reto toca roca */
+const RING_PROBE = 22;
 /** Cooperativo: distancia (m) a la que se avisa y a la que se reagrupa */
 const LEASH_WARN = 1100;
 const LEASH_MAX = 1700;
@@ -226,6 +229,13 @@ class Game {
   private bossWinAt = 0;
   cityEvents: CityEvents | null = null;
   skyfun: SkyFun | null = null;
+  /** Retos encadenados y obstáculos del cielo */
+  missions: Missions | null = null;
+  hazards: Hazards | null = null;
+  private missionTeam = '';
+  private missionT0 = 0;
+  private frameStart = new THREE.Vector3();
+  private probe = new THREE.Vector3();
   // Santuario del cielo (aterrizaje) y sus maravillas
   landed: FloatingRealm | null = null;
   private usedWonders = new Set<string>();
@@ -477,6 +487,12 @@ class Game {
     this.cityEvents = null;
     this.skyfun?.dispose();
     this.skyfun = null;
+    this.missions?.dispose();
+    this.missions = null;
+    this.hazards?.dispose();
+    this.hazards = null;
+    this.missionTeam = '';
+    show('mission', false);
     this.endWonders();
     this.endEditor();
     this.stopSpectating();
@@ -535,6 +551,7 @@ class Game {
 
   // ================================================================ Sesiones
   private resetSession() {
+    this.lastArena = null;
     this.rings.enabled = true;
     this.ringCount = 0;
     this.ringsToMissile = 0;
@@ -586,7 +603,184 @@ class Game {
     this.startCityEvents();
     this.startSkyFun();
     this.setScreen('playing');
+    this.startMissions({ mines: 4, lasers: 1 });
     this.hud.toast('¡Despegue!');
+  }
+
+  /**
+   * Retos encadenados (y obstáculos del cielo si se indica). En multijugador el reto
+   * es del equipo: 'all' en vuelo libre, el color del equipo en batallas por equipos.
+   */
+  private startMissions(hz?: { mines: number; lasers: number }) {
+    const f = this.flight;
+    const room = this.room;
+    let team = '';
+    if (room) {
+      const kind = this.battle?.config.kind;
+      if (this.mode === 'free') team = 'all';
+      else if (kind === 'teams') team = this.battle?.fighters.get(this.myId)?.team ?? 'A';
+      else if (kind === 'coop' || kind === 'boss') team = 'A';
+      else return;
+    }
+    this.missionTeam = team;
+    this.missionT0 = this.time;
+    const seed = () => Math.floor(Math.random() * 2 ** 31);
+    this.missions = new Missions(this.scene, this.gen, {
+      ring: (x3, label) => {
+        this.stunts.trick(label, x3 ? 150 : 50);
+        this.audio.ring();
+        this.fx.sparks(this.flight.pos, null, x3 ? 50 : 24, 70);
+        this.earn(x3 ? 6 : 2);
+        Haptic.pickup();
+        if (x3) this.hud.toast('⚡ ¡×3!', 700);
+      },
+      complete: (done, next, by) => this.onMissionComplete(done, next, by),
+      toast: (t, ms) => this.hud.toast(t, ms),
+      act: (a) => this.missionAct(a),
+      blocked: (p) => {
+        const sf = this.skyfun;
+        if (!sf) return false;
+        for (const dy of [0, RING_PROBE, -RING_PROBE]) {
+          this.probe.set(p.x, p.y + dy, p.z);
+          if (sf.collide(this.probe)) return true;
+        }
+        return false;
+      },
+    }, !!team);
+    if (room && team) {
+      const cur = room.missions[team];
+      if (cur) this.missions.setState(cur);
+      else room.ensureMission(team, makeMission(1, seed(), f.pos, f.yaw));
+    } else this.missions.setState(makeMission(1, seed(), f.pos, f.yaw));
+    $('mission').classList.toggle('team', !!team);
+    if (hz) {
+      this.hazards = new Hazards(this.scene, this.gen, {
+        damage: (n, what, pos) => {
+          if (!this.alive || this.invuln > 0) return;
+          this.fx.explosion(pos, new THREE.Vector3(), 0.5);
+          this.audio.damaged();
+          this.rig.addShake(4);
+          this.hud.toast(what, 900);
+          this.takeDamage(n, undefined, true);
+        },
+      });
+      this.hazards.baseMines = hz.mines;
+      this.hazards.baseLasers = hz.lasers;
+      this.hazards.keepClear = () => {
+        const pts: THREE.Vector3[] = [];
+        if (this.race) for (const g of this.race.course.gates) pts.push(g.pos);
+        if (this.delivery) pts.push(this.delivery.target);
+        return pts;
+      };
+    }
+    const m = this.missions.state;
+    if (m) setTimeout(() => this.missions?.state && this.hud.toast(`${MISSION_INFO[m.kind].icon} Reto ${m.lvl}: ${MISSION_INFO[m.kind].title}${team ? ' (de equipo)' : ''}`, 2400), 2600);
+  }
+
+  /** Acción de reto: local o transacción de equipo */
+  private missionAct(a: MissionAction) {
+    const m = this.missions;
+    if (!m?.state) return;
+    const f = this.flight;
+    const me = { x: f.pos.x, y: f.pos.y, z: f.pos.z, yaw: f.yaw, name: this.pilotName() };
+    if (this.room && this.missionTeam) this.room.missionAct(this.missionTeam, a, me);
+    else {
+      const n = advanceMission(m.state, a, me, Math.floor(Math.random() * 2 ** 31));
+      if (n) m.setState(n);
+    }
+  }
+
+  /** Reto superado (por mí o por el equipo): premio, evento y siguiente reto */
+  private onMissionComplete(done: MissionNet, next: MissionNet, by: string | null) {
+    const team = !!this.missionTeam;
+    const mine = !team || by === this.pilotName();
+    this.progress.add('missions');
+    this.progress.max('missionLevel', next.lvl);
+    this.stunts.trick(`Reto ${done.lvl}`, 150 + 100 * done.lvl);
+    this.earn(20 + 15 * done.lvl);
+    this.audio.gate(true);
+    Haptic.gate();
+    this.fx.sparks(this.flight.pos, null, 90, 110);
+    this.rig.addShake(1.5);
+    this.recorder.highlight(`Reto ${done.lvl}`);
+    this.hud.split(`🏆 RETO ${done.lvl} SUPERADO${team ? (mine ? ' · ¡PARA EL EQUIPO!' : ` · ${(by ?? '').toUpperCase()}`) : ''}`, 'good');
+    this.missionPop();
+    const rw = rewardFor(done.lvl);
+    setTimeout(() => this.applyMissionReward(rw), 1500);
+    setTimeout(() => {
+      if (!this.missions?.state) return;
+      const i = MISSION_INFO[next.kind];
+      this.hud.toast(`${i.icon} Nuevo reto · nivel ${next.lvl}: ${i.title}${this.hazards && next.lvl % 2 === 0 ? ' · ⚠️ más obstáculos en el cielo' : ''}`, 2800);
+      this.missionPop();
+    }, 3300);
+  }
+
+  private missionPop() {
+    const el = $('mission');
+    el.classList.add('pop');
+    setTimeout(() => el.classList.remove('pop'), 500);
+  }
+
+  /** Evento que regala cada nivel superado */
+  private applyMissionReward(rw: MissionReward) {
+    if (this.screen !== 'playing' || !this.missions) return;
+    const f = this.flight;
+    switch (rw) {
+      case 'frenzy':
+        this.missions.frenzy = 20;
+        this.hud.split('⚡ FRENESÍ: LOS AROS DEL RETO VALEN ×3 DURANTE 20 s', 'good');
+        this.audio.boostRing();
+        break;
+      case 'birds':
+        this.birds?.dispose();
+        this.birds = new LightBirds(this.scene, f.pos);
+        this.birdsT = 60;
+        this.hud.split('🕊️ LAS AVES DE LUZ TE ESCOLTAN 60 s', 'good');
+        this.audio.ring();
+        break;
+      case 'turbo':
+        this.turbo = Math.max(this.turbo, 15);
+        this.hud.split('🚀 TURBO INFINITO 15 s', 'good');
+        this.audio.boostRing();
+        break;
+      case 'aurora':
+        if (this.aurora) {
+          this.earn(100);
+          this.hud.split('🪙 +100 CRÉDITOS', 'good');
+        } else {
+          this.startAurora(60);
+          this.hud.split('🌌 SE ENCIENDE LA AURORA', 'good');
+        }
+        break;
+      case 'shield':
+        this.applyPower('shield');
+        break;
+      case 'credits':
+        this.earn(100);
+        this.hud.split('🪙 +100 CRÉDITOS', 'good');
+        this.audio.gate(true);
+        break;
+    }
+  }
+
+  /** Tarjeta del reto en pantalla */
+  private updateMissionHud() {
+    const m = this.missions?.state;
+    const on = !!m && this.screen === 'playing';
+    show('mission', on);
+    if (!on || !m) return;
+    const i = MISSION_INFO[m.kind];
+    $('mission-icon').textContent = i.icon;
+    $('mission-title').textContent = i.title + (this.missionTeam ? ' · equipo' : '');
+    $('mission-lvl').textContent = `Nv ${m.lvl}`;
+    const fr = this.missions!.frenzy;
+    let desc = i.desc(m);
+    if (m.kind === 'slalom' && m.prog > 0 && this.missions!.slalomLeft < 99) desc = `¡Siguiente aro! ${Math.max(0, this.missions!.slalomLeft).toFixed(1)} s`;
+    if (fr > 0) desc = `⚡ FRENESÍ ×3 · ${Math.ceil(fr)} s · ` + desc;
+    $('mission-desc').textContent = desc;
+    $('mission-prog').textContent = this.missions!.progressText();
+    $('mission-bar').style.width = `${Math.min(100, (m.prog / m.goal) * 100)}%`;
+    $('mission').classList.toggle('frenzy', fr > 0);
   }
 
   /** Túneles de viento, globos, pasos imposibles, pájaros, rampas y piezas legendarias */
@@ -695,6 +889,8 @@ class Game {
     this.goAt = goAt ?? this.now() + 3500;
     this.lastCountdown = -1;
     this.setScreen('playing');
+    // Retos y obstáculos solo en solitario (en carrera multijugador, todos en igualdad)
+    if (!this.room) this.startMissions({ mines: 3, lasers: 1 });
   }
 
   private clearGhosts() {
@@ -841,6 +1037,7 @@ class Game {
     for (const id of this.room?.rings ?? []) this.rings.takenByOther(id);
     this.startSkyFun();
     this.setScreen('playing');
+    this.startMissions({ mines: 4, lasers: 1 });
     this.hud.toast('¡Vuelo en equipo!');
   }
 
@@ -856,6 +1053,7 @@ class Game {
     this.delivery = new Delivery(this.scene, this.gen);
     this.delivery.start(this.flight.pos);
     this.setScreen('playing');
+    this.startMissions({ mines: 6, lasers: 2 });
     this.hud.toast('Atraviesa la esfera verde para recoger el paquete', 2400);
   }
 
@@ -1070,6 +1268,8 @@ class Game {
     this.setScreen('playing');
     this.hud.toast(BATTLE_LABELS[config.kind], 1800);
     if (config.kind === 'tag') setTimeout(() => this.hud.toast(b.it === this.myId ? '¡La llevas tú! Toca a otro avión' : `La lleva ${b.fighters.get(b.it ?? '')?.name ?? '?'}: ¡huye!`, 2200), 1900);
+    // Batallas por equipos: retos de equipo
+    if (config.kind === 'teams' || config.kind === 'coop' || config.kind === 'boss') this.startMissions();
     this.syncMyScore();
   }
 
@@ -2102,7 +2302,7 @@ class Game {
         Haptic.pickup();
         this.fx.sparks(f.pos, null, 70, 90);
         this.rig.addShake(1.5);
-        this.hud.split('📦 ¡PAQUETE RECOGIDO! · llévalo a la esfera naranja', 'good');
+        this.hud.split(`📦 ¡RECOGIDO! · entrega a ${((ev.dist ?? 0) / 1000).toFixed(1)} km · +${ev.bonus} s`, 'good');
       } else if (ev?.type === 'deliver') {
         this.fx.sparks(f.pos, null, 110, 120);
         this.rig.addShake(2);
@@ -2112,7 +2312,7 @@ class Game {
         this.progress.add('deliveries');
         this.earn(Math.round((ev.reward ?? 0) / 10));
         this.stunts.trick(ev.label ?? 'Entrega', 120);
-        this.hud.toast(`${ev.label} · +${ev.reward}${ev.tip ? ` (propina ${ev.tip})` : ''} · +25 s`, 2000);
+        this.hud.toast(`${ev.label} · +${ev.reward}${ev.tip ? ` (propina ${ev.tip})` : ''} · +${ev.bonus} s`, 2000);
       } else if (ev?.type === 'timeout') {
         this.audio.explosion();
         this.finishSummary();
@@ -2120,7 +2320,8 @@ class Game {
     }
     if (this.delivery && !this.delivery.over) {
       const t = Math.max(0, this.delivery.timeLeft);
-      this.hud.battleScore(`${this.delivery.state === 'pickup' ? 'Recoge el paquete' : 'Entrega el paquete'} · ${this.delivery.delivered} entregas · ${this.delivery.score} pts`, `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`);
+      const km = (Math.hypot(f.pos.x - this.delivery.target.x, f.pos.z - this.delivery.target.z) / 1000).toFixed(1);
+      this.hud.battleScore(`${this.delivery.state === 'pickup' ? 'Recoge' : 'Entrega'} a ${km} km · ${this.delivery.delivered} entregas · ${this.delivery.score} pts`, `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`);
     }
 
     // Recompensas y misiles (también muerto, para que sigan su curso)
@@ -2148,6 +2349,7 @@ class Game {
     // Física con subpasos para no atravesar edificios
     const steps = Math.max(1, Math.ceil((f.speed * dt) / 4));
     const sdt = dt / steps;
+    this.frameStart.copy(f.pos);
     if (this.turbo > 0) input.boost = true;
     for (let i = 0; i < steps && this.alive; i++) {
       this.prevPos.copy(f.pos);
@@ -2173,6 +2375,17 @@ class Game {
       if (!f.frozen && this.checkCollision()) break;
     }
     if (!this.alive) return;
+
+    // Retos y obstáculos del cielo
+    if (this.missions || this.hazards) {
+      const gt = this.now() / 1000;
+      const live = !this.landed && !f.frozen;
+      this.missions?.update(dt, gt, this.frameStart, f.pos, f.speedKmh, live);
+      if (this.hazards) {
+        this.hazards.level = Math.max(0, (this.missions?.state?.lvl ?? 1) - 1) + Math.floor((this.time - this.missionT0) / 90);
+        this.hazards.update(dt, gt, this.frameStart, f.pos, f.yaw, live);
+      }
+    }
 
     // Fantasma
     if (this.race?.started && !this.race.finished) {
@@ -2299,15 +2512,20 @@ class Game {
     b.elapsed = (this.now() - this.goAt) / 1000;
     // Bots (solo con autoridad)
     const kind = b.config.kind;
-    const arena = this.storm ? this.storm.center : this.boss ? this.boss.pos.clone().setY(0) : ARENA;
+    // Los bots giran alrededor de los pilotos humanos (no de un punto fijo): nunca se van lejos
+    const arena = this.storm ? this.storm.center : this.boss ? this.boss.pos.clone().setY(0) : this.humanCenter();
+    // Batalla: munición ilimitada
+    this.guns.ammo = this.guns.maxAmmo;
     for (const bot of this.bots) {
       if (!bot.alive) {
         bot.respawn -= dt;
         const respawns = kind !== 'royale' && !(kind === 'boss' && bot.spec.team === 'B');
-        if (bot.respawn <= 0 && !b.finished && respawns) bot.spawn(ARENA, 1400);
+        if (bot.respawn <= 0 && !b.finished && respawns) bot.spawn(this.storm || this.boss ? ARENA : arena, 900);
         bot.update(dt, this.time, [], arena, this.missiles, () => undefined);
         continue;
       }
+      // Si un bot se queda muy lejos de los pilotos, reaparece cerca (sin esperar a que vuelva)
+      if (!this.storm && !this.boss && Math.hypot(bot.flight.pos.x - arena.x, bot.flight.pos.z - arena.z) > 3000) bot.spawn(arena, 900);
       const enemies: Target[] = [];
       if (b.enemies(bot.spec.id, this.myId) && this.alive) enemies.push(this.myTarget);
       for (const t of this.remotes.targets()) if (b.enemies(bot.spec.id, t.id)) enemies.push(t);
@@ -2334,6 +2552,24 @@ class Game {
     const res = b.check();
     if (res) this.onBattleFinished(res);
   }
+
+  /** Centro de los pilotos humanos vivos (a ras de suelo) */
+  private humanCenter() {
+    const c = new THREE.Vector3();
+    let n = 0;
+    if (this.alive) {
+      c.add(this.flight.pos);
+      n++;
+    }
+    for (const t of this.remotes.targets()) {
+      if (!t.alive) continue;
+      c.add(t.pos);
+      n++;
+    }
+    if (n) this.lastArena = c.divideScalar(n).setY(0);
+    return (this.lastArena ?? ARENA).clone();
+  }
+  private lastArena: THREE.Vector3 | null = null;
 
   /** Objetivos y comportamiento de un bot según el modo de batalla */
   private botModeOpts(id: string, enemies: Target[]): { targets: Target[]; goal?: THREE.Vector3; flee?: THREE.Vector3; noFire?: boolean; chase?: boolean } {
@@ -3336,7 +3572,7 @@ class Game {
       if (this.birdsT <= 0) {
         this.birds.dispose();
         this.birds = null;
-        this.hud.toast('Las aves de luz regresan al santuario', 1500);
+        this.hud.toast('Las aves de luz se marchan', 1500);
       }
     }
     // Aurora
@@ -3691,6 +3927,7 @@ class Game {
       cockpit: this.rig.mode === 'cockpit' && this.alive,
       hp01: this.hp / this.maxHp,
       ammo: this.guns.ammo,
+      infiniteAmmo: !!this.battle,
       maxAmmo: this.guns.maxAmmo,
       lockPos: lock?.pos ?? null,
       lockStrength: this.guns.lockStrength,
@@ -3706,6 +3943,19 @@ class Game {
       arrowTarget = this.skyfun.revealed.pos;
       arrowColor = 0xffd040;
     }
+    // Retos: aros en el radar; flecha al siguiente si no hay otro objetivo
+    if (this.missions) {
+      for (const p of this.missions.radarPoints()) items.push({ pos: p.pos, kind: 'ring', color: p.color });
+      if (!arrowTarget && !this.race && this.mode !== 'delivery') {
+        const t = this.missions.nearest(f.pos);
+        if (t && t.distanceTo(f.pos) > 120 && t.distanceTo(f.pos) < 4000) {
+          arrowTarget = t;
+          arrowColor = 0xb080ff;
+        }
+      }
+    }
+    if (this.hazards) for (const p of this.hazards.radarPoints(f.pos)) items.push({ pos: p, kind: 'drone' });
+    this.updateMissionHud();
     this.radar.draw(f.pos, f.yaw, items, route, circles);
     const night = this.stage.night;
     const trailColor = this.race ? (this.race.nextGate === 0 ? 0xffc040 : night ? 0x9fe8ff : 0xfff0a0) : 0xffb060;
@@ -4073,6 +4323,9 @@ class Game {
     this.updateTalkUi();
     room.onBoss = (st) => {
       if (st && this.boss && !room.isHost) this.boss.applyNet(st);
+    };
+    room.onMission = (team, st) => {
+      if (this.missions && team === this.missionTeam) this.missions.setState(st);
     };
     room.onTagIt = (id, seq) => {
       const b = this.battle;

@@ -70,16 +70,16 @@ Para no perderse en un mundo abierto, sin mover los hitos (sería injusto en la 
 
 ## Más modos
 
-- **Rey del cielo** (contra bots o en multijugador): una zona dorada se mueve cada minuto por
-  la ciudad. Sumas 1 punto por segundo si estás solo dentro; si hay más aviones, nadie suma.
-  Gana el primero en llegar a la meta de puntos o quien más tenga al acabar el tiempo.
 - **Mensajero urbano** (solo): todo en el aire. Atraviesa la esfera verde que flota sobre una
-  azotea (con el paquete dentro) y llévalo a la esfera naranja, a 2–3 km. Empiezas con 120 s y
-  cada entrega suma 40 s; la propina sube si llegas rápido.
-- **Oleadas** (solo): drones y, desde la oleada 3, cazas enemigos. Entre oleadas eliges 1 de 3
-  mejoras (daño, cadencia, blindaje, autorreparación, vampiro, escudo pulsante…). Una sola vida.
+  azotea (con el paquete dentro) y llévalo a la esfera naranja, a una distancia **aleatoria
+  entre 1 y 10 km** (el marcador muestra los km que faltan). Empiezas con 90 s; al recoger se
+  suma tiempo según la distancia del trayecto (cada entrega ajusta un poco más el margen) y al
+  entregar +10 s. La recompensa crece con la distancia y la propina si llegas rápido.
+- **Batalla**: munición de cañón **ilimitada** (∞). Los bots vuelan alrededor de los pilotos
+  (no de un punto fijo) y, si se quedan a más de 3 km, reaparecen cerca.
 - **Pilla-pilla** (contra bots o en multijugador): sin disparos. Quien la lleva (rótulo rojo)
-  tiene que tocar a otro avión; sumas 1 punto por segundo sin llevarla.
+  tiene que tocar a otro avión; sumas 1 punto por segundo sin llevarla. Equilibrado: el bot que
+  la lleva solo es un 6 % más rápido; con turbo y cambios de rumbo puedes escapar.
 - **Supervivencia** (contra bots o en multijugador): una sola vida. Una tormenta violeta cierra
   el cielo poco a poco (partidas de 3 minutos); fuera de la zona pierdes blindaje. Gana el último
   en pie. Al caer pasas a **modo espectador** y puedes ir cambiando de piloto.
@@ -93,6 +93,36 @@ Para no perderse en un mundo abierto, sin mover los hitos (sería injusto en la 
   «Mis circuitos» o con el enlace `?circuito=CODIGO`. En las salas de carrera, el anfitrión puede
   elegir sus circuitos publicados (★).
 
+## Retos encadenados
+
+En vuelo libre, Mensajero, carreras en solitario (también el desafío diario) y batallas por
+equipos aparece una **tarjeta de reto** (bajo el radar; en móvil horizontal, arriba en el centro).
+Al superarlo aparece el siguiente, un nivel más difícil:
+
+| Reto | Qué hay que hacer |
+| --- | --- |
+| ⚡ Aros relámpago | Atravesar N aros. Cada aro **parpadea** unos segundos de forma periódica: si lo cruzas mientras parpadea, vale **×3** |
+| 🌈 Arcoíris | Aros de colores en orden (el que toca late) |
+| 〰️ Slalom | Una fila de aros con cuenta atrás entre aro y aro; si se agota, vuelves a empezar |
+| ✨ Caza la chispa | Atrapar una chispa de luz que huye describiendo curvas |
+| 🏙️ Rasante | Acumular segundos por debajo de 70 m |
+| 💨 Supersónico | Acumular segundos por encima de 950 km/h |
+
+Cada nivel superado da puntos de estilo, créditos y desbloquea un **evento**: créditos extra,
+**frenesí ×3** (20 s), **aves de luz** de escolta, **turbo infinito**, **aurora** o **escudo**.
+Logros nuevos: *Cazador de retos* (15 retos) y *Sin techo* (nivel 8).
+
+**Obstáculos in crescendo** (vuelo libre, Mensajero y carreras en solitario): **minas flotantes**
+(−24 de blindaje) y **barreras láser** entre dos torres que se encienden y apagan (parpadean justo
+antes de encenderse). Su número sube con el nivel de reto y cada minuto y medio de partida.
+Aparecen en el radar como puntos rojos y nunca junto a hitos ni a puntos de entrega.
+
+**Multijugador: retos de equipo.** En el vuelo en equipo, todo el escuadrón comparte el mismo
+reto (y en batallas por equipos, cada equipo el suyo): cualquiera suma aros o segundos y, al
+completarlo, todos reciben el premio y el siguiente reto aparece delante de quien lo terminó.
+El estado vive en `rooms/{código}/mission` y se actualiza con transacciones (necesita publicar
+las reglas nuevas: `npm run deploy:multijugador`).
+
 ## Multijugador: pausa común
 
 Si cualquier jugador pulsa pausa, la partida se detiene **para toda la sala** (aviones, bots,
@@ -103,7 +133,7 @@ tiempo en pausa, así que todos siguen sincronizados.
 
 ## Multijugador: mensajes de voz
 
-Botón **🎙️ HABLAR** (o tecla V) en la sala y en partida: con **un solo toque** graba 5 segundos
+Botón **🎙️ HABLAR** (o tecla V) en la sala y en partida: con **un solo toque** graba 3 segundos
 (cuenta atrás en el botón) y se envía solo; no hace falta mantenerlo pulsado. Solo puede hablar **un piloto a la vez**: mientras alguien habla, el
 botón de los demás muestra «🔊 Habla …» y queda bloqueado (el turno lo reparte Realtime Database
 con la hora del servidor). El audio va en calidad telefónica (~40 KB por mensaje) y se borra a

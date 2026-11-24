@@ -173,6 +173,8 @@ export interface Stats {
   legendPieces: number;
   balloonClusters: number;
   impossiblePasses: number;
+  missions: number;
+  missionLevel: number;
 }
 
 export interface Achievement {
@@ -204,8 +206,6 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'victoria', name: 'Victoria', description: 'Gana una batalla.', reward: 200, done: (s) => s.battlesWon >= 1 },
   { id: 'escuadron', name: 'Escuadrón', description: 'Juega una partida multijugador.', reward: 100, done: (s) => s.mpGames >= 1 },
   { id: 'mensajero', name: 'Mensajero', description: 'Entrega 10 paquetes.', reward: 200, done: (s) => s.deliveries >= 10 },
-  { id: 'superviviente', name: 'Superviviente', description: 'Llega a la oleada 10.', reward: 400, done: (s) => s.wavesBest >= 10 },
-  { id: 'rey', name: 'Rey del cielo', description: 'Gana una partida de Rey del cielo.', reward: 250, done: (s) => s.kothWins >= 1 },
   { id: 'escurridizo', name: 'Escurridizo', description: 'Aguanta 180 s sin llevarla en Pilla-pilla.', reward: 200, done: (s) => s.tagFree >= 180 },
   { id: 'acrobata', name: 'Acróbata', description: 'Haz un combo ×8.', reward: 300, done: (s) => s.bestCombo >= 8 },
   { id: 'ultimo', name: 'Último en pie', description: 'Gana una partida de Supervivencia.', reward: 300, done: (s) => s.royaleWins >= 1 },
@@ -214,6 +214,8 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'arquitecto', name: 'Arquitecto', description: 'Crea y guarda un circuito propio.', reward: 150, done: (s) => s.circuitsMade >= 1 },
   { id: 'leyenda', name: 'Leyenda', description: 'Reúne las 20 piezas del avión legendario.', reward: 1000, done: (s) => s.legendPieces >= 20 },
   { id: 'globos', name: 'Revientaglobos', description: 'Revienta 5 racimos de globos a tiempo.', reward: 200, done: (s) => s.balloonClusters >= 5 },
+  { id: 'retos', name: 'Cazador de retos', description: 'Completa 15 retos encadenados.', reward: 300, done: (s) => s.missions >= 15 },
+  { id: 'reto8', name: 'Sin techo', description: 'Llega al nivel 8 de retos en una partida.', reward: 400, done: (s) => s.missionLevel >= 8 },
   { id: 'imposible', name: 'Imposible', description: 'Cruza 10 pasos imposibles.', reward: 250, done: (s) => s.impossiblePasses >= 10 },
   { id: 'formacion', name: 'Patrulla', description: 'Vuela 120 s en formación con tu equipo.', reward: 300, done: (s) => s.formationTime >= 120 },
 ];
@@ -254,7 +256,7 @@ function emptyStats(): Stats {
     rings: 0, drones: 0, kills: 0, deaths: 0, races: 0, battlesWon: 0, battles: 0, missileHits: 0, flaresDodged: 0,
     scrapes: 0, powerups: 0, ghostBeaten: 0, dailies: 0, mpGames: 0, bestStreak: 0, maxSpeed: 0, lowFlight: 0, timeBonuses: 0,
     deliveries: 0, wavesBest: 0, kothWins: 0, tagFree: 0, formationTime: 0, stuntPoints: 0, bestCombo: 0, seaRings: 0,
-    royaleWins: 0, bossWins: 0, cityEvents: 0, circuitsMade: 0, legendPieces: 0, balloonClusters: 0, impossiblePasses: 0,
+    royaleWins: 0, bossWins: 0, cityEvents: 0, circuitsMade: 0, legendPieces: 0, balloonClusters: 0, impossiblePasses: 0, missions: 0, missionLevel: 0,
   };
 }
 

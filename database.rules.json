@@ -145,6 +145,21 @@
           ".write": "auth != null && root.child('rooms/' + $code + '/players/' + auth.uid).exists()",
           ".validate": "!newData.exists() || (newData.hasChildren(['by', 'n', 'at']) && newData.child('by').val() === auth.uid && newData.child('at').isNumber() && newData.child('n').isString())"
         },
+        "mission": {
+          ".write": "auth != null && root.child('rooms/' + $code + '/meta/host').val() === auth.uid && !newData.exists()",
+          "$team": {
+            ".write": "auth != null && root.child('rooms/' + $code + '/players/' + auth.uid).exists() && ($team === 'all' || $team === 'A' || $team === 'B')",
+            ".validate": "!newData.exists() || (newData.hasChildren(['lvl', 'kind', 'prog', 'goal', 'seed', 'x', 'y', 'z', 'yaw']) && newData.child('lvl').isNumber() && newData.child('lvl').val() >= 1 && newData.child('lvl').val() <= 999 && (!data.exists() || newData.child('lvl').val() >= data.child('lvl').val()) && newData.child('kind').isString() && newData.child('kind').val().length <= 12 && newData.child('prog').isNumber() && newData.child('goal').isNumber() && newData.child('goal').val() <= 60 && newData.child('seed').isNumber())",
+            "bn": {
+              ".validate": "newData.isString() && newData.val().length <= 16"
+            },
+            "taken": {
+              "$i": {
+                ".validate": "newData.isBoolean()"
+              }
+            }
+          }
+        },
         "pausedMs": {
           ".write": "auth != null && root.child('rooms/' + $code + '/players/' + auth.uid).exists()",
           ".validate": "newData.isNumber() && newData.val() >= 0"
