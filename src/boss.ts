@@ -74,7 +74,7 @@ const ORBIT = 950;
 const ALTITUDE = 560;
 const BASE_SPEED = 26;
 
-/** Dirigible gigante con partes destructibles y tres fases */
+/** Portaaviones volante con partes destructibles y tres fases */
 export class Boss {
   group = new THREE.Group();
   pos = new THREE.Vector3();
@@ -125,41 +125,61 @@ export class Boss {
       this.disposables.push(geo);
       return geo;
     };
-    const hullA = mat(0x8a909a);
-    const hullB = mat(0x6c727c);
+    const hullA = mat(0x4a4e58);
+    const hullB = mat(0x3c4048);
     const red = mat(0xb8262e);
-    const dark = mat(0x2a2d33);
-    // Casco: segmentos de caja que forman un huso
-    for (let z = -120; z <= 120; z += 15) {
-      const t = z / 128;
-      const w = 34 * Math.sqrt(Math.max(0, 1 - t * t)) + 5;
-      const m = new THREE.Mesh(box(w * 2, w * 1.75, 15.4), Math.abs(z) < 8 ? red : (z / 15) % 2 === 0 ? hullA : hullB);
-      m.position.z = z;
-      g.add(m);
-    }
-    // Aletas de cola
-    const fin = (w: number, h: number, d: number, x: number, y: number, z: number) => {
-      const m = new THREE.Mesh(box(w, h, d), red);
-      m.position.set(x, y, z);
-      g.add(m);
+    const dark = mat(0x24262c);
+    const deckM = mat(0x2e3036);
+    const add = (geo: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number) => {
+      const mesh = new THREE.Mesh(geo, m);
+      mesh.position.set(x, y, z);
+      g.add(mesh);
+      return mesh;
     };
-    fin(3, 42, 34, 0, 30, 102);
-    fin(3, 42, 34, 0, -30, 102);
-    fin(42, 3, 34, 30, 0, 102);
-    fin(42, 3, 34, -30, 0, 102);
+    // Portaaviones volante: casco escalonado, cubierta de vuelo, isla de mando y hangar
+    add(box(70, 20, 230), hullA, 0, 0, 0);
+    add(box(56, 12, 200), hullB, 0, -16, 6);
+    add(box(40, 8, 150), hullA, 0, -26, 10);
+    add(box(78, 3, 246), deckM, 0, 11.5, -4);
+    // Marcas de la cubierta: eje central y franjas de la proa
+    const stripe = new THREE.MeshBasicMaterial({ color: 0xd8c050 });
+    const white = new THREE.MeshBasicMaterial({ color: 0xe0e0e0 });
+    this.disposables.push(stripe, white);
+    for (let z = -110; z < 110; z += 18) add(box(2, 0.4, 9), white, 0, 13.2, z);
+    for (const x of [-34, 34]) add(box(1.5, 0.4, 240), stripe, x, 13.2, -4);
+    // Hileras de luces en los costados
+    const amber = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.3, 0.75, 0.25) });
+    this.disposables.push(amber);
+    for (let z = -105; z <= 105; z += 10)
+      for (const x of [-35.2, 35.2]) {
+        add(box(0.6, 1.2, 3), amber, x, 4, z);
+        add(box(0.6, 1.2, 3), amber, x, -8, z + 5);
+      }
+    // Isla de mando a estribor
+    add(box(16, 18, 34), hullB, 30, 22, 30);
+    add(box(12, 10, 22), hullA, 30, 36, 32);
+    add(box(18, 3, 4), dark, 30, 42, 26);
+    add(box(1.5, 22, 1.5), mat(0x9aa0aa), 30, 52, 36);
+    const glass = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.5, 1.2, 1.5) });
+    this.disposables.push(glass);
+    add(box(16.4, 3, 20), glass, 30, 38, 30);
+    // Hangar abierto en el costado (de aquí salen los cazas)
+    add(box(1, 12, 40), mat(0x101012, 0x3a1a06), -35.4, -4, -20);
     // Luces de posición
     const lightMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 0.3, 0.25) });
     this.disposables.push(lightMat);
     for (const [x, y, z] of [
-      [0, 32, -100],
-      [0, 52, 104],
-      [52, 0, 104],
-      [-52, 0, 104],
+      [-38, 13, -122],
+      [38, 13, -122],
+      [30, 64, 36],
+      [-38, 13, 116],
+      [38, 13, 116],
     ]) {
       const l = new THREE.Mesh(box(3, 3, 3), lightMat);
       l.position.set(x, y, z);
       g.add(l);
     }
+    void red;
 
     let n = 0;
     const part = (kind: PartKind, phase: number, local: THREE.Vector3, mesh: THREE.Object3D, mats: THREE.MeshLambertMaterial[], hp: number, radius: number) => {
@@ -191,7 +211,7 @@ export class Boss {
     };
 
     // Torretas (fase 1)
-    for (const local of [new THREE.Vector3(0, 31, -62), new THREE.Vector3(0, 31, 42), new THREE.Vector3(-39, 2, -18), new THREE.Vector3(39, 2, -18)]) {
+    for (const local of [new THREE.Vector3(-26, 16, -92), new THREE.Vector3(26, 16, -92), new THREE.Vector3(-26, 16, 78), new THREE.Vector3(-38, 0, 20)]) {
       const tm = mat(0x3a3e46);
       const t = new THREE.Group();
       const base = new THREE.Mesh(box(10, 6, 10), tm);
@@ -210,7 +230,7 @@ export class Boss {
       const strut = new THREE.Mesh(box(18, 3, 6), dark);
       strut.position.x = -side * 14;
       eg.add(strut);
-      const glow = new THREE.Mesh(box(10, 10, 1), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.6, 1.6, 3) }));
+      const glow = new THREE.Mesh(box(10, 10, 1), new THREE.MeshBasicMaterial({ color: new THREE.Color(1.8, 0.7, 0.15) }));
       glow.position.z = 15.5;
       this.disposables.push(glow.material as THREE.Material);
       eg.add(glow);
@@ -219,7 +239,7 @@ export class Boss {
       prop.add(new THREE.Mesh(box(30, 3, 1), dark), new THREE.Mesh(box(3, 30, 1), dark));
       eg.add(prop);
       this.props.push(prop);
-      part('engine', 2, new THREE.Vector3(side * 50, -6, 58), eg, [em], 420, 15);
+      part('engine', 2, new THREE.Vector3(side * 46, -24, 58), eg, [em], 420, 15);
     }
     // Núcleo: góndola bajo el casco (fase 3)
     const cm = mat(0x454a54, 0x000000);
@@ -400,6 +420,11 @@ export class Boss {
         onHit: (t, _pt, dmg) => onHit(t, dmg),
       });
       if (!this.authority && p.firing && Math.random() < dt * (p.kind === 'core' ? 3 : 7)) p.guns.cosmeticShot(p.target.pos, quat, this.vel);
+      // Fuego antiaéreo: bocanadas negras alrededor del blanco (solo visual)
+      if (p.kind === 'turret' && p.firing && p.aim && Math.random() < dt * 2.2) {
+        const at = p.aim.pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * 90, (Math.random() - 0.3) * 50, (Math.random() - 0.5) * 90));
+        this.fx.flak(at);
+      }
     }
 
     // Misiles desde la fase 2

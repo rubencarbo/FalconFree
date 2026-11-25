@@ -334,7 +334,7 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'escurridizo', name: 'Escurridizo', description: 'Aguanta 180 s sin llevarla en Pilla-pilla.', reward: 200, done: (s) => s.tagFree >= 180 },
   { id: 'acrobata', name: 'Acróbata', description: 'Haz un combo ×8.', reward: 300, done: (s) => s.bestCombo >= 8 },
   { id: 'ultimo', name: 'Último en pie', description: 'Gana una partida de Supervivencia.', reward: 300, done: (s) => s.royaleWins >= 1 },
-  { id: 'dirigible', name: 'Matagigantes', description: 'Derriba el dirigible del Jefe final.', reward: 400, done: (s) => s.bossWins >= 1 },
+  { id: 'dirigible', name: 'Matagigantes', description: 'Derriba el portaaviones volante del Jefe final.', reward: 400, done: (s) => s.bossWins >= 1 },
   { id: 'heroe', name: 'Héroe de la ciudad', description: 'Completa 5 eventos en la ciudad.', reward: 250, done: (s) => s.cityEvents >= 5 },
   { id: 'arquitecto', name: 'Arquitecto', description: 'Crea y guarda un circuito propio.', reward: 150, done: (s) => s.circuitsMade >= 1 },
   { id: 'leyenda', name: 'Leyenda', description: 'Reúne las 20 piezas del avión legendario.', reward: 1000, done: (s) => s.legendPieces >= 20 },

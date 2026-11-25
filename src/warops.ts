@@ -1237,7 +1237,7 @@ export class WarOps {
         const a = (k / 16) * Math.PI * 2;
         const x = Math.cos(a) * r * 100;
         const z = Math.sin(a) * r * 100;
-        if (!this.gen.isWater(x, z) && nunatakH(this.gen, x, z) === 0 && this.gen.maxHeightNear(x, z, 60) < 5) base = new THREE.Vector3(x, 0, z);
+        if (!this.gen.isWater(x, z) && nunatakH(this.gen, x, z) === 0 && this.gen.maxHeightNear(x, z, 60) - this.gen.heightAt(x, z) < 20) base = new THREE.Vector3(x, this.gen.heightAt(x, z), z);
       }
     this.base.copy(base ?? new THREE.Vector3());
     const bg = new THREE.Group();
@@ -1256,7 +1256,7 @@ export class WarOps {
       const d = 1300 + this.rand() * 1800;
       const x = this.base.x + Math.cos(a) * d;
       const z = this.base.z + Math.sin(a) * d;
-      if (this.gen.isWater(x, z) || nunatakH(this.gen, x, z) > 0 || this.gen.maxHeightNear(x, z, 70) > 5) continue;
+      if (this.gen.isWater(x, z) || nunatakH(this.gen, x, z) > 0 || this.gen.maxHeightNear(x, z, 70) - this.gen.heightAt(x, z) > 20) continue;
       const g = new THREE.Group();
       g.add(box(6, 3.5, 6, 0xe86a20, 0, 1.75, 0));
       const flare = box(1.2, 1.2, 1.2, 0xffffff, 6, 1, 4);
@@ -1269,7 +1269,7 @@ export class WarOps {
         m.position.set(6 + k * 2.2, 4 + k * 10, 4);
         g.add(m);
       }
-      g.position.set(x, 0, z);
+      g.position.set(x, this.gen.heightAt(x, z), z);
       const e = this.ent('crew', `w_c${i}`, g, 1, 70);
       e.extra = flare;
       i++;

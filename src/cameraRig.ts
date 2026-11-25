@@ -16,6 +16,8 @@ export class CameraRig {
   private look = new THREE.Vector3();
   private initialized = false;
   private shake = 0;
+  /** fracción del alabeo que copia la cámara (ajuste «Inclinación de la cámara») */
+  tilt = 0.25;
 
   constructor(public camera: THREE.PerspectiveCamera) {}
 
@@ -76,7 +78,7 @@ export class CameraRig {
     cam.lookAt(this.look);
     if (this.mode !== 'top') {
       // Inclinar un poco la cámara con el alabeo
-      cam.rotateZ(f.roll * 0.25);
+      cam.rotateZ(f.roll * this.tilt);
     }
     this.applyShake(dt);
   }

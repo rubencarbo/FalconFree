@@ -22,9 +22,9 @@
 
       <div id="hud" class="hidden">
         <div class="stats">
-          <div>Velocidad <b id="hud-speed">0</b> km/h</div>
+          <div><span class="lbl">Velocidad</span><span class="lbs">VEL</span> <b id="hud-speed">0</b> km/h</div>
           <div><span id="hud-rings-label">Anillos</span> <b id="hud-rings">0</b></div>
-          <div class="alt">Altitud <b id="hud-alt">0</b> m</div>
+          <div class="alt"><span class="lbl">Altitud</span><span class="lbs">ALT</span> <b id="hud-alt">0</b> m</div>
           <div class="bars">
             <div class="bar"><span class="bar-label">Blindaje</span><span class="track"><i id="hud-hp"></i></span></div>
             <div class="bar ammo"><span class="bar-label">Balas <b id="hud-ammo-text">0</b></span><span class="track"><i id="hud-ammo"></i></span></div>
@@ -44,6 +44,7 @@
         <div id="battle-score" class="hidden"></div>
         <div id="killfeed"></div>
         <div id="countdown"></div>
+        <div id="victory" class="hidden"><b id="victory-title">PARTIDA GANADA</b></div>
         <!-- Avisos: una sola pila arriba, sin tapar el centro de la pantalla -->
         <div id="top-msgs">
           <div id="warning">¡ASCIENDE!</div>
@@ -148,7 +149,7 @@
               <button class="mode-card battle" data-mode="battle"><b>Batalla</b><small>Todos contra todos, equipos o contra la máquina</small></button>
               <button class="mode-card tagm" data-mode="tag"><b>Pilla-pilla</b><small>Sin disparos: ¡que no te pillen!</small></button>
               <button class="mode-card royale" data-mode="royale"><b>Supervivencia</b><small>La tormenta se cierra: último en pie</small></button>
-              <button class="mode-card boss" data-mode="boss"><b>Jefe final</b><small>Derriba el dirigible gigante</small></button>
+              <button class="mode-card boss" data-mode="boss"><b>Jefe final</b><small>Derriba el portaaviones volante</small></button>
             </div>
           </section>
         </div>
@@ -190,6 +191,7 @@
               <select id="bp-bkind">
                 <option value="ffa">Todos contra todos</option>
                 <option value="teams">Equipos: tú y bots aliados contra bots</option>
+                <option value="squad">Escuadrones: 8 contra 8</option>
                 <option value="coop">Tú contra la máquina</option>
                 <option value="tag">Pilla-pilla</option>
                 <option value="royale">Supervivencia</option>
@@ -197,7 +199,7 @@
               </select>
             </label>
             <p id="bp-help" class="muted left"></p>
-            <label class="field slider"><span id="bp-bots-label">Bots <b id="bp-bots-val">4</b></span><input id="bp-bots" type="range" min="1" max="7" step="1" value="4" /></label>
+            <label class="field slider"><span id="bp-bots-label">Bots <b id="bp-bots-val">4</b></span><input id="bp-bots" type="range" min="1" max="15" step="1" value="4" /></label>
             <div class="two">
               <label class="field"><span id="bp-limit-label">Derribos para ganar</span>
                 <select id="bp-blimit"><option value="5">5</option><option value="10" selected>10</option><option value="20">20</option></select>
@@ -297,13 +299,14 @@
                   <select id="mp-bkind">
                     <option value="ffa">Todos contra todos</option>
                     <option value="teams">Equipos: Naranja vs Azul</option>
+                    <option value="squad">Escuadrones: 8 contra 8</option>
                     <option value="coop">Todos contra la máquina</option>
                     <option value="tag">Pilla-pilla</option>
                     <option value="royale">Supervivencia</option>
-                    <option value="boss">Jefe final: el dirigible</option>
+                    <option value="boss">Jefe final: el portaaviones volante</option>
                   </select>
                 </label>
-                <label class="field slider"><span>Bots <b id="mp-bots-val">2</b></span><input id="mp-bots" type="range" min="0" max="6" step="1" value="2" /></label>
+                <label class="field slider"><span>Bots <b id="mp-bots-val">2</b></span><input id="mp-bots" type="range" min="0" max="15" step="1" value="2" /></label>
                 <div class="two">
                   <label class="field"><span>Derribos</span><select id="mp-blimit"><option value="5">5</option><option value="10" selected>10</option><option value="20">20</option></select></label>
                   <label class="field"><span>Tiempo</span><select id="mp-btime"><option value="180">3 min</option><option value="300" selected>5 min</option><option value="480">8 min</option><option value="600">10 min</option></select></label>
@@ -380,10 +383,10 @@
                 <option value="coop">Todos contra la máquina</option>
                     <option value="tag">Pilla-pilla</option>
                     <option value="royale">Supervivencia</option>
-                    <option value="boss">Jefe final: el dirigible</option>
+                    <option value="boss">Jefe final: el portaaviones volante</option>
               </select>
             </label>
-            <label class="field slider"><span>Bots <b id="lobby-bots-val">2</b></span><input id="lobby-bots" type="range" min="0" max="6" step="1" value="2" /></label>
+            <label class="field slider"><span>Bots <b id="lobby-bots-val">2</b></span><input id="lobby-bots" type="range" min="0" max="15" step="1" value="2" /></label>
             <div class="two">
               <label class="field"><span>Derribos</span><select id="lobby-blimit"><option value="5">5</option><option value="10">10</option><option value="20">20</option></select></label>
               <label class="field"><span>Tiempo</span><select id="lobby-btime"><option value="180">3 min</option><option value="300">5 min</option><option value="480">8 min</option><option value="600">10 min</option></select></label>
@@ -457,6 +460,12 @@
           </div>
           <button id="set-ghost" class="toggle" aria-pressed="true"><span>Fantasmas en carreras<small>El tuyo y el del récord mundial</small></span><b>Sí</b></button>
           <h3 class="set-group">Imagen y sonido</h3>
+          <button id="set-pixel" class="toggle" aria-pressed="false"><span>Estilo píxel<small>Imagen de píxeles grandes con tramado de color, estilo retro</small></span><b>No</b></button>
+          <button id="set-hud" class="toggle" aria-pressed="false"><span>Marcador (HUD)<small>Compacto ocupa menos pantalla</small></span><b>Clásico</b></button>
+          <label class="field slider">
+            <span>Inclinación de la cámara al girar <b id="set-tilt-val">28 %</b></span>
+            <input id="set-tilt" type="range" min="0" max="100" step="2" value="28" />
+          </label>
           <button id="set-quality" class="toggle" aria-pressed="true"><span>Calidad gráfica<small>Baja va más fluida en móviles modestos</small></span><b>Automática</b></button>
           <button id="set-sound" class="toggle" aria-pressed="true"><span>Sonido</span><b>Sí</b></button>
           <button id="set-voice" class="toggle" aria-pressed="true"><span>Mensajes de voz<small>Oír a los otros pilotos en multijugador</small></span><b>Sí</b></button>

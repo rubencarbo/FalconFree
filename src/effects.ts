@@ -83,18 +83,34 @@ export class FarGround {
 }
 
 /** Estelas blancas desde las puntas de las alas */
+/**
+ * Estelas largas y luminosas desde las puntas de las alas: cálidas junto al avión y
+ * desvaneciéndose a lo lejos, para leer la trayectoria en pleno combate.
+ */
 export class Contrails {
   lines: THREE.Line[] = [];
   private points: THREE.Vector3[][] = [[], []];
-  private readonly max = 90;
+  private readonly max = 240;
   private last = [new THREE.Vector3(), new THREE.Vector3()];
+  private head = new THREE.Color(1, 0.92, 0.55);
+  private tail = new THREE.Color(0.85, 0.9, 1);
 
   constructor(scene: THREE.Scene) {
     for (let i = 0; i < 2; i++) {
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(this.max * 3), 3));
+      const col = new Float32Array(this.max * 4);
+      for (let k = 0; k < this.max; k++) {
+        const t = k / (this.max - 1);
+        const c = this.head.clone().lerp(this.tail, Math.min(1, t * 1.6));
+        col[k * 4] = c.r;
+        col[k * 4 + 1] = c.g;
+        col[k * 4 + 2] = c.b;
+        col[k * 4 + 3] = Math.pow(1 - t, 1.4) * 0.9;
+      }
+      geo.setAttribute('color', new THREE.BufferAttribute(col, 4));
       geo.setDrawRange(0, 0);
-      const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 }));
+      const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false }));
       line.frustumCulled = false;
       scene.add(line);
       this.lines.push(line);
@@ -110,7 +126,7 @@ export class Contrails {
     for (let i = 0; i < 2; i++) {
       const pts = this.points[i];
       const tip = tipsWorld[i];
-      if (!pts.length || this.last[i].distanceTo(tip) > 5) {
+      if (!pts.length || this.last[i].distanceTo(tip) > 6) {
         pts.unshift(tip.clone());
         this.last[i].copy(tip);
         if (pts.length > this.max) pts.pop();
@@ -134,6 +150,75 @@ export class Contrails {
       l.geometry.dispose();
       (l.material as THREE.Material).dispose();
     }
+  }
+}
+
+/** Estelas de los demás aviones (bots, compañeros, rivales): una línea larga por avión */
+export class OtherTrails {
+  private trails = new Map<string, { line: THREE.Line; pts: THREE.Vector3[]; last: THREE.Vector3; seen: boolean }>();
+  private readonly max = 160;
+  constructor(private scene: THREE.Scene) {}
+
+  update(list: { id: string; pos: THREE.Vector3; alive: boolean; color: string }[]) {
+    for (const t of this.trails.values()) t.seen = false;
+    for (const p of list) {
+      let t = this.trails.get(p.id);
+      if (!t) {
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(this.max * 3), 3));
+        const col = new Float32Array(this.max * 4);
+        geo.setAttribute('color', new THREE.BufferAttribute(col, 4));
+        geo.setDrawRange(0, 0);
+        const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false }));
+        line.frustumCulled = false;
+        this.scene.add(line);
+        t = { line, pts: [], last: new THREE.Vector3(), seen: true };
+        this.trails.set(p.id, t);
+        this.paint(t.line, p.color);
+      }
+      t.seen = true;
+      if (!p.alive) {
+        t.pts.length = 0;
+        t.line.geometry.setDrawRange(0, 0);
+        continue;
+      }
+      if (t.pts.length && t.last.distanceTo(p.pos) > 300) t.pts.length = 0;
+      if (!t.pts.length || t.last.distanceTo(p.pos) > 7) {
+        t.pts.unshift(p.pos.clone());
+        t.last.copy(p.pos);
+        if (t.pts.length > this.max) t.pts.pop();
+      } else t.pts[0].copy(p.pos);
+      const attr = t.line.geometry.getAttribute('position') as THREE.BufferAttribute;
+      for (let k = 0; k < t.pts.length; k++) attr.setXYZ(k, t.pts[k].x, t.pts[k].y, t.pts[k].z);
+      attr.needsUpdate = true;
+      t.line.geometry.setDrawRange(0, t.pts.length);
+    }
+    for (const [id, t] of this.trails) {
+      if (t.seen) continue;
+      this.scene.remove(t.line);
+      t.line.geometry.dispose();
+      (t.line.material as THREE.Material).dispose();
+      this.trails.delete(id);
+    }
+  }
+
+  private paint(line: THREE.Line, css: string) {
+    const c = new THREE.Color(css).lerp(new THREE.Color(1, 1, 1), 0.35);
+    const col = line.geometry.getAttribute('color') as THREE.BufferAttribute;
+    for (let k = 0; k < this.max; k++) {
+      const t = k / (this.max - 1);
+      col.setXYZW(k, c.r, c.g, c.b, Math.pow(1 - t, 1.5) * 0.75);
+    }
+    col.needsUpdate = true;
+  }
+
+  dispose() {
+    for (const t of this.trails.values()) {
+      this.scene.remove(t.line);
+      t.line.geometry.dispose();
+      (t.line.material as THREE.Material).dispose();
+    }
+    this.trails.clear();
   }
 }
 

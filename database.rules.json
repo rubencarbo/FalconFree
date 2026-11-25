@@ -40,7 +40,7 @@
             ".validate": "newData.val() === 'ffa' || newData.val() === 'teams' || newData.val() === 'coop' || newData.val() === 'koth' || newData.val() === 'tag' || newData.val() === 'royale' || newData.val() === 'boss'"
           },
           "bb": {
-            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 8"
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 15"
           },
           "bl": {
             ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 100"

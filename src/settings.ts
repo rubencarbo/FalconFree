@@ -48,6 +48,12 @@ export interface Settings {
   trail: TrailSettings;
   /** tamaño (px) de los avatares de otros pilotos; 0 = ocultos */
   avatarSize: number;
+  /** estilo píxel (resolución baja + tramado de color) */
+  pixel: boolean;
+  /** inclinación de la cámara con el alabeo, 0..100 % */
+  camTilt: number;
+  /** HUD clásico o compacto */
+  hud: 'classic' | 'compact';
   controls: Record<ControlId, ControlLayout>;
 }
 
@@ -98,6 +104,9 @@ function defaults(): Settings {
     voice: true,
     trail: { style: 'chevrons', tune: {} },
     avatarSize: 44,
+    pixel: false,
+    camTilt: 28,
+    hud: 'classic',
     controls: defaultControls(),
   };
 }
@@ -136,6 +145,9 @@ export function loadSettings(): Settings {
       voice: s.voice ?? true,
       trail: sanitizeTrail(s.trail),
       avatarSize: clamp(Number(s.avatarSize ?? 44), 0, 96) || 0,
+      pixel: !!s.pixel,
+      camTilt: clamp(Number(s.camTilt ?? 28), 0, 100),
+      hud: s.hud === 'compact' ? 'compact' : 'classic',
       controls,
     };
   } catch {

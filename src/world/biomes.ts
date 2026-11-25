@@ -171,6 +171,17 @@ export function canyonFloor(gen: CityGen, x: number, z: number) {
 }
 
 const ROCKS = ['#b8643c', '#c2704a', '#a85a36', '#c88050', '#b06a44'].map(hex);
+const BASALT = ['#3a302c', '#2e2624', '#463a34'].map(hex);
+
+/** Zona volcánica de los cañones: basalto oscuro y ríos de lava */
+export function volcanic(gen: CityGen, x: number, z: number) {
+  return fbm(x / 3400, z / 3400, gen.stage.seed + 71, 2) > 0.6;
+}
+
+/** Grietas profundas del glaciar (cañones de hielo por los que se puede volar) */
+export function iceCrevasse(gen: CityGen, x: number, z: number) {
+  return Math.abs(fbm(x / 760, z / 760, gen.stage.seed + 63, 2) - 0.5) < 0.03;
+}
 
 export function genCanyonBlock(gen: CityGen, bx: number, bz: number, rand: () => number, out: BlockData) {
   const x0 = bx * P;
@@ -179,8 +190,34 @@ export function genCanyonBlock(gen: CityGen, bx: number, bz: number, rand: () =>
     out.buildings.push(b);
     out.maxH = Math.max(out.maxH, b.y0 + b.h);
   };
-  const col = pick(ROCKS, hash2(Math.floor(bx / 6), Math.floor(bz / 6), gen.stage.seed + 5));
+  const volc = volcanic(gen, x0 + P / 2, z0 + P / 2);
+  const col = volc ? pick(BASALT, hash2(bx, bz, 7)) : pick(ROCKS, hash2(Math.floor(bx / 6), Math.floor(bz / 6), gen.stage.seed + 5));
   let any = false;
+  // Cascadas: desde lo alto de una pared hacia el río del cañón
+  if (!volc)
+    for (let j = 0; j < 4; j++)
+      for (let i = 0; i < 4; i++) {
+        const x = x0 + i * CELL;
+        const z = z0 + j * CELL;
+        const h = canyonH(gen, x + CELL / 2, z + CELL / 2);
+        if (h < 72 || hash2(Math.floor(x / CELL), Math.floor(z / CELL), gen.stage.seed + 41) > 0.1) continue;
+        for (const [dx, dz] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ]) {
+          const nx = x + CELL / 2 + dx * CELL;
+          const nz = z + CELL / 2 + dz * CELL;
+          if (canyonH(gen, nx, nz) !== 0 || !gen.isWater(nx + dx * 20, nz + dz * 20)) continue;
+          const fx = dx > 0 ? x + CELL : dx < 0 ? x - 2 : x + 6;
+          const fz = dz > 0 ? z + CELL : dz < 0 ? z - 2 : z + 6;
+          const w = dx !== 0 ? [2, 8] : [8, 2];
+          out.trees.push({ x0: fx, z0: fz, x1: fx + w[0], z1: fz + w[1], y0: 0, h: h - 1, color: hex('#d8ecff') });
+          out.trees.push({ x0: fx - 4 + dx * 6, z0: fz - 4 + dz * 6, x1: fx + 6 + dx * 6, z1: fz + 6 + dz * 6, y0: 0, h: 4, color: hex('#f0f8ff') });
+          break;
+        }
+      }
   // Columnas de 20 m (las iguales seguidas se juntan en una sola caja)
   for (let j = 0; j < 4; j++) {
     let run: Box | null = null;
@@ -212,7 +249,7 @@ export function genCanyonBlock(gen: CityGen, bx: number, bz: number, rand: () =>
       push(alongX ? { x0: x0 - 12, z0: cz - 9, x1: x0 + P + 12, z1: cz + 9, y0, h: 16, color: col, style: S_ROCK, seed: 0.3, arch: true } : { x0: cx - 9, z0: z0 - 12, x1: cx + 9, z1: z0 + P + 12, y0, h: 16, color: col, style: S_ROCK, seed: 0.3, arch: true });
     }
   }
-  if (any) return;
+  if (any || volc) return;
   // Llanura: chimeneas de hadas, cactus y palmeras junto a los oasis
   for (let k = 0; k < 2; k++) {
     const x = x0 + 10 + rand() * 60;
@@ -268,9 +305,10 @@ export function genIceBlock(gen: CityGen, bx: number, bz: number, rand: () => nu
           push({ x0: x, z0: z, x1: x + CELL, z1: z + CELL, y0: 0, h, color: hex('#4a4e58'), style: S_SNOWROCK, seed: rand() });
           continue;
         }
-        // Frente del glaciar: acantilado de hielo junto al mar
-        const coast = gen.isWater(mx + CELL, mz) || gen.isWater(mx - CELL, mz) || gen.isWater(mx, mz + CELL) || gen.isWater(mx, mz - CELL);
-        if (coast) push({ x0: x, z0: z, x1: x + CELL, z1: z + CELL, y0: 0, h: 22 + Math.round(hash2(Math.floor(mx / 60), Math.floor(mz / 60), 5) * 3) * 6, color: pick(ICE, rand()), style: S_ICE, seed: rand() });
+        // Plataforma de hielo alta; las grietas profundas quedan como cañones de hielo
+        if (iceCrevasse(gen, mx, mz)) continue;
+        const sheet = 30 + Math.round(fbm(mx / 400, mz / 400, gen.stage.seed + 64, 2) * 3) * 6;
+        push({ x0: x, z0: z, x1: x + CELL, z1: z + CELL, y0: 0, h: sheet, color: pick(ICE, hash2(Math.floor(mx / 120), Math.floor(mz / 120), 9)), style: S_ICE, seed: rand() });
         continue;
       }
       // Icebergs en aguas profundas

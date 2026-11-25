@@ -142,7 +142,7 @@ export interface NetState {
   sm?: 0 | 1;
 }
 
-export type NetEventType = 'hit' | 'bump' | 'crash' | 'kill' | 'bhit' | 'mlaunch' | 'chat';
+export type NetEventType = 'hit' | 'bump' | 'crash' | 'kill' | 'bhit' | 'mlaunch' | 'chat' | 'eject' | 'resc';
 
 export interface NetEvent {
   from: string;

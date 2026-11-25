@@ -4,12 +4,13 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { STAGES, getStage, type Stage, type StageId } from './stages';
 import { CityGen, type Box } from './world/city';
 import { ChunkManager } from './world/chunks';
 import { Flight, JetModel, CRUISE_KMH, BOOST_KMH, BRAKE_KMH, KMH, type FlightInput } from './jet';
 import { CameraRig, CAMERA_LABELS, CAMERA_MODES } from './cameraRig';
-import { Contrails, FarGround, Rings, Sky, RING_INFO, type RingPickup } from './effects';
+import { Contrails, FarGround, OtherTrails, Rings, Sky, RING_INFO, type RingPickup } from './effects';
 import { ICONS, ICON_GLYPH, ICON_NAMES, hexColor, type IconId } from './identity';
 import { AVATAR_PRESETS, AvatarCropper, avatarSrc, loadAvatar, saveAvatar } from './avatar';
 import { Fx } from './fx';
@@ -47,6 +48,7 @@ import { CityEvents } from './events';
 import { SkyFun, type FloatingRealm } from './skyfun';
 import { AuroraSky, LightBirds } from './wonders';
 import { SkyTraffic } from './traffic';
+import { Parachutes } from './parachute';
 import { StormZone } from './zone';
 import { CloudSave, formatRecovery } from './cloud';
 import { QUICK_CHAT, CHAT_ICONS } from './chat';
@@ -97,7 +99,7 @@ const PF_INFO: Record<PfMode, { title: string; desc: string }> = {
   tag: { title: 'Pilla-pilla', desc: 'Sin disparos. Quien «la lleva» tiene que tocar a otro avión. Sumas 1 punto por cada segundo sin llevarla.' },
   waves: { title: 'Oleadas', desc: 'Oleadas de drones y cazas cada vez más duras. Entre oleadas eliges una mejora. Una sola vida.' },
   royale: { title: 'Supervivencia', desc: 'Una sola vida. La tormenta violeta cierra el cielo poco a poco y fuera de la zona pierdes blindaje. Gana el último avión en pie.' },
-  boss: { title: 'Jefe final', desc: 'Un dirigible gigante patrulla la ciudad. Fase 1: destruye sus 4 torretas. Fase 2: sus 2 motores (lanza misiles y cazas de escolta). Fase 3: el núcleo queda expuesto. Puedes llevar bots aliados.' },
+  boss: { title: 'Jefe final', desc: 'Un portaaviones volante patrulla el cielo y suelta cazas por su hangar. Fase 1: destruye sus 4 torretas. Fase 2: sus 2 motores (lanza misiles y cazas de escolta). Fase 3: el núcleo queda expuesto. Puedes llevar bots aliados.' },
   circuits: { title: 'Mis circuitos', desc: '' },
   war: { title: 'Misiones de guerra', desc: 'Episodios inspirados en la historia de la aviación y operaciones inventadas. Elige misión: cada una tiene su escenario y su objetivo. También se pueden jugar en grupo desde Multijugador.' },
 };
@@ -106,9 +108,38 @@ const isTouch = matchMedia('(hover: none), (pointer: coarse)').matches;
 
 /** Velocidad perpendicular (m/s) a partir de la cual un choque destruye el avión */
 const HARD_IMPACT = 48;
+
+/** Estilo píxel: reduce la paleta con tramado ordenado 4×4 (como los juegos retro) */
+const PIXEL_SHADER = {
+  uniforms: { tDiffuse: { value: null }, uLevels: { value: 9 } },
+  vertexShader: /* glsl */ `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tDiffuse;
+    uniform float uLevels;
+    varying vec2 vUv;
+    float bayer2(vec2 a) {
+      a = floor(a);
+      return fract(dot(a, vec2(0.5, a.y * 0.75)));
+    }
+    float bayer(vec2 p) {
+      return bayer2(0.5 * p) * 0.25 + bayer2(p);
+    }
+    void main() {
+      vec4 c = texture2D(tDiffuse, vUv);
+      // un poco más de saturación y contraste
+      float l = dot(c.rgb, vec3(0.299, 0.587, 0.114));
+      vec3 col = mix(vec3(l), c.rgb, 1.18);
+      col = (col - 0.5) * 1.06 + 0.5;
+      float d = (bayer(gl_FragCoord.xy) - 0.5) / uLevels;
+      col = floor(clamp(col + d, 0.0, 1.0) * uLevels + 0.5) / uLevels;
+      gl_FragColor = vec4(col, c.a);
+    }`,
+};
 /** Velocidad de aproximación (m/s) entre aviones a partir de la cual explotan */
 const HARD_BUMP = 75;
 const RESPAWN_TIME = 3;
+/** Espera para que un compañero te rescate antes de reaparecer (s) */
+const RESCUE_WAIT = 9;
 const NET_RATE = 10;
 const ROUTE_PENALTY = 3;
 const ARENA = new THREE.Vector3(0, 0, 0);
@@ -256,6 +287,10 @@ class Game {
   private smokeT = 0;
   private canyonLast = -99;
   private stageAurora: AuroraSky | null = null;
+  private otherTrails: OtherTrails | null = null;
+  /** Pilotos eyectados en paracaídas */
+  private chutes!: Parachutes;
+  private rescueHintT = 0;
   /** Tráfico aéreo (Ciudad cyberpunk) */
   private traffic: SkyTraffic | null = null;
   /** Mi avatar («e:N» o foto) */
@@ -308,6 +343,7 @@ class Game {
   private shotSoundTimer = 0;
   private prevPos = new THREE.Vector3();
   private stageListEls: HTMLElement[] = [];
+  private pixelPass!: ShaderPass;
   private lastInput: FlightInput = { x: 0, y: 0, boost: false, climb: false, fire: false, brake: false };
 
   constructor() {
@@ -319,8 +355,13 @@ class Game {
     this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.8, 0.3, 1.0);
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
+    // Estilo píxel: colores reducidos con tramado ordenado (se dibuja a baja resolución)
+    this.pixelPass = new ShaderPass(PIXEL_SHADER);
+    this.pixelPass.enabled = false;
+    this.composer.addPass(this.pixelPass);
     this.scene.add(this.jet.group);
     this.remotes = new RemotePlayers(this.scene);
+    this.chutes = new Parachutes(this.scene);
     this.arrow = new GuideArrow(this.scene);
     this.arrow.camera = this.camera;
     this.trail = new RouteTrail(this.scene);
@@ -433,6 +474,8 @@ class Game {
     this.sun.position.set(...stage.sun.dir);
     this.scene.add(this.hemi, this.sun);
     this.contrails = new Contrails(this.scene);
+    this.otherTrails?.dispose();
+    this.otherTrails = new OtherTrails(this.scene);
     this.fx = new Fx(this.scene);
     this.fx.setCamera(this.camera.position);
     this.fx.high = this.gfx.fxHigh;
@@ -580,6 +623,7 @@ class Game {
   spawnAt(pos: THREE.Vector3, yaw: number) {
     this.flight.reset(pos.x, pos.y, pos.z, yaw);
     this.burnT = this.smokeT = 0;
+    this.chutes?.remove('me');
     this.prevPos.copy(this.flight.pos);
     this.hp = this.maxHp;
     this.alive = true;
@@ -593,6 +637,9 @@ class Game {
 
   // ================================================================ Sesiones
   private resetSession() {
+    this.chutes?.clear();
+    this.victory = null;
+    show('victory', false);
     this.lastArena = null;
     this.planeOverride = null;
     this.rings.enabled = true;
@@ -1237,7 +1284,8 @@ class Game {
       this.warEnded = true;
       if (w.state === 'won') this.hud.split(`🏅 ${w.reason.toUpperCase()}`, 'good');
       else this.hud.split(`❌ ${w.reason.toUpperCase()}`, 'bad');
-      setTimeout(() => this.finishWar(), 2600);
+      if (w.state === 'won' && this.alive) this.playVictory('¡MISIÓN CUMPLIDA!', () => this.finishWar());
+      else setTimeout(() => this.finishWar(), 2600);
     }
   }
 
@@ -1451,7 +1499,9 @@ class Game {
     // Bots: equilibrar equipos
     let a = humans.filter((h) => h.team === 'A').length;
     let bb = humans.filter((h) => h.team === 'B').length;
-    const specs = makeBotSpecs(config.bots, () => {
+    // Escuadrones (15 bots pedidos): rellenar hasta 8 contra 8 contando a los humanos
+    const nBots = config.kind === 'teams' && config.bots >= 15 ? Math.max(0, 16 - humans.length) : config.bots;
+    const specs = makeBotSpecs(nBots, () => {
       if (config.kind === 'boss') return 'A';
       if (config.kind !== 'coop' && config.kind !== 'teams') return null;
       if (config.kind === 'coop') return 'B';
@@ -1512,7 +1562,7 @@ class Game {
         if (ph === 2 && boss.authority) this.spawnEscorts(2 + Math.min(3, humans - 1));
       },
       onDefeated: () => {
-        this.recorder.highlight('¡Dirigible derribado!');
+        this.recorder.highlight('¡Portaaviones volante derribado!');
         this.hud.toast('¡EL DIRIGIBLE CAE!', 2500);
         this.audio.gate(true);
         this.bossWinAt = this.time + 4;
@@ -1558,11 +1608,11 @@ class Game {
     for (const bot of this.bots) if (bot.alive && bot.spec.team === 'A') enemies.push(bot.target);
     boss.update(dt, this.time, enemies, this.missiles, (t, dmg) => this.botHit('botboss', t, dmg));
     if (this.bossWinAt && this.time >= this.bossWinAt) b.bossOutcome = 'win';
-    this.hud.bossBar(`Dirigible · ${boss.phaseLabel()}`, boss.defeated ? 0 : boss.phaseHealth());
+    this.hud.bossBar(`Portaaviones volante · ${boss.phaseLabel()}`, boss.defeated ? 0 : boss.phaseHealth());
     // Choque contra el casco
     if (this.alive && this.invuln <= 0 && boss.hits(this.flight.pos)) {
       this.destroy();
-      this.hud.toast('¡Te has estrellado contra el dirigible!', 2000);
+      this.hud.toast('¡Te has estrellado contra el portaaviones volante!', 2000);
     }
   }
 
@@ -1817,6 +1867,120 @@ class Game {
   }
 
   // ================================================================ Daños
+  // ------------------------------------------------------------ Respuesta al derribar
+  private killStreak = 0;
+  private killStreakT = 0;
+
+  /** «+puntos» flotando donde cayó el enemigo y rachas de derribos (doble, triple…) */
+  private killFeedback(pos: THREE.Vector3 | null, pts: number) {
+    this.killStreak = this.time - this.killStreakT < 7 ? this.killStreak + 1 : 1;
+    this.killStreakT = this.time;
+    let bonus = 0;
+    if (this.killStreak >= 2) {
+      const names = ['', '', 'DOBLE DERRIBO', 'TRIPLE DERRIBO', 'CUÁDRUPLE DERRIBO'];
+      const label = names[this.killStreak] ?? `¡RACHA ×${this.killStreak}!`;
+      bonus = 50 * this.killStreak;
+      this.hud.split(`🔥 ${label} · +${bonus}`, 'good');
+      this.stunts.trick(label.charAt(0) + label.slice(1).toLowerCase(), bonus);
+      this.audio.gate(true);
+    }
+    if (pos) this.floatText(pos, `+${pts + bonus}`, this.killStreak >= 2 ? '#ffc040' : '#ffe08a');
+  }
+
+  /** Texto que sube y se desvanece sobre un punto del mundo */
+  private floatText(pos: THREE.Vector3, text: string, color: string) {
+    const v = pos.clone().project(this.camera);
+    if (v.z > 1 || Math.abs(v.x) > 1.1 || Math.abs(v.y) > 1.1) return;
+    const el = document.createElement('div');
+    el.className = 'float-pts';
+    el.textContent = text;
+    el.style.color = color;
+    el.style.left = `${((v.x + 1) / 2) * window.innerWidth}px`;
+    el.style.top = `${((1 - v.y) / 2) * (window.innerHeight - this.hud.panelH)}px`;
+    $('hud').append(el);
+    setTimeout(() => el.remove(), 1300);
+  }
+
+  /** Compañeros humanos que pueden rescatarme (y a los que puedo rescatar) */
+  private teamMates(): string[] {
+    const room = this.room;
+    if (!room) return [];
+    const ids = [...room.players.keys()].filter((u) => u !== room.uid);
+    const kind = this.battle?.config.kind;
+    if (this.mode === 'war' || (this.mode === 'free' && !this.battle)) return ids;
+    if (kind === 'coop' || kind === 'boss') return ids;
+    if (kind === 'teams' && this.battle) {
+      const my = this.battle.teamOf(this.myId);
+      return ids.filter((u) => this.battle!.teamOf(u) === my);
+    }
+    return [];
+  }
+
+  /** Rescate: pasar cerca (45 m) y despacio (< 520 km/h) de un compañero en paracaídas */
+  private updateRescue(dt: number) {
+    this.rescueHintT = Math.max(0, this.rescueHintT - dt);
+    const f = this.flight;
+    for (const c of [...this.chutes.list]) {
+      if (!c.rescuable) continue;
+      // Si ya ha reaparecido (después de verlo caído), fuera el paracaídas
+      const rt = this.remotes.get(c.owner)?.target;
+      if (rt && !rt.alive) c.sawDead = true;
+      if (rt?.alive && c.sawDead && c.t > 2) {
+        this.chutes.remove(c.owner);
+        continue;
+      }
+      if (!this.alive) continue;
+      const d = c.pos.distanceTo(f.pos);
+      if (d < 45 && f.speedKmh < 520) {
+        this.room?.sendEvent(c.owner, 'resc', 0);
+        this.chutes.remove(c.owner);
+        this.earn(40);
+        this.stunts.trick('Rescate', 300);
+        this.hud.split(`⛑️ ¡HAS RESCATADO A ${c.name.toUpperCase()}!`, 'good');
+        this.audio.gate(true);
+        Haptic.pickup();
+      } else if (d < 90 && this.rescueHintT <= 0) {
+        this.rescueHintT = 3;
+        this.hud.toast(f.speedKmh >= 520 ? 'Frena (menos de 520 km/h) para recogerlo' : 'Más cerca para recogerlo', 1500);
+      }
+    }
+  }
+
+  // ------------------------------------------------------------ Final cinematográfico
+  private victory: { t: number; then: () => void; ang: number } | null = null;
+
+  /** Victoria: cámara lenta girando alrededor del avión y rótulo grande; luego, resultados */
+  private playVictory(title: string, then: () => void) {
+    if (this.victory) return;
+    this.victory = { t: 3.6, then, ang: -0.6 };
+    this.invuln = 99;
+    $('victory-title').textContent = title;
+    show('victory', true);
+    this.audio.gate(true);
+    Haptic.gate();
+  }
+
+  private updateVictory(dt: number) {
+    const v = this.victory!;
+    v.t -= dt;
+    v.ang += dt * 0.55;
+    const f = this.flight;
+    const cam = this.camera;
+    // Pasada: la cámara gira por delante y a un lado del avión, mirándolo
+    const fwd = f.forward(new THREE.Vector3());
+    const side = new THREE.Vector3(Math.cos(f.yaw), 0, -Math.sin(f.yaw));
+    const r = 30;
+    cam.position.copy(f.pos).addScaledVector(fwd, Math.cos(v.ang) * r).addScaledVector(side, Math.sin(v.ang) * r).add(new THREE.Vector3(0, 7, 0));
+    cam.up.set(0, 1, 0);
+    cam.lookAt(f.pos);
+    if (v.t <= 0 || this.screen !== 'playing') {
+      show('victory', false);
+      this.victory = null;
+      this.rig.snap();
+      v.then();
+    }
+  }
+
   /** Choque con un coche volador */
   private onTrafficHit(pos: THREE.Vector3) {
     if (this.invuln > 0) return;
@@ -1858,6 +2022,13 @@ class Game {
     this.hud.warning(false);
     this.hud.missileWarning(false);
     this.progress.add('deaths');
+    this.killStreak = 0;
+    // Eyección: el piloto sale en paracaídas (en equipo, los compañeros lo pueden rescatar)
+    this.chutes.add('me', this.pilotName(), this.flight.pos.clone().add(new THREE.Vector3(0, 3, 0)), false, 0);
+    const mates = this.teamMates();
+    for (const u of mates) this.room?.sendEvent(u, 'eject', 0);
+    const kn = killer ? this.pilotInfo(killer).name : null;
+    this.hud.split(kn && kn !== '?' ? `💥 TE HA DERRIBADO ${kn.toUpperCase()}` : '💥 TE HAS ESTRELLADO', 'bad');
     if (this.rig.mode === 'cockpit') {
       this.rig.mode = 'chase';
       this.hud.setCockpit(false);
@@ -1896,6 +2067,10 @@ class Game {
           this.hud.toast('Has caído. Modo espectador', 2000);
         }
       }, 1500);
+    } else if (this.teamMates().length && this.mode !== 'race') {
+      // Con compañeros: unos segundos para que te rescaten
+      this.respawnTimer = RESCUE_WAIT;
+      this.hud.toast(`Te has eyectado: un compañero puede rescatarte (reapareces en ${RESCUE_WAIT} s)`, 3000);
     } else {
       this.respawnTimer = RESPAWN_TIME;
       this.hud.toast(this.mode === 'race' ? 'Reapareces en el último hito…' : 'Reapareciendo…', 2000);
@@ -2139,6 +2314,7 @@ class Game {
         this.kills++;
         this.guns.reload(20);
         this.recorder.highlight('Objetivo destruido');
+        this.killFeedback(t.pos, 150);
       }
       return;
     }
@@ -2171,6 +2347,7 @@ class Game {
         this.progress.add('drones');
         this.earn(15);
         this.stunts.trick('Dron derribado', 80);
+        this.killFeedback(t.pos, 80);
         if (this.waveLevels.vampire) this.hp = Math.min(this.maxHp, this.hp + 15 * this.waveLevels.vampire);
         this.hud.toast(`¡Dron derribado! · ${this.kills}`);
       }
@@ -2195,18 +2372,19 @@ class Game {
     bot.hp -= dmg;
     if (bot.hp > 0) return;
     bot.kill();
+    this.chutes.add(bot.spec.id, bot.spec.name, bot.flight.pos.clone(), false, 1 + (bot.spec.id.length % 3));
     this.fx.explosion(bot.flight.pos, bot.target.vel, 1);
     this.recorder.event('explosion', bot.flight.pos, 1);
     this.audio.explosion();
     const b = this.battle;
     if (!b) {
-      if (shooter === this.myId) this.onMyKill(bot.spec.name);
+      if (shooter === this.myId) this.onMyKill(bot.spec.name, bot.flight.pos);
       return;
     }
     b.kill(shooter, bot.spec.id);
     const sName = b.fighters.get(shooter)?.name ?? '?';
     this.hud.killfeed(`${sName} ✕ ${bot.spec.name}`, shooter === this.myId);
-    if (shooter === this.myId) this.onMyKill(bot.spec.name);
+    if (shooter === this.myId) this.onMyKill(bot.spec.name, bot.flight.pos);
     else if (this.room && !shooter.startsWith('bot')) this.room.sendEvent(shooter, 'kill', 1, bot.spec.id);
     this.syncBotScores();
   }
@@ -2217,12 +2395,14 @@ class Game {
     bot.kill();
     this.fx.explosion(bot.flight.pos, bot.target.vel, 1);
     this.battle?.kill(null, id);
+    if (this.battle) this.hud.killfeed(`💀 ${bot.spec.name} se ha estrellado`);
     this.syncBotScores();
   }
 
-  private onMyKill(victim: string) {
+  private onMyKill(victim: string, pos?: THREE.Vector3) {
     this.kills++;
     this.stunts.trick('Derribo', 150);
+    this.killFeedback(pos ?? null, 150);
     if (this.waveLevels.vampire) this.hp = Math.min(this.maxHp, this.hp + 15 * this.waveLevels.vampire);
     this.audio.ring();
     this.hud.hitMarker(true);
@@ -2344,12 +2524,32 @@ class Game {
     const from = room?.players.get(e.from)?.name ?? 'Alguien';
     const other = this.remotes.get(e.from)?.target;
     switch (e.type) {
+      case 'eject':
+        // Un compañero se ha eyectado: su paracaídas aparece donde cayó
+        if (other) {
+          this.chutes.add(e.from, from, other.pos.clone(), true, 2);
+          if (this.screen === 'playing') this.hud.toast(`⛑️ ${from} se ha eyectado: pasa cerca y despacio para rescatarlo`, 2600);
+        }
+        return;
+      case 'resc':
+        // Me han rescatado: vuelvo al aire junto a quien me ha recogido
+        if (!this.alive && this.screen === 'playing') {
+          const r = other?.pos;
+          if (r) {
+            const yaw = other ? Math.atan2(-other.vel.x, -other.vel.z) : this.flight.yaw;
+            this.spawnAt(r.clone().add(new THREE.Vector3(0, 30, 0)), yaw);
+          } else this.respawn();
+          this.respawnTimer = 0;
+          this.hud.split(`⛑️ ¡${from.toUpperCase()} TE HA RESCATADO!`, 'good');
+          this.audio.gate(true);
+        }
+        return;
       case 'hit':
         if (!this.alive || this.invuln > 0 || this.paused) return;
         this.audio.damaged();
         this.fx.hit(this.flight.pos, this.myTarget.vel);
         this.takeDamage(e.v, e.b ?? e.from, true);
-        if (!this.alive) this.hud.toast(`Te ha derribado ${e.b === 'botboss' ? 'el dirigible' : e.b ? (this.battle?.fighters.get(e.b)?.name ?? 'un bot') : from}`, 2200);
+        if (!this.alive) this.hud.toast(`Te ha derribado ${e.b === 'botboss' ? 'el portaaviones volante' : e.b ? (this.battle?.fighters.get(e.b)?.name ?? 'un bot') : from}`, 2200);
         break;
       case 'bump':
         if (other) this.bump(new THREE.Vector3().subVectors(this.flight.pos, other.pos).normalize());
@@ -2370,7 +2570,7 @@ class Game {
           const victim = e.b ? (this.battle?.fighters.get(e.b)?.name ?? 'un bot') : from;
           if (this.battle) this.battle.kill(this.myId, e.b ?? e.from);
           this.hud.killfeed(`${this.pilotName()} ✕ ${victim}`, true);
-          this.onMyKill(victim);
+          this.onMyKill(victim, this.remotes.targets().find((t) => t.id === e.from)?.pos);
         }
         break;
       case 'bhit': {
@@ -2464,7 +2664,8 @@ class Game {
       return;
     }
 
-    if (this.screen === 'playing' && !this.paused && !this.waveChoosing) this.updatePlaying(dt);
+    // Final cinematográfico: cámara lenta mientras dura
+    if (this.screen === 'playing' && !this.paused && !this.waveChoosing) this.updatePlaying(this.victory ? dt * 0.35 : dt);
     else if (this.screen === 'menu' || this.screen === 'lobby') this.updateMenu(dt);
     else if (this.screen === 'crashed') {
       this.crashTimer += dt;
@@ -2486,6 +2687,7 @@ class Game {
     }
 
     const frozen = this.paused || this.waveChoosing;
+    if (!frozen) this.chutes.update(dt, (x, z) => this.gen.heightAt(x, z));
     if (this.traffic && !frozen) {
       const playing = this.screen === 'playing' && this.alive && !this.landed;
       this.traffic.update(this.now() / 1000, this.screen === 'playing' ? this.flight.pos : this.camera.position, playing ? (pos) => this.onTrafficHit(pos) : undefined, dt);
@@ -2499,6 +2701,7 @@ class Game {
       const spec = this.screen === 'playing' ? this.spectateFlight() : null;
       if (spec) this.rig.update(dt, spec, 0);
       else this.rig.update(this.alive ? dt : dt * 0.15, this.flight, this.alive ? speedFactor : 0);
+      if (this.victory) this.updateVictory(dt);
     }
     this.chatCooldown -= dt;
     this.jet.update(this.flight, this.time);
@@ -2541,7 +2744,7 @@ class Game {
   }
 
   private render(dt: number) {
-    if (this.gfx.bloom) this.composer.render(dt);
+    if (this.gfx.bloom || this.settings.pixel) this.composer.render(dt);
     else this.renderer.render(this.scene, this.camera);
   }
 
@@ -2672,6 +2875,7 @@ class Game {
     if (!this.alive) return;
 
     if (this.war) this.updateWar(dt);
+    if (this.chutes.list.length) this.updateRescue(dt);
 
     // Retos y obstáculos del cielo
     if (this.missions || this.hazards) {
@@ -2835,6 +3039,8 @@ class Game {
       if (this.boss && bot.spec.team === 'A') enemies.push(...this.boss.targets());
       const opts = this.botModeOpts(bot.spec.id, enemies);
       const crashed = bot.update(dt, this.time, opts.targets, arena, this.missiles, (t, dmg) => this.botHit(bot.spec.id, t, dmg), opts);
+      // Bots tocados: rastro de humo fino
+      this.fx.damageTrail(bot.flight.pos, bot.hp / 100, dt, true);
       if (crashed) this.botCrash(bot.spec.id);
     }
     if (this.storm) this.updateStorm(dt);
@@ -2852,7 +3058,10 @@ class Game {
     const secs = Math.floor(b.timeLeft % 60);
     this.hud.battleScore(b.scoreLine(), `${mins}:${String(secs).padStart(2, '0')}`);
     const res = b.check();
-    if (res) this.onBattleFinished(res);
+    if (res) {
+      if (res.iWon && this.alive) this.playVictory('PARTIDA GANADA', () => this.onBattleFinished(res));
+      else this.onBattleFinished(res);
+    }
   }
 
   /** Centro de los pilotos humanos vivos (a ras de suelo) */
@@ -4320,6 +4529,14 @@ class Game {
     }
     // Minas y barreras: solo las que están cerca (peligro inmediato)
     if (this.hazards) for (const p of this.hazards.radarPoints(f.pos)) if (p.distanceTo(f.pos) < 500) items.push({ pos: p, kind: 'drone', color: '#ff4040' });
+    for (const c of this.chutes.list) {
+      if (!c.rescuable) continue;
+      items.push({ pos: c.pos, kind: 'gate', color: '#5cff8a', label: '+' });
+      if (!arrowTarget && c.pos.distanceTo(f.pos) < 4000) {
+        arrowTarget = c.pos;
+        arrowColor = 0x5cff8a;
+      }
+    }
     this.updateMissionHud();
     this.radar.draw(f.pos, f.yaw, this.radarFilter(items, f.pos), route, circles);
     const night = this.stage.night;
@@ -4340,6 +4557,14 @@ class Game {
       for (const [i, r] of this.rivals.entries()) if (!r.ghost.finished) tags.push({ id: `rival${i}`, name: `${r.label}: ${r.name}`, glyph: '👻', color: r.color, pos: r.ghost.pos, enemy: false });
     }
     this.hud.updatePilots(this.camera, f.pos, tags, this.settings.avatarSize);
+    // Estelas largas de los demás aviones, del color de cada uno
+    if (this.otherTrails) {
+      const tr: { id: string; pos: THREE.Vector3; alive: boolean; color: string }[] = [];
+      if (this.screen === 'playing' || this.screen === 'results') {
+        for (const t of [...this.remotes.targets(), ...this.bots.map((b) => b.target)]) tr.push({ id: t.id, pos: t.pos, alive: t.alive, color: this.pilotInfo(t.id).teamColor });
+      }
+      this.otherTrails.update(tr);
+    }
     this.arrow.update(f.pos, f.yaw, arrowTarget, this.alive && this.screen === 'playing' && this.rig.mode !== 'cockpit' && this.rig.mode !== 'top', arrowColor);
     if (this.rig.mode === 'cockpit') this.layoutControls();
   }
@@ -4629,9 +4854,11 @@ class Game {
 
   // ================================================================ Multijugador
   private readBattleForm(prefix: string): BattleConfig {
+    // «Escuadrones 8 contra 8» = equipos rellenados con bots hasta 16 aviones
+    const squad = $<HTMLSelectElement>(`${prefix}-bkind`).value === 'squad';
     return {
-      kind: ($<HTMLSelectElement>(`${prefix}-bkind`).value as BattleKind) || 'ffa',
-      bots: Number($<HTMLInputElement>(`${prefix}-bots`).value) || 0,
+      kind: squad ? 'teams' : ($<HTMLSelectElement>(`${prefix}-bkind`).value as BattleKind) || 'ffa',
+      bots: squad ? 15 : Number($<HTMLInputElement>(`${prefix}-bots`).value) || 0,
       killLimit: Number($<HTMLSelectElement>(`${prefix}-blimit`).value) || 10,
       timeLimit: Number($<HTMLSelectElement>(`${prefix}-btime`).value) || 300,
     };
@@ -4996,7 +5223,7 @@ class Game {
     const lc = $<HTMLSelectElement>('lobby-course');
     if (![...lc.options].some((o) => o.value === m.course)) lc.append(new Option(m.course.startsWith('c:') ? '★ Circuito de la sala' : m.course, m.course));
     lc.value = m.course;
-    $<HTMLSelectElement>('lobby-bkind').value = m.bk ?? 'ffa';
+    $<HTMLSelectElement>('lobby-bkind').value = m.bk === 'teams' && (m.bb ?? 0) >= 15 ? 'squad' : m.bk ?? 'ffa';
     $<HTMLInputElement>('lobby-bots').value = String(m.bb ?? 2);
     $('lobby-bots-val').textContent = String(m.bb ?? 2);
     $<HTMLSelectElement>('lobby-blimit').value = String(m.bl ?? 10);
@@ -5028,7 +5255,13 @@ class Game {
     setHaptics(s.vibration);
     this.applyQuality();
     this.applyTrail();
+    this.applyHudStyle();
+    this.rig.tilt = (s.camTilt / 100) * 0.9;
     this.layoutControls();
+  }
+
+  private applyHudStyle() {
+    $('hud').classList.toggle('compact', this.settings.hud === 'compact');
   }
 
   /** Nivel de calidad efectivo (el elegido o el que decide el modo automático) */
@@ -5041,7 +5274,11 @@ class Game {
     const prev = this.gfx;
     this.gfx = qualityPreset(this.qualityLevel, isTouch);
     if (!this.renderer) return;
-    const pr = Math.min(window.devicePixelRatio || 1, this.gfx.maxPixelRatio);
+    // Estilo píxel: la imagen se dibuja a un tercio de resolución y se amplía sin suavizar
+    const pr = this.settings.pixel ? 1 / 3 : Math.min(window.devicePixelRatio || 1, this.gfx.maxPixelRatio);
+    this.pixelPass.enabled = this.settings.pixel;
+    this.bloom.enabled = this.gfx.bloom;
+    this.renderer.domElement.classList.toggle('pixel', this.settings.pixel);
     if (this.renderer.getPixelRatio() !== pr || prev.bloomScale !== this.gfx.bloomScale) {
       this.renderer.setPixelRatio(pr);
       this.composer.setPixelRatio(pr);
@@ -5531,7 +5768,12 @@ class Game {
       const custom = v.startsWith('c:') ? loadCircuits().find((c) => c.code === v.slice(2)) : null;
       void this.room?.setMeta(custom ? { course: v, stage: custom.stage } : { course: v });
     });
-    $('lobby-bkind').addEventListener('change', (e) => void this.room?.setMeta({ bk: (e.target as HTMLSelectElement).value as BattleKind }));
+    $('lobby-bkind').addEventListener('change', (e) => {
+      const v = (e.target as HTMLSelectElement).value;
+      // Escuadrones 8 contra 8: equipos con 15 bots (al empezar se ajusta a los jugadores)
+      if (v === 'squad') void this.room?.setMeta({ bk: 'teams', bb: 15 });
+      else void this.room?.setMeta({ bk: v as BattleKind });
+    });
     $('lobby-bots').addEventListener('change', (e) => void this.room?.setMeta({ bb: Number((e.target as HTMLInputElement).value) }));
     $('lobby-blimit').addEventListener('change', (e) => void this.room?.setMeta({ bl: Number((e.target as HTMLSelectElement).value) }));
     $('lobby-btime').addEventListener('change', (e) => void this.room?.setMeta({ bt: Number((e.target as HTMLSelectElement).value) }));
@@ -5630,7 +5872,27 @@ class Game {
       ['set-vibration', () => (this.settings.vibration = !this.settings.vibration)],
       ['set-ghost', () => (this.settings.ghost = !this.settings.ghost)],
       ['set-voice', () => (this.settings.voice = !this.settings.voice)],
+      [
+        'set-pixel',
+        () => {
+          this.settings.pixel = !this.settings.pixel;
+          this.applyQuality();
+        },
+      ],
+      [
+        'set-hud',
+        () => {
+          this.settings.hud = this.settings.hud === 'compact' ? 'classic' : 'compact';
+          this.applyHudStyle();
+        },
+      ],
     ];
+    $('set-tilt').addEventListener('input', () => {
+      this.settings.camTilt = Number($<HTMLInputElement>('set-tilt').value);
+      this.rig.tilt = (this.settings.camTilt / 100) * 0.9;
+      $('set-tilt-val').textContent = `${this.settings.camTilt} %`;
+      this.persist();
+    });
     for (const [id, flip] of toggles) {
       $(id).addEventListener('click', () => {
         flip();
@@ -5666,7 +5928,9 @@ class Game {
   }
 
   private updateBattlePicker() {
-    const kind = $<HTMLSelectElement>('bp-bkind').value as BattleKind;
+    const raw = $<HTMLSelectElement>('bp-bkind').value;
+    const squad = raw === 'squad';
+    const kind = (squad ? 'teams' : raw) as BattleKind;
     const help: Record<BattleKind, string> = {
       ffa: 'Gana quien consiga antes los derribos indicados.',
       teams: 'Tú y bots aliados (naranja) contra bots azules.',
@@ -5674,9 +5938,10 @@ class Game {
       koth: 'Quédate solo dentro de la zona dorada para sumar 1 punto por segundo. La zona cambia de sitio cada minuto.',
       tag: 'Sin disparos. Quien «la lleva» tiene que tocar a otro avión para pasársela. Sumas 1 punto por cada segundo sin llevarla.',
       royale: 'Una sola vida. La tormenta cierra el cielo: gana el último en pie.',
-      boss: 'Todos contra un dirigible gigante con tres fases.',
+      boss: 'Todos contra un portaaviones volante con tres fases: torretas de cubierta, motores y núcleo.',
     };
-    $('bp-help').textContent = help[kind];
+    $('bp-help').textContent = squad ? 'Batalla grande: tú y 7 bots aliados contra 8 bots enemigos, cada uno con su indicativo.' : help[kind];
+    $<HTMLInputElement>('bp-bots').closest('label')!.classList.toggle('hidden', squad);
     $('bp-limit-label').textContent = kind === 'koth' ? 'Puntos para ganar' : 'Derribos para ganar';
     const sel = $<HTMLSelectElement>('bp-blimit');
     for (const o of [...sel.options]) o.textContent = kind === 'koth' ? String(Number(o.value) * 10) : o.value;
@@ -5744,6 +6009,10 @@ class Game {
     set('set-weather', s.weather, 'Variable', 'Siempre despejado');
     set('set-vibration', s.vibration, 'Sí', 'No');
     set('set-ghost', s.ghost, 'Sí', 'No');
+    set('set-pixel', s.pixel, 'Sí', 'No');
+    set('set-hud', s.hud === 'compact', 'Compacto', 'Clásico');
+    $<HTMLInputElement>('set-tilt').value = String(s.camTilt);
+    $('set-tilt-val').textContent = `${s.camTilt} %`;
     set('set-voice', s.voice, 'Sí', 'No');
     this.renderTrailSettings();
     $<HTMLInputElement>('set-sensitivity').value = String(Math.round(s.sensitivity * 100));

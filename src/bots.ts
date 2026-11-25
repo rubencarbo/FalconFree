@@ -10,8 +10,9 @@ export type Team = 'A' | 'B';
 export const TEAM_COLORS: Record<Team, number> = { A: 0xff8a2a, B: 0x2ec5ff };
 export const TEAM_NAMES: Record<Team, string> = { A: 'Naranja', B: 'Azul' };
 
-const BOT_NAMES = ['Bot Rojo', 'Bot Ámbar', 'Bot Jade', 'Bot Índigo', 'Bot Ónix', 'Bot Plata', 'Bot Coral', 'Bot Lima'];
-const BOT_COLORS = [0xd8323a, 0xffb020, 0x30c070, 0x5a50e0, 0x303038, 0xc0c8d0, 0xff6a6a, 0xa0e040];
+/** Indicativos de los pilotos de la máquina */
+const BOT_NAMES = ['Cuervo', 'Lince', 'Navaja', 'Polilla', 'Víbora', 'Rayo', 'Sombra', 'Trueno', 'Escorpión', 'Cobra', 'Martillo', 'Jaguar', 'Fantasma', 'Ciclón', 'Halcón Gris', 'Avispa'];
+const BOT_COLORS = [0xd8323a, 0xffb020, 0x30c070, 0x5a50e0, 0x303038, 0xc0c8d0, 0xff6a6a, 0xa0e040, 0x40c8e0, 0xe060c0, 0x8a6a40, 0x60e0a0, 0xe0e060, 0x6080ff, 0xff8a40, 0xa080e0];
 
 export interface BotSpec {
   id: string;

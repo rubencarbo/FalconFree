@@ -403,6 +403,14 @@ export class Fx {
     for (let i = 0; i < m; i++) this.glow.spawn({ x: pos.x + rnd(-0.6, 0.6), y: pos.y + rnd(-0.3, 0.5), z: pos.z + rnd(-0.6, 0.6), vy: 2, life: rnd(0.15, 0.35), size0: rnd(1.5, 3.2), size1: 0.4, color: pick(FIRE) });
   }
 
+  /** Bocanada de fuego antiaéreo: fogonazo y humo negro */
+  flak(pos: THREE.Vector3) {
+    this.glow.spawn({ x: pos.x, y: pos.y, z: pos.z, life: 0.12, size0: 6, size1: 2, color: 0xffa040 });
+    for (let i = 0; i < 4; i++) {
+      this.smoke.spawn({ x: pos.x + rnd(-2, 2), y: pos.y + rnd(-2, 2), z: pos.z + rnd(-2, 2), vy: rnd(0, 1), life: rnd(1.8, 2.8), size0: 3, size1: rnd(8, 12), color: pick([0x141414, 0x1e1e1e, 0x262626]), drag: 1 });
+    }
+  }
+
   /** Estela de un misil */
   missileTrail(pos: THREE.Vector3, dir: THREE.Vector3) {
     this.glow.spawn({ x: pos.x - dir.x * 2.5, y: pos.y - dir.y * 2.5, z: pos.z - dir.z * 2.5, life: 0.12, size0: 1.6, size1: 0.4, color: pick(FIRE) });

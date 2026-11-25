@@ -42,7 +42,7 @@ export interface Box {
   rot?: number;
 }
 
-export type BlockKind = 'buildings' | 'park' | 'plaza' | 'parking' | 'sports';
+export type BlockKind = 'buildings' | 'park' | 'plaza' | 'parking' | 'sports' | 'port';
 
 export interface BlockData {
   kind: BlockKind;
@@ -137,6 +137,17 @@ export class CityGen {
     }
     const out = this.genCityBlock(bx, bz, rand);
     if (st.biome === 'war') ruinBlock(this, bx, bz, rand, out);
+    // Palmeras sobre el anillo de los atolones
+    if (st.id === 'archipelago') {
+      for (let k = 0; k < 6; k++) {
+        const x = bx * PERIOD + rand() * PERIOD;
+        const z = bz * PERIOD + rand() * PERIOD;
+        const a = this.atollAt(x, z);
+        if (!a || Math.abs(Math.hypot(x - a.cx, z - a.cz) - a.r) > 12) continue;
+        out.trees.push({ x0: x - 0.6, z0: z - 0.6, x1: x + 0.6, z1: z + 0.6, y0: 0, h: 9 + rand() * 4, color: 0x7a5a3a });
+        out.trees.push({ x0: x - 4, z0: z - 4, x1: x + 4, z1: z + 4, y0: 9, h: 2.5, color: 0x3aa040 });
+      }
+    }
     if (st.biome === 'cyber') cyberBlock(this, bx, bz, rand, out);
     return out;
   }
@@ -156,6 +167,13 @@ export class CityGen {
     // Tipo de manzana
     const kr = rand();
     const dry = !this.isWater(cx, cz) && !this.isWater(x0, z0) && !this.isWater(x0 + BLOCK, z0 + BLOCK);
+    // Puerto: manzanas en la orilla (fuera del centro) con grúas y contenedores
+    const shore = dry && (this.isWater(cx + PERIOD * 0.9, cz) || this.isWater(cx - PERIOD * 0.9, cz) || this.isWater(cx, cz + PERIOD * 0.9) || this.isWater(cx, cz - PERIOD * 0.9));
+    if (shore && dt < 0.35 && (st.biome ?? 'city') !== 'war' && hash2(bx, bz, st.seed + 121) < 0.45) {
+      out.kind = 'port';
+      this.genPort(x0, z0, rand, out);
+      return out;
+    }
     if (kr < st.parkChance) out.kind = 'park';
     else if (dry && kr < st.parkChance + 0.04 + dt * 0.05) out.kind = 'plaza';
     else if (dry && kr < st.parkChance + 0.1 && dt < 0.5) out.kind = 'parking';
@@ -214,6 +232,61 @@ export class CityGen {
       }
     }
     return out;
+  }
+
+  /** Puerto: filas de contenedores apilados y una grúa pórtico */
+  private genPort(x0: number, z0: number, rand: () => number, out: BlockData) {
+    const COLORS = [0xc83a2e, 0x2a6ac0, 0x3a9a4a, 0xe08a20, 0xd8c040, 0x7a8088, 0x8a3a8a, 0x1e8a8a];
+    const push = (b: Box) => {
+      out.buildings.push(b);
+      out.maxH = Math.max(out.maxH, b.y0 + b.h);
+    };
+    const alongX = rand() < 0.5;
+    for (let row = 0; row < 4; row++) {
+      for (let k = 0; k < 4; k++) {
+        if (rand() < 0.15) continue;
+        const stack = 1 + Math.floor(rand() * 4);
+        const a = 6 + k * 14;
+        const b = 8 + row * 12;
+        const [cx0, cz0, cx1, cz1] = alongX ? [x0 + a, z0 + b, x0 + a + 12, z0 + b + 5] : [x0 + b, z0 + a, x0 + b + 5, z0 + a + 12];
+        for (let l = 0; l < stack; l++) push({ x0: cx0, z0: cz0, x1: cx1, z1: cz1, y0: 0, h: 2.7 * (l + 1), color: COLORS[Math.floor(rand() * COLORS.length)], style: S_DETAIL, seed: rand() });
+      }
+    }
+    // Grúa pórtico: dos patas, viga superior y pluma
+    const yellow = rand() < 0.5 ? 0xe0b020 : 0xc83a2e;
+    const H = 36 + rand() * 14;
+    const gx = x0 + 6 + rand() * (BLOCK - 20);
+    const gz = z0 + 6 + rand() * (BLOCK - 20);
+    if (alongX) {
+      push({ x0: gx, z0: z0 + 2, x1: gx + 2, z1: z0 + 4, y0: 0, h: H, color: yellow, style: S_DETAIL, seed: 0.3 });
+      push({ x0: gx, z0: z0 + BLOCK - 4, x1: gx + 2, z1: z0 + BLOCK - 2, y0: 0, h: H, color: yellow, style: S_DETAIL, seed: 0.3 });
+      push({ x0: gx - 1, z0: z0 + 2, x1: gx + 3, z1: z0 + BLOCK + 22, y0: H, h: 3, color: yellow, style: S_DETAIL, seed: 0.3, arch: true });
+    } else {
+      push({ x0: x0 + 2, z0: gz, x1: x0 + 4, z1: gz + 2, y0: 0, h: H, color: yellow, style: S_DETAIL, seed: 0.3 });
+      push({ x0: x0 + BLOCK - 4, z0: gz, x1: x0 + BLOCK - 2, z1: gz + 2, y0: 0, h: H, color: yellow, style: S_DETAIL, seed: 0.3 });
+      push({ x0: x0 + 2, z0: gz - 1, x1: x0 + BLOCK + 22, z1: gz + 3, y0: H, h: 3, color: yellow, style: S_DETAIL, seed: 0.3, arch: true });
+    }
+    out.lights.push({ x: gx + 1, y: H + 4, z: gz + 1 });
+  }
+
+  /** Atolón (Archipiélago): centro y radio del anillo de arena en mar abierto, o null */
+  atollAt(x: number, z: number): { cx: number; cz: number; r: number } | null {
+    if (this.stage.id !== 'archipelago') return null;
+    const cell = 1400;
+    const ix = Math.floor(x / cell);
+    const iz = Math.floor(z / cell);
+    for (let i = ix - 1; i <= ix + 1; i++)
+      for (let j = iz - 1; j <= iz + 1; j++) {
+        if (hash2(i, j, this.stage.seed + 131) > 0.45) continue;
+        const cx = (i + 0.25 + hash2(i, j, 132) * 0.5) * cell;
+        const cz = (j + 0.25 + hash2(i, j, 133) * 0.5) * cell;
+        const r = 150 + hash2(i, j, 134) * 130;
+        if (Math.hypot(x - cx, z - cz) > r + 40) continue;
+        // solo en aguas profundas
+        if (this.waterValue(cx, cz) > this.stage.waterLevel - 0.06) continue;
+        return { cx, cz, r };
+      }
+    return null;
   }
 
   /** Elige un arquetipo y construye el solar */

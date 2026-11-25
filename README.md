@@ -94,6 +94,18 @@ Para no perderse en un mundo abierto, sin mover los hitos (sería injusto en la 
   «Mis circuitos» o con el enlace `?circuito=CODIGO`. En las salas de carrera, el anfitrión puede
   elegir sus circuitos publicados (★).
 
+## Ajustes de imagen y combate
+
+- **Estilo píxel** (Ajustes → Imagen y sonido): la imagen se dibuja a un tercio de resolución, se amplía sin suavizar y los colores se reducen con un tramado ordenado 4×4, al estilo retro.
+- **Inclinación de la cámara al girar**: barra de 0 a 100 % (cuánto copia la cámara el alabeo del avión).
+- **Marcador (HUD) clásico o compacto**: el compacto agrupa velocidad, altitud, barras y armas en un panel pequeño y reduce radar y botones.
+- **Estelas largas y luminosas** desde las puntas de las alas (cálidas junto al avión y desvaneciéndose lejos) y una estela del color de cada piloto para bots y compañeros; el humo de los aviones tocados es un rastro fino.
+- **Al derribar**: «+puntos» flotando donde cae el enemigo y rachas (DOBLE, TRIPLE, CUÁDRUPLE DERRIBO) en menos de 7 s con bonus; al caer, «TE HA DERRIBADO …» o «TE HAS ESTRELLADO».
+- **Eyección**: al caer, el piloto sale despedido y baja en paracaídas (también los bots derribados). En equipo (vuelo en equipo, batallas por equipos, cooperativo, jefe final y misiones de guerra) tus compañeros ven tu paracaídas en el radar y la flecha: si uno pasa a menos de 45 m y por debajo de 520 km/h te **rescata** y vuelves al aire al momento junto a él (si no, reapareces a los 9 s). Rescatar da puntos y créditos.
+- **Escuadrones 8 contra 8**: nueva opción de batalla por equipos que rellena con bots hasta 16 aviones; los bots tienen indicativo (Cuervo, Lince, Navaja, Víbora…) y el marcador muestra «ALIADOS · ENEMIGOS · 8 contra 8»; en el borde de la pantalla solo salen los 5 pilotos más cercanos.
+- **Final cinematográfico**: al ganar una batalla o una misión de guerra, «PARTIDA GANADA» / «¡MISIÓN CUMPLIDA!» con cámara lenta girando alrededor del avión antes de los resultados.
+- **Jefe final: portaaviones volante** (antes un dirigible): cubierta de vuelo con luces, isla de mando, hangar del que salen cazas, motores con toberas naranjas y fuego antiaéreo de humo negro. Mismas tres fases: torretas de cubierta, motores y núcleo.
+
 ## Aros, hitos y radar
 
 - **Golpes contra el suelo según el ángulo**: un roce o un golpe con poco ángulo (menos de 12°) solo hace daño; entre 12° y 32°, daño proporcional (puede destruirte si vas muy tocado); más de 32°, explosión. Tras el golpe el avión rebota y queda echando fuego y humo, que se apagan poco a poco en unos minutos.
@@ -117,6 +129,8 @@ funcionan en todos):
 | 🌃 **Ciudad cyberpunk** | Noche eterna y lluvia frecuente: megatorres oscuras con **franjas de neón** en aristas y cornisas, **hologramas gigantes animados** en las fachadas, letreros en las azoteas, **pasarelas aéreas** entre torres (se pasa por debajo), calles mojadas con reflejos de neón y **tráfico de coches voladores** en carriles a 70, 115 y 170 m sobre las avenidas (chocar con uno quita 18 de blindaje; todos los pilotos de la sala ven el mismo tráfico). |
 
 El humo de la zona de guerra es distinto en cada columna (negro de combustible, gris, polvo o vapor), se inclina con el viento y se mece.
+
+Mejoras en los escenarios: **puertos** con grúas pórtico y contenedores de colores en la orilla de las ciudades; **atolones** con laguna turquesa y palmeras en el Archipiélago; **zona volcánica** de basalto con ríos de lava y **cascadas** que caen de las mesetas al río en los Cañones; y en el Glaciar una **plataforma de hielo alta con grietas profundas** para volar por dentro.
 
 Los arcos y losas tienen hueco debajo: chocar por debajo empuja hacia abajo y pasar por debajo no
 cuenta como choque.

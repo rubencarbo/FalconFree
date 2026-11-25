@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { Stage } from '../stages';
 import { CHUNK, CityGen, PERIOD, ROAD, hexToInt, type Box } from './city';
 import { fbm, hash2, mulberry32 } from './noise';
-import { canyonFloor, canyonH, jungleClearing, nunatakH, tepuiH } from './biomes';
+import { canyonFloor, canyonH, iceCrevasse, jungleClearing, nunatakH, tepuiH, volcanic } from './biomes';
 
 /** Metros por píxel de la textura del suelo (look pixelado) */
 const PX = 2;
@@ -665,6 +665,15 @@ export class ChunkManager {
     const wv = g.waterValue(x, z);
     const level = g.stage.waterLevel;
     const n = hash2(Math.floor(x / 3), Math.floor(z / 3), g.stage.seed + 3);
+    // Zona volcánica: lava en vez de agua, ceniza y basalto
+    if (volcanic(g, x, z)) {
+      if (wv < level + 0.004) {
+        const k = hash2(Math.floor(x / 2), Math.floor(z / 2), 17);
+        return level - wv > 0.004 ? (k < 0.3 ? [255, 210, 80] : [255, 120, 30]) : [200, 60, 20];
+      }
+      if (canyonH(g, x, z) > 0) return n < 0.5 ? [58, 46, 42] : [48, 38, 34];
+      return n < 0.1 ? [120, 40, 20] : n < 0.55 ? [64, 54, 50] : [54, 46, 42];
+    }
     if (wv < level) {
       if (hash2(Math.floor(x / 2), Math.floor(z / 2), 11) > 0.996) return [230, 245, 240];
       return level - wv < 0.01 ? [90, 170, 160] : [42, 120, 130];
@@ -690,6 +699,7 @@ export class ChunkManager {
       return d < 0.05 ? [24, 64, 110] : [14, 40, 78];
     }
     if (nunatakH(g, x, z) > 0) return [90, 94, 104];
+    if (iceCrevasse(g, x, z)) return n < 0.5 ? [40, 84, 150] : [34, 72, 132];
     const cr = Math.abs(fbm(x / 260, z / 260, g.stage.seed + 62, 2) - 0.5);
     if (cr < 0.006) return [70, 110, 170];
     const sas = Math.sin((x * 0.3 - z * 0.9) / 5) > 0.7;
@@ -746,7 +756,7 @@ export class ChunkManager {
     if (roadX || roadZ) {
       // Solo hay puentes en avenidas y sobre aguas poco profundas (canales)
       const bridge = ((roadX && g.isAvenue(bx)) || (roadZ && g.isAvenue(bz))) && level - wv < 0.05;
-      if (water && !bridge) return this.waterColor(level - wv, x, z);
+      if (water && !bridge) return this.seaColor(level - wv, x, z);
       if (water && bridge) {
         const edge = roadX && !roadZ ? lx < 2 || lx >= ROAD - 2 : !roadX && roadZ ? lz < 2 || lz >= ROAD - 2 : false;
         if (edge) {
@@ -784,7 +794,7 @@ export class ChunkManager {
       return C.road;
     }
 
-    if (water) return this.waterColor(level - wv, x, z);
+    if (water) return this.seaColor(level - wv, x, z);
     if (wv - level < 0.012) return C.sand;
 
     // Acera alrededor de la manzana, con farolas
@@ -837,6 +847,11 @@ export class ChunkManager {
         if (N && Math.floor(ux / 2) % 8 === 0 && inRow >= 5.5 && inRow <= 6.5) this.px = LAMP;
         return C.parking;
       }
+      case 'port': {
+        // Muelle de hormigón con marcas amarillas
+        if (Math.floor(ux / 14) % 2 === 0 && ux % 14 < 0.6) return C.line;
+        return n < 0.5 ? C.paveA : C.paveB;
+      }
       case 'sports': {
         const track = Math.abs(dcx) > 26 || Math.abs(dcz) > 22;
         if (track) return Math.abs(dcx) > 28 || Math.abs(dcz) > 24 ? C.sidewalk : C.track;
@@ -850,6 +865,20 @@ export class ChunkManager {
     const lotHash = hash2(Math.floor(x / 22), Math.floor(z / 22), g.stage.seed + 5);
     if (lotHash < 0.35) return n < 0.5 ? C.grass[0] : C.grass[1];
     return n < 0.5 ? C.lot : C.lotDark;
+  }
+
+  /** Mar con atolones (anillo de arena con vegetación y laguna turquesa) */
+  private seaColor(depth: number, x: number, z: number): RGB {
+    const at = this.gen.atollAt(x, z);
+    if (at) {
+      const d = Math.hypot(x - at.cx, z - at.cz);
+      const ring = Math.abs(d - at.r);
+      if (ring < 9) return hash2(Math.floor(x / 3), Math.floor(z / 3), 5) < 0.55 ? [74, 160, 64] : [62, 140, 54];
+      if (ring < 22) return this.colors.sand;
+      if (d < at.r) return d < at.r * 0.35 ? [70, 200, 205] : [110, 222, 215];
+      if (ring < 45) return [60, 175, 200];
+    }
+    return this.waterColor(depth, x, z);
   }
 
   private waterColor(depth: number, x: number, z: number): RGB {

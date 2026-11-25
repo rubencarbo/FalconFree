@@ -128,7 +128,7 @@ class RemotePlayer {
     this.jet.group.visible = this.alive;
 
     if (this.alive) {
-      fx.damageTrail(f.pos, this.hp / 100, dt);
+      fx.damageTrail(f.pos, this.hp / 100, dt, true);
       if (this.firing) {
         this.shotTimer -= dt;
         if (this.shotTimer <= 0) {

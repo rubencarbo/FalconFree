@@ -148,6 +148,7 @@ export class Hud {
     const W = window.innerWidth;
     const H = window.innerHeight - this.panelH;
     const seen = new Set<string>();
+    const edges: { el: HTMLElement; d: number; edge: boolean }[] = [];
     for (const p of list) {
       seen.add(p.id);
       let el = this.pilotEls.get(p.id);
@@ -189,7 +190,11 @@ export class Hud {
       }
       el.classList.toggle('edge', edge);
       el.style.transform = `translate(${((x + 1) / 2) * W}px, ${((1 - y) / 2) * H}px) translate(-50%, -100%)`;
+      edges.push({ el, d, edge });
     }
+    // En el borde de la pantalla solo los 5 pilotos más cercanos (en batallas grandes no se amontonan)
+    edges.filter((e) => e.edge).sort((a, b) => a.d - b.d).forEach((e, i) => (e.el.style.display = i < 5 ? '' : 'none'));
+    for (const e of edges) if (!e.edge) e.el.style.display = '';
     for (const [id, el] of this.pilotEls) {
       if (!seen.has(id)) {
         el.remove();

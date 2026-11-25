@@ -9,7 +9,7 @@ export const BATTLE_LABELS: Record<BattleKind, string> = {
   koth: 'Rey del cielo',
   tag: 'Pilla-pilla',
   royale: 'Supervivencia',
-  boss: 'Jefe final: el dirigible',
+  boss: 'Jefe final: el portaaviones volante',
 };
 
 /** Modos de puntos (no de derribos) */
@@ -159,7 +159,12 @@ export class Battle {
       const me = this.me;
       return `Tú ${me?.kills ?? 0} · Líder ${top?.kills ?? 0}/${c.killLimit}`;
     }
-    if (c.kind === 'teams') return `Naranja ${this.teamKills('A')} · Azul ${this.teamKills('B')} /${c.killLimit}`;
+    if (c.kind === 'teams') {
+      const mine = this.me?.team ?? 'A';
+      const other = mine === 'A' ? 'B' : 'A';
+      const n = (t: string) => [...this.fighters.values()].filter((f) => f.team === t).length;
+      return `ALIADOS ${this.teamKills(mine)} · ENEMIGOS ${this.teamKills(other)} /${c.killLimit} · ${n(mine)} contra ${n(other)}`;
+    }
     return `Equipo ${this.teamKills('A')} · Máquina ${this.teamKills('B')} /${c.killLimit}`;
   }
 
@@ -173,7 +178,7 @@ export class Battle {
       this.finished = true;
       const win = this.bossOutcome === 'win';
       const rows = [...this.fighters.values()].filter((f) => f.team !== 'B').sort((a, b) => b.points - a.points);
-      return { winnerLabel: win ? '¡Dirigible derribado!' : 'El dirigible ha escapado', iWon: win, rows, teams: null };
+      return { winnerLabel: win ? '¡Portaaviones volante derribado!' : 'El portaaviones volante ha escapado', iWon: win, rows, teams: null };
     }
     if (c.kind === 'royale') {
       const alive = this.survivors;
