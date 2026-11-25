@@ -84,7 +84,11 @@ class ParticlePool {
     this.grav[i] = o.grav ?? 0;
   }
 
+  /** Posición de la cámara: lo que está muy cerca se encoge para no tapar la vista */
+  cam: THREE.Vector3 | null = null;
+
   update(dt: number) {
+    const cam = this.cam;
     const m = this.mesh.instanceMatrix.array as Float32Array;
     const colors = this.mesh.instanceColor!.array as Float32Array;
     for (let i = 0; i < this.n; i++) {
@@ -109,7 +113,15 @@ class ParticlePool {
         this.vel[k + 1] *= -0.3;
       }
       const t = 1 - Math.max(0, this.life[i]) / this.maxLife[i];
-      const s = this.s0[i] + (this.s1[i] - this.s0[i]) * t;
+      let s = this.s0[i] + (this.s1[i] - this.s0[i]) * t;
+      if (cam) {
+        // Nada de bocanadas pegadas a la cámara (el avión deja atrás su propio humo)
+        const dx = this.pos[k] - cam.x;
+        const dy = this.pos[k + 1] - cam.y;
+        const dz = this.pos[k + 2] - cam.z;
+        const d = Math.sqrt(dx * dx + dy * dy + dz * dz) - s * 0.9;
+        if (d < 40) s *= Math.max(0, (d - 10) / 30);
+      }
       m[o] = m[o + 5] = m[o + 10] = this.life[i] > 0 ? s : 0;
       m[o + 12] = this.pos[k];
       m[o + 13] = this.pos[k + 1];
@@ -346,8 +358,10 @@ export class Fx {
   }
 
   /** Humo/fuego que sale de un avión dañado (llamar cada frame) */
-  damageTrail(pos: THREE.Vector3, hp01: number, dt: number) {
+  damageTrail(pos: THREE.Vector3, hp01: number, dt: number, own = false) {
     if (hp01 > 0.6) return;
+    // El humo de tu propio avión, más fino y corto: la cámara va justo detrás
+    const k = own ? 0.45 : 1;
     const rate = (1 - hp01) * (this.high ? 50 : 25);
     const n = Math.floor(rate * dt + Math.random());
     for (let i = 0; i < n; i++) {
@@ -356,9 +370,9 @@ export class Fx {
         y: pos.y + rnd(-1, 1),
         z: pos.z + rnd(-1, 1),
         vy: rnd(1, 4),
-        life: rnd(1, 2),
-        size0: 1.5,
-        size1: rnd(4, 8),
+        life: rnd(1, 2) * (own ? 0.6 : 1),
+        size0: 1.5 * k,
+        size1: rnd(2.5, 5) * k,
         color: hp01 < 0.3 ? pick([0x222222, 0x333333]) : pick([0x777777, 0x999999]),
         drag: 1,
       });
@@ -370,6 +384,7 @@ export class Fx {
 
   /** Avión tocado tras un golpe: llamas (fire01) y humo (smoke01) que van a menos */
   wreckTrail(pos: THREE.Vector3, fire01: number, smoke01: number, dt: number) {
+    const k = 0.5;
     const n = Math.floor(smoke01 * (this.high ? 30 : 16) * dt + Math.random());
     for (let i = 0; i < n; i++) {
       this.smoke.spawn({
@@ -377,9 +392,9 @@ export class Fx {
         y: pos.y + rnd(-0.5, 0.8),
         z: pos.z + rnd(-0.8, 0.8),
         vy: rnd(1.5, 4),
-        life: rnd(1.2, 2.6),
-        size0: 1.2,
-        size1: rnd(4, 7) * (0.5 + smoke01 * 0.6),
+        life: rnd(0.8, 1.6),
+        size0: 1.2 * k,
+        size1: rnd(2.5, 5) * k * (0.5 + smoke01 * 0.6),
         color: fire01 > 0.2 ? pick([0x1e1e1e, 0x2c2c2c]) : pick([0x5a5a5a, 0x7a7a7a, 0x8a8a8a]),
         drag: 1,
       });
@@ -454,6 +469,12 @@ export class Fx {
   shieldSpark(pos: THREE.Vector3) {
     const d = this._v.set(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).normalize().multiplyScalar(11);
     this.glow.spawn({ x: pos.x + d.x, y: pos.y + d.y, z: pos.z + d.z, life: 0.2, size0: 0.9, size1: 0.2, color: 0x40e0ff });
+  }
+
+  /** La cámara activa (para no tapar la vista con partículas cercanas) */
+  setCamera(pos: THREE.Vector3) {
+    this.smoke.cam = pos;
+    this.glow.cam = pos;
   }
 
   update(dt: number) {

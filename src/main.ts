@@ -434,6 +434,7 @@ class Game {
     this.scene.add(this.hemi, this.sun);
     this.contrails = new Contrails(this.scene);
     this.fx = new Fx(this.scene);
+    this.fx.setCamera(this.camera.position);
     this.fx.high = this.gfx.fxHigh;
     this.guns = new Guns(this.scene, this.gen, this.fx);
     this.drones = new Drones(this.scene, this.gen, 14);
@@ -2503,7 +2504,7 @@ class Game {
     this.jet.update(this.flight, this.time);
     if (!(this.screen === 'playing' && this.invuln > 0)) this.jet.group.visible = this.alive && this.rig.mode !== 'cockpit';
     this.contrails.setVisible(this.rig.mode !== 'cockpit');
-    if (this.alive && !frozen) this.fx.damageTrail(this.flight.pos, this.hp / this.maxHp, dt);
+    if (this.alive && !frozen) this.fx.damageTrail(this.flight.pos, this.hp / this.maxHp, dt, true);
     // Fuego y humo tras un golpe: se van apagando con los minutos
     if (this.alive && !frozen && (this.burnT > 0 || this.smokeT > 0)) {
       this.burnT = Math.max(0, this.burnT - dt);
