@@ -11,7 +11,7 @@ import { store } from './settings';
 const CELL = 1300;
 const CELL_RADIUS = 2;
 export const LEGEND_TOTAL = 20;
-const LEGEND_PER_STAGE: Record<string, number> = { metropolis: 7, archipelago: 7, dusk: 6, jungle: 6, warzone: 6, canyon: 6, glacier: 6 };
+const LEGEND_PER_STAGE: Record<string, number> = { metropolis: 7, archipelago: 7, dusk: 6, jungle: 6, warzone: 6, canyon: 6, glacier: 6, cyber: 6 };
 
 export interface SkyFunHooks {
   trick: (name: string, pts: number) => void;

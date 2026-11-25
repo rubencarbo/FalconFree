@@ -111,6 +111,7 @@ funcionan en todos):
 | 🏚️ **Zona de guerra** | Ciudad en ruinas: rascacielos partidos, montones de escombros, esqueletos de edificio con forjados por los que se puede pasar, **losas caídas sobre las calles que forman arcos**, cráteres, zonas quemadas, columnas de humo con fuego y cielo de polvo. |
 | 🏜️ **Cañones del desierto** | Mesetas rojas en terrazas, gargantas con un río al fondo, **arcos de roca** sobre el cañón, chimeneas de hadas, dunas, cactus y oasis con palmeras. **Pasos del cañón**: aros dorados sobre el río, entre las dos paredes (×3; encadenados en menos de 14 s suben de valor, y si pasas rozando el agua hay bonus). |
 | 🧊 **Glaciar polar** | Crepúsculo con **aurora boreal permanente**, mar oscuro con témpanos, icebergs, arcos de hielo, frente del glaciar, montañas nevadas y una base científica. Nieve frecuente. |
+| 🌃 **Ciudad cyberpunk** | Noche eterna y lluvia frecuente: megatorres oscuras con **franjas de neón** en aristas y cornisas, **hologramas gigantes animados** en las fachadas, letreros en las azoteas, **pasarelas aéreas** entre torres (se pasa por debajo), calles mojadas con reflejos de neón y **tráfico de coches voladores** en carriles a 70, 115 y 170 m sobre las avenidas (chocar con uno quita 18 de blindaje; todos los pilotos de la sala ven el mismo tráfico). |
 
 El humo de la zona de guerra es distinto en cada columna (negro de combustible, gris, polvo o vapor), se inclina con el viento y se mece.
 

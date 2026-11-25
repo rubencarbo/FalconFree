@@ -46,6 +46,7 @@ import { Boss, PHASE_LABELS } from './boss';
 import { CityEvents } from './events';
 import { SkyFun, type FloatingRealm } from './skyfun';
 import { AuroraSky, LightBirds } from './wonders';
+import { SkyTraffic } from './traffic';
 import { StormZone } from './zone';
 import { CloudSave, formatRecovery } from './cloud';
 import { QUICK_CHAT, CHAT_ICONS } from './chat';
@@ -248,6 +249,8 @@ class Game {
   private canyonChain = 0;
   private canyonLast = -99;
   private stageAurora: AuroraSky | null = null;
+  /** Tráfico aéreo (Ciudad cyberpunk) */
+  private traffic: SkyTraffic | null = null;
   /** Mi avatar («e:N» o foto) */
   private avatar = loadAvatar();
   private cropper: AvatarCropper | null = null;
@@ -466,6 +469,7 @@ class Game {
     this.weather.onLightning = (d) => this.audio.thunder(d);
     // Glaciar: aurora boreal permanente
     if (stage.aurora) this.stageAurora = new AuroraSky(this.scene);
+    if (stage.biome === 'cyber') this.traffic = new SkyTraffic(this.scene);
     this.renderer.toneMapping = THREE.NoToneMapping;
     this.bloom.strength = stage.night ? 1 : 0.8;
     this.applyLoadout();
@@ -478,6 +482,8 @@ class Game {
   private disposeWorld() {
     this.stageAurora?.dispose();
     this.stageAurora = null;
+    this.traffic?.dispose();
+    this.traffic = null;
     this.endBattle();
     this.race?.dispose();
     this.race = null;
@@ -1745,6 +1751,17 @@ class Game {
   }
 
   // ================================================================ Daños
+  /** Choque con un coche volador */
+  private onTrafficHit(pos: THREE.Vector3) {
+    if (this.invuln > 0) return;
+    this.fx.sparks(pos, null, 40, 80);
+    this.audio.scrape();
+    this.rig.addShake(4);
+    Haptic.scrape();
+    this.hud.toast('¡Cuidado con el tráfico aéreo!', 1200);
+    this.takeDamage(18);
+  }
+
   /** Daño recibido (balas, misiles, choques) */
   private takeDamage(amount: number, killer?: string, weapon = false) {
     if (!this.alive || this.invuln > 0 || this.paused || this.landed) return;
@@ -2369,6 +2386,10 @@ class Game {
     }
 
     const frozen = this.paused || this.waveChoosing;
+    if (this.traffic && !frozen) {
+      const playing = this.screen === 'playing' && this.alive && !this.landed;
+      this.traffic.update(this.now() / 1000, this.screen === 'playing' ? this.flight.pos : this.camera.position, playing ? (pos) => this.onTrafficHit(pos) : undefined, dt);
+    }
     if (!frozen) {
       this.fx.update(dt);
       this.drones.update(dt, this.flight.pos, this.flight.forward(), this.time);

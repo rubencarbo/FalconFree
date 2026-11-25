@@ -1,7 +1,7 @@
-export type StageId = 'metropolis' | 'archipelago' | 'dusk' | 'jungle' | 'warzone' | 'canyon' | 'glacier';
+export type StageId = 'metropolis' | 'archipelago' | 'dusk' | 'jungle' | 'warzone' | 'canyon' | 'glacier' | 'cyber';
 
 /** Tipo de mundo: ciudad o escenarios naturales / en ruinas */
-export type Biome = 'city' | 'jungle' | 'war' | 'canyon' | 'ice';
+export type Biome = 'city' | 'jungle' | 'war' | 'canyon' | 'ice' | 'cyber';
 
 type WeatherOption = ['clear' | 'rain' | 'fog' | 'storm' | 'snow', number];
 
@@ -245,6 +245,36 @@ export const STAGES: Stage[] = [
       window: '#2c4f73',
       tree: ['#2a4a3a', '#34503e'],
       cloud: '#c8d0e8',
+    },
+  },
+  {
+    id: 'cyber',
+    name: 'Ciudad cyberpunk',
+    tag: 'Nuevo',
+    description: 'Noche eterna y lluvia: megatorres con neón, hologramas gigantes, pasarelas aéreas y tráfico de coches voladores.',
+    seed: 2077,
+    biome: 'cyber',
+    waterLevel: 0.3,
+    waterScale: 1800,
+    parkChance: 0.04,
+    heightMul: 1.7,
+    night: true,
+    weather: [['rain', 0.45], ['clear', 0.25], ['fog', 0.15], ['storm', 0.15]],
+    sky: { top: '#0a0620', horizon: '#5a1e6a', fog: '#2a1640' },
+    fogDensity: 0.00046,
+    sun: { color: '#b070ff', intensity: 0.7, dir: [-0.5, 0.35, 0.6] },
+    hemi: { sky: '#5a3a9a', ground: '#140a20', intensity: 0.95 },
+    palette: {
+      buildings: ['#1c1e2c', '#222536', '#181a26', '#2a2440', '#1a2230', '#26202e'],
+      water: ['#08101e', '#0e1a30', '#1a2a4a'],
+      grass: ['#14261c', '#102018'],
+      road: '#101016',
+      sidewalk: '#2a2632',
+      sand: '#3a3440',
+      lot: '#1c1a24',
+      window: '#ffcf7a',
+      tree: ['#163a2a', '#1a4a34'],
+      cloud: '#6a4a8a',
     },
   },
 ];

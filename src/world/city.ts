@@ -1,6 +1,6 @@
 import type { Stage } from '../stages';
 import { fbm, hash2, hash3, mulberry32 } from './noise';
-import { canyonFloor, canyonH, genCanyonBlock, genIceBlock, genJungleBlock, ruinBlock } from './biomes';
+import { canyonFloor, canyonH, cyberBlock, genCanyonBlock, genIceBlock, genJungleBlock, ruinBlock } from './biomes';
 
 /** Ancho de calle (m) */
 export const ROAD = 16;
@@ -137,6 +137,7 @@ export class CityGen {
     }
     const out = this.genCityBlock(bx, bz, rand);
     if (st.biome === 'war') ruinBlock(this, bx, bz, rand, out);
+    if (st.biome === 'cyber') cyberBlock(this, bx, bz, rand, out);
     return out;
   }
 

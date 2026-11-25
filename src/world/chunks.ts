@@ -33,13 +33,18 @@ function rgb(hex: string): RGB {
   return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
 }
 
+/** Reloj de los edificios (hologramas animados) */
+export const BUILDING_TIME = { value: 0 };
+
 export function createBuildingMaterial(stage: Stage): THREE.MeshLambertMaterial {
   const mat = new THREE.MeshLambertMaterial({ color: 0xffffff });
   const uWindow = { value: new THREE.Color(stage.night ? '#2a3548' : stage.palette.window) };
   const uNight = { value: stage.night ? 1 : 0 };
+  const uTime = BUILDING_TIME;
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uWindow = uWindow;
     shader.uniforms.uNight = uNight;
+    shader.uniforms.uTime = uTime;
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
@@ -73,6 +78,7 @@ varying vec3 vInfo;
 varying vec2 vUv2;
 uniform vec3 uWindow;
 uniform float uNight;
+uniform float uTime;
 float fbHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }`,
       )
       .replace(
@@ -87,6 +93,8 @@ float fbHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453
   float fbShop = 0.0;
   float fbPad = 0.0;
   float fbRoofEdge = 0.0;
+  float fbNeon = 0.0;
+  vec3 fbNeonCol = vec3(0.0);
   vec3 fbLitCol = vec3(1.0, 0.8, 0.5);
   vec2 fbCell = vec2(0.0);
   float fbU = abs(vWN.x) > 0.5 ? vWPos.z : vWPos.x;
@@ -164,6 +172,31 @@ float fbHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453
       diffuseColor.rgb *= (1.0 - 0.3 * mortar) * (0.9 + 0.15 * fbHash(floor(sc)));
       float moss = step(0.55, fbHash(floor(sc * 0.5) + 3.0)) * (1.0 - clamp(fbY / 30.0, 0.0, 1.0));
       diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.28, 0.42, 0.2), moss * 0.6);
+    } else if (fbStyle == 16) {
+      // Cyberpunk: fachada oscura, ventanas pequeñas, franjas de neón y aristas iluminadas
+      float ns = fract(fbSeed * 7.13);
+      fbNeonCol = ns < 0.3 ? vec3(0.2, 0.95, 1.0) : ns < 0.55 ? vec3(1.0, 0.2, 0.75) : ns < 0.75 ? vec3(0.65, 0.3, 1.0) : ns < 0.9 ? vec3(1.0, 0.6, 0.15) : vec3(0.3, 1.0, 0.5);
+      fbCell = vec2(fbU / 2.4, fbY / 3.2);
+      f = fract(fbCell);
+      fbWin = step(0.25, f.x) * step(f.x, 0.75) * step(0.35, f.y) * step(f.y, 0.75);
+      diffuseColor.rgb = mix(diffuseColor.rgb, uWindow * 0.6, fbWin * 0.5);
+      float band = step(fract(fbY / (18.0 + 10.0 * fract(fbSeed * 3.1))), 0.05) * step(6.0, fbY);
+      float edgeV = step(min(vUv2.x, 1.0 - vUv2.x), 0.025);
+      float crown = step(fbH - 1.6, fbY);
+      fbNeon = max(max(band, edgeV * step(0.4, fract(fbSeed * 5.7))), crown);
+      diffuseColor.rgb = mix(diffuseColor.rgb, fbNeonCol, fbNeon * 0.8);
+    } else if (fbStyle == 17) {
+      // Holograma: bandas que se desplazan, líneas de barrido y parpadeo
+      float hs = fract(fbSeed * 11.7);
+      vec3 c1 = hs < 0.33 ? vec3(0.2, 0.9, 1.0) : hs < 0.66 ? vec3(1.0, 0.25, 0.7) : vec3(1.0, 0.75, 0.2);
+      vec3 c2 = hs < 0.33 ? vec3(0.7, 0.3, 1.0) : hs < 0.66 ? vec3(0.3, 0.5, 1.0) : vec3(1.0, 0.3, 0.2);
+      float k = fract(fbY * 0.06 + fbU * 0.02 - uTime * (0.2 + hs * 0.4) + fbSeed);
+      float scan = 0.75 + 0.25 * step(0.5, fract(fbY * 1.4 + uTime * 3.0));
+      float glyph = step(0.55, fbHash(floor(vec2(fbU / 2.0, fbY / 2.5) + floor(uTime * 1.5 + fbSeed * 9.0))));
+      fbNeonCol = mix(c1, c2, smoothstep(0.2, 0.8, k)) * scan * (0.75 + 0.35 * glyph);
+      fbNeonCol *= 0.85 + 0.15 * step(0.08, fract(uTime * 0.37 + fbSeed));
+      fbNeon = 1.0;
+      diffuseColor.rgb = fbNeonCol * 0.6;
     } else if (fbStyle == 14) {
       // Corteza
       diffuseColor.rgb *= 0.75 + 0.3 * fbHash(vec2(floor(fbU * 2.0), floor(fbY / 4.0)));
@@ -235,6 +268,14 @@ float fbHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453
       roof = diffuseColor.rgb * (0.85 + 0.2 * speck);
     } else if (fbStyle == 15) {
       roof = mix(vec3(0.16, 0.36, 0.13), vec3(0.24, 0.48, 0.18), speck);
+    } else if (fbStyle == 16) {
+      roof = vec3(0.08, 0.08, 0.11) * (0.9 + 0.2 * speck);
+      float ns = fract(fbSeed * 7.13);
+      fbNeonCol = ns < 0.3 ? vec3(0.2, 0.95, 1.0) : ns < 0.55 ? vec3(1.0, 0.2, 0.75) : ns < 0.75 ? vec3(0.65, 0.3, 1.0) : ns < 0.9 ? vec3(1.0, 0.6, 0.15) : vec3(0.3, 1.0, 0.5);
+      fbNeon = step(edge, 0.03);
+      roof = mix(roof, fbNeonCol, fbNeon);
+    } else if (fbStyle == 17) {
+      roof = vec3(0.1);
     }
     if (fbStyle < 7 && fbStyle != 5 && fbStyle != 4) {
       fbRoofEdge = step(edge, 0.035);
@@ -257,6 +298,7 @@ float fbHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453
     totalEmissiveRadiance += vec3(1.0, 0.72, 0.42) * fbShop * 0.8 * step(0.35, fbHash(vec2(floor(fbU / 5.0), fbSeed * 9.0)));
     totalEmissiveRadiance += vec3(0.5, 1.4, 0.6) * fbPad;
     totalEmissiveRadiance += diffuseColor.rgb * fbRoofEdge * 0.35;
+    totalEmissiveRadiance += fbNeonCol * fbNeon * 1.05;
   }`,
       );
   };
@@ -380,6 +422,7 @@ export class ChunkManager {
     const blink = Math.sin(performance.now() * 0.004) > 0.55 ? 3 : 0.25;
     this.beaconMat.color.setRGB(blink, blink * 0.07, blink * 0.05);
     this.smokeTime.value = performance.now() / 1000;
+    BUILDING_TIME.value = this.smokeTime.value % 1000;
     // Llamas que titilan (zona de guerra)
     const fl = 0.8 + 0.2 * Math.sin(performance.now() * 0.023) * Math.sin(performance.now() * 0.0071);
     this.fireMat.color.setRGB(fl, 0.42 * fl, 0.08);
@@ -583,6 +626,8 @@ export class ChunkManager {
         return this.iceGround(x, z);
       case 'war':
         return this.warGround(x, z);
+      case 'cyber':
+        return this.cyberGround(x, z);
     }
     return this.cityGround(x, z);
   }
@@ -671,6 +716,17 @@ export class ChunkManager {
     if (fbm(x / 130, z / 130, g.stage.seed + 76, 2) > 0.6) c = [c[0] * 0.55, c[1] * 0.52, c[2] * 0.5];
     if (hash2(Math.floor(x / 2), Math.floor(z / 2), g.stage.seed + 77) > 0.975) return [128, 122, 112];
     return c;
+  }
+
+  /** Asfalto mojado con reflejos de neón */
+  private cyberGround(x: number, z: number): RGB {
+    const c = this.cityGround(x, z);
+    const seed = this.gen.stage.seed;
+    if (!this.px && hash2(Math.floor(x / 4), Math.floor(z / 10), seed + 91) < 0.07) {
+      const k = hash2(Math.floor(x / 40), Math.floor(z / 40), seed + 92);
+      this.px = k < 0.33 ? [26, 100, 120] : k < 0.66 ? [120, 26, 90] : [80, 44, 130];
+    }
+    return [c[0] * 0.8, c[1] * 0.82, c[2] * 0.95];
   }
 
   private cityGround(x: number, z: number): RGB {

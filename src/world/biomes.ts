@@ -17,6 +17,10 @@ export const S_STONE = 13;
 export const S_TRUNK = 14;
 /** Roca con la cima cubierta de selva (tepuyes) */
 export const S_MESA = 15;
+/** Fachada oscura con franjas de neón (cyberpunk) */
+export const S_NEON = 16;
+/** Cartel holográfico animado */
+export const S_HOLO = 17;
 
 const P = 80;
 const CELL = 20;
@@ -390,4 +394,84 @@ export function ruinBlock(gen: CityGen, bx: number, bz: number, rand: () => numb
   if (out.smoke && out.smoke.length) out.smoke = hash2(bx, bz, gen.stage.seed + 62) < 0.3 ? [out.smoke[0]] : [];
   // Árboles quemados
   for (const t of out.trees) t.color = mix(t.color, 0x3a3020, 0.6);
+}
+
+
+// =================================================================== Ciudad cyberpunk
+/** Tonos de neón (se eligen en el sombreador a partir del «seed» del edificio) */
+export function cyberBlock(gen: CityGen, bx: number, bz: number, rand: () => number, out: BlockData) {
+  const res: Box[] = [];
+  let maxH = 0;
+  const push = (b: Box) => {
+    res.push(b);
+    maxH = Math.max(maxH, b.y0 + b.h);
+  };
+  const dt = gen.downtown(bx * P + P / 2, bz * P + P / 2);
+  for (const b of out.buildings) {
+    const st = b.style ?? 0;
+    if (st === 4 || st === 7 || b.h < 12) {
+      push(b);
+      continue;
+    }
+    const w = b.x1 - b.x0;
+    const d = b.z1 - b.z0;
+    let h = b.h;
+    // Megatorres en el centro
+    if (dt > 0.45 && rand() < 0.12 && w > 20 && d > 20) h = Math.max(h, 220 + rand() * 220);
+    const neon = rand() < 0.7;
+    push({ ...b, h, style: neon ? S_NEON : st, color: neon ? pick([0x1c1e2c, 0x222536, 0x181a26, 0x2a2440, 0x1a2230], rand()) : b.color, seed: rand() });
+    // Corona escalonada y antena en las torres altas
+    if (h > 120) {
+      const k = 0.2 + rand() * 0.1;
+      push({ x0: b.x0 + w * k, z0: b.z0 + d * k, x1: b.x1 - w * k, z1: b.z1 - d * k, y0: 0, h: h + 12 + rand() * 20, color: 0x1a1c28, style: S_NEON, seed: rand() });
+      if (rand() < 0.6) {
+        const mx = (b.x0 + b.x1) / 2;
+        const mz = (b.z0 + b.z1) / 2;
+        const ah = h + 40 + rand() * 40;
+        push({ x0: mx - 0.8, z0: mz - 0.8, x1: mx + 0.8, z1: mz + 0.8, y0: 0, h: ah, color: 0x9aa0b0, style: 4, seed: 0.5 });
+        out.lights.push({ x: mx, y: ah + 0.6, z: mz });
+      }
+    }
+    // Cartel holográfico pegado a la fachada
+    if (h > 40 && rand() < 0.45) {
+      const side = Math.floor(rand() * 4);
+      const bw = (side < 2 ? w : d) * (0.45 + rand() * 0.35);
+      const bh = 14 + rand() * 22;
+      const y0 = Math.min(h - bh - 4, 18 + rand() * (h * 0.6));
+      const cx = (b.x0 + b.x1) / 2;
+      const cz = (b.z0 + b.z1) / 2;
+      const t = 1.2;
+      const sign: Box =
+        side === 0
+          ? { x0: cx - bw / 2, z0: b.z0 - t - 0.6, x1: cx + bw / 2, z1: b.z0 - 0.6, y0, h: bh, color: 0xffffff, style: S_HOLO, seed: rand() }
+          : side === 1
+            ? { x0: cx - bw / 2, z0: b.z1 + 0.6, x1: cx + bw / 2, z1: b.z1 + t + 0.6, y0, h: bh, color: 0xffffff, style: S_HOLO, seed: rand() }
+            : side === 2
+              ? { x0: b.x0 - t - 0.6, z0: cz - bw / 2, x1: b.x0 - 0.6, z1: cz + bw / 2, y0, h: bh, color: 0xffffff, style: S_HOLO, seed: rand() }
+              : { x0: b.x1 + 0.6, z0: cz - bw / 2, x1: b.x1 + t + 0.6, z1: cz + bw / 2, y0, h: bh, color: 0xffffff, style: S_HOLO, seed: rand() };
+      if (y0 > 6) push(sign);
+    }
+    // Letrero vertical en la azotea
+    if (h > 30 && h < 160 && rand() < 0.25) {
+      const sx = b.x0 + 3 + rand() * Math.max(1, w - 10);
+      const sz = b.z0 + 3 + rand() * Math.max(1, d - 4);
+      push({ x0: sx, z0: sz, x1: sx + 6, z1: sz + 1, y0: h, h: 10 + rand() * 8, color: 0xffffff, style: S_HOLO, seed: rand() });
+    }
+  }
+  // Pasarela aérea sobre la calle (se puede pasar por debajo)
+  if (hash2(bx, bz, gen.stage.seed + 81) < 0.18 && maxH > 70) {
+    const alongX = rand() < 0.5;
+    const y0 = 45 + rand() * Math.min(120, maxH - 60);
+    const a = 16 + 6 + rand() * 40;
+    const x0 = bx * P;
+    const z0 = bz * P;
+    push(
+      alongX
+        ? { x0: x0 - 4, z0: z0 + a, x1: x0 + 24, z1: z0 + a + 7, y0, h: 4, color: 0x22263a, style: S_NEON, seed: rand(), arch: true }
+        : { x0: x0 + a, z0: z0 - 4, x1: x0 + a + 7, z1: z0 + 24, y0, h: 4, color: 0x22263a, style: S_NEON, seed: rand(), arch: true },
+    );
+  }
+  out.buildings = res;
+  out.maxH = maxH;
+  for (const t of out.trees) t.color = 0x1a4a3a;
 }
