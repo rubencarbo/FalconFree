@@ -110,12 +110,26 @@ const isTouch = matchMedia('(hover: none), (pointer: coarse)').matches;
 const HARD_IMPACT = 48;
 
 /** Estilo píxel: reduce la paleta con tramado ordenado 4×4 (como los juegos retro) */
+/**
+ * Estilos píxel (cada uno con su resolución, ver PIXEL_SCALE):
+ * 1 Píxel nítido con contorno · 2 Tramado de cómic · 3 Consola de 16 bits ·
+ * 4 Recreativa CRT · 5 Portátil de 4 tonos
+ */
+export const PIXEL_STYLES = [
+  { id: 1, name: 'Píxel nítido con contorno', scale: 1 / 3 },
+  { id: 2, name: 'Tramado de cómic', scale: 1 / 3 },
+  { id: 3, name: 'Consola de 16 bits', scale: 1 / 4 },
+  { id: 4, name: 'Recreativa CRT', scale: 1 / 3 },
+  { id: 5, name: 'Portátil de 4 tonos', scale: 1 / 4 },
+];
+
 const PIXEL_SHADER = {
-  uniforms: { tDiffuse: { value: null }, uLevels: { value: 9 } },
+  uniforms: { tDiffuse: { value: null }, uMode: { value: 1 }, uRes: { value: new THREE.Vector2(320, 200) } },
   vertexShader: /* glsl */ `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
   fragmentShader: /* glsl */ `
     uniform sampler2D tDiffuse;
-    uniform float uLevels;
+    uniform float uMode;
+    uniform vec2 uRes;
     varying vec2 vUv;
     float bayer2(vec2 a) {
       a = floor(a);
@@ -124,15 +138,58 @@ const PIXEL_SHADER = {
     float bayer(vec2 p) {
       return bayer2(0.5 * p) * 0.25 + bayer2(p);
     }
+    float lum(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
+    vec3 sat(vec3 c, float k) { return mix(vec3(lum(c)), c, k); }
     void main() {
-      vec4 c = texture2D(tDiffuse, vUv);
-      // un poco más de saturación y contraste
-      float l = dot(c.rgb, vec3(0.299, 0.587, 0.114));
-      vec3 col = mix(vec3(l), c.rgb, 1.18);
-      col = (col - 0.5) * 1.06 + 0.5;
-      float d = (bayer(gl_FragCoord.xy) - 0.5) / uLevels;
-      col = floor(clamp(col + d, 0.0, 1.0) * uLevels + 0.5) / uLevels;
-      gl_FragColor = vec4(col, c.a);
+      vec3 c = texture2D(tDiffuse, vUv).rgb;
+      vec2 px = gl_FragCoord.xy;
+      vec2 t = 1.0 / uRes;
+      if (uMode < 1.5) {
+        // Píxel nítido con contorno oscuro (como los shooters de píxel modernos)
+        float l = lum(c);
+        // Contorno solo en siluetas: la diferencia debe seguir a 2 píxeles y darse en un solo lado
+        // (así los destellos sueltos del agua no se marcan)
+        vec4 d;
+        for (int i = 0; i < 4; i++) {
+          vec2 o = i == 0 ? vec2(t.x, 0.0) : i == 1 ? vec2(-t.x, 0.0) : i == 2 ? vec2(0.0, t.y) : vec2(0.0, -t.y);
+          float a1 = abs(l - lum(texture2D(tDiffuse, vUv + o).rgb));
+          float a2 = abs(l - lum(texture2D(tDiffuse, vUv + o * 2.0).rgb));
+          d[i] = min(a1, a2);
+        }
+        float e = max(abs(d.x - d.y), abs(d.z - d.w));
+        c = sat(c, 1.25);
+        c = floor(clamp(c, 0.0, 1.0) * 20.0 + 0.5) / 20.0;
+        c = mix(c, c * 0.25 + vec3(0.03, 0.03, 0.07), smoothstep(0.2, 0.34, e));
+      } else if (uMode < 2.5) {
+        // Tramado de cómic: puntos de semitono en las sombras y degradados
+        float l = lum(c);
+        vec2 f = fract(px / 3.0) - 0.5;
+        float r = length(f);
+        float dotR = (1.0 - l) * 0.55;
+        c = sat(c, 1.3);
+        c = floor(clamp(c, 0.0, 1.0) * 12.0 + 0.5) / 12.0;
+        c *= 1.0 - step(r, dotR) * 0.28;
+      } else if (uMode < 3.5) {
+        // Consola de 16 bits: pocos tonos por canal, colores vivos, sin tramado
+        c = sat(c, 1.35);
+        c = (c - 0.5) * 1.12 + 0.5;
+        c = floor(clamp(c, 0.0, 1.0) * 6.0 + 0.5) / 6.0;
+      } else if (uMode < 4.5) {
+        // Recreativa CRT: líneas de barrido, máscara de color y viñeta
+        c = sat(c, 1.25) * 1.22;
+        c = floor(clamp(c, 0.0, 1.0) * 16.0 + 0.5) / 16.0;
+        c *= mod(floor(px.y), 2.0) < 1.0 ? 1.12 : 0.78;
+        float m = mod(floor(px.x), 3.0);
+        c *= m < 1.0 ? vec3(1.12, 0.92, 0.92) : m < 2.0 ? vec3(0.92, 1.12, 0.92) : vec3(0.92, 0.92, 1.12);
+        vec2 v = vUv - 0.5;
+        c *= 1.0 - dot(v, v) * 1.1;
+      } else {
+        // Portátil de 4 tonos verdes con tramado
+        float l = lum(c) * 1.1 + (bayer(px) - 0.5) / 3.5;
+        float q = floor(clamp(l, 0.0, 1.0) * 3.0 + 0.5);
+        c = q < 0.5 ? vec3(0.06, 0.22, 0.06) : q < 1.5 ? vec3(0.19, 0.38, 0.19) : q < 2.5 ? vec3(0.55, 0.67, 0.06) : vec3(0.61, 0.74, 0.06);
+      }
+      gl_FragColor = vec4(c, 1.0);
     }`,
 };
 /** Velocidad de aproximación (m/s) entre aviones a partir de la cual explotan */
@@ -4614,6 +4671,7 @@ class Game {
     this.renderer.setSize(w, h, false);
     this.composer.setSize(w, h);
     this.bloom.resolution.set(Math.round(w * this.gfx.bloomScale), Math.round(h * this.gfx.bloomScale));
+    this.pixelPass?.uniforms.uRes.value.set(Math.max(1, Math.round(w * this.renderer.getPixelRatio())), Math.max(1, Math.round(h * this.renderer.getPixelRatio())));
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.layoutControls();
@@ -5275,8 +5333,10 @@ class Game {
     this.gfx = qualityPreset(this.qualityLevel, isTouch);
     if (!this.renderer) return;
     // Estilo píxel: la imagen se dibuja a un tercio de resolución y se amplía sin suavizar
-    const pr = this.settings.pixel ? 1 / 3 : Math.min(window.devicePixelRatio || 1, this.gfx.maxPixelRatio);
+    const ps = PIXEL_STYLES.find((x) => x.id === this.settings.pixelMode) ?? PIXEL_STYLES[0];
+    const pr = this.settings.pixel ? ps.scale : Math.min(window.devicePixelRatio || 1, this.gfx.maxPixelRatio);
     this.pixelPass.enabled = this.settings.pixel;
+    this.pixelPass.uniforms.uMode.value = ps.id;
     this.bloom.enabled = this.gfx.bloom;
     this.renderer.domElement.classList.toggle('pixel', this.settings.pixel);
     if (this.renderer.getPixelRatio() !== pr || prev.bloomScale !== this.gfx.bloomScale) {

@@ -50,6 +50,8 @@ export interface Settings {
   avatarSize: number;
   /** estilo píxel (resolución baja + tramado de color) */
   pixel: boolean;
+  /** estilo píxel elegido (1..5) */
+  pixelMode: number;
   /** inclinación de la cámara con el alabeo, 0..100 % */
   camTilt: number;
   /** HUD clásico o compacto */
@@ -105,6 +107,7 @@ function defaults(): Settings {
     trail: { style: 'chevrons', tune: {} },
     avatarSize: 44,
     pixel: false,
+    pixelMode: 1,
     camTilt: 28,
     hud: 'classic',
     controls: defaultControls(),
@@ -146,6 +149,7 @@ export function loadSettings(): Settings {
       trail: sanitizeTrail(s.trail),
       avatarSize: clamp(Number(s.avatarSize ?? 44), 0, 96) || 0,
       pixel: !!s.pixel,
+      pixelMode: clamp(Math.round(Number(s.pixelMode ?? 1)), 1, 5),
       camTilt: clamp(Number(s.camTilt ?? 28), 0, 100),
       hud: s.hud === 'compact' ? 'compact' : 'classic',
       controls,
