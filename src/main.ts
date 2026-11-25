@@ -109,18 +109,15 @@ const isTouch = matchMedia('(hover: none), (pointer: coarse)').matches;
 /** Velocidad perpendicular (m/s) a partir de la cual un choque destruye el avión */
 const HARD_IMPACT = 48;
 
-/** Estilo píxel: reduce la paleta con tramado ordenado 4×4 (como los juegos retro) */
 /**
- * Estilos píxel (cada uno con su resolución, ver PIXEL_SCALE):
- * 1 Píxel nítido con contorno · 2 Tramado de cómic · 3 Consola de 16 bits ·
- * 4 Recreativa CRT · 5 Portátil de 4 tonos
+ * Estilos píxel (el orden es el del selector de Ajustes). Cada uno tiene su resolución interna.
+ * El id es el modo del shader (el 2, tramado de cómic, se descartó).
  */
 export const PIXEL_STYLES = [
-  { id: 1, name: 'Píxel nítido con contorno', scale: 1 / 3 },
-  { id: 2, name: 'Tramado de cómic', scale: 1 / 3 },
-  { id: 3, name: 'Consola de 16 bits', scale: 1 / 4 },
   { id: 4, name: 'Recreativa CRT', scale: 1 / 3 },
   { id: 5, name: 'Portátil de 4 tonos', scale: 1 / 4 },
+  { id: 3, name: 'Consola de 16 bits', scale: 1 / 4 },
+  { id: 1, name: 'Píxel nítido con contorno', scale: 1 / 3 },
 ];
 
 const PIXEL_SHADER = {
@@ -160,15 +157,6 @@ const PIXEL_SHADER = {
         c = sat(c, 1.25);
         c = floor(clamp(c, 0.0, 1.0) * 20.0 + 0.5) / 20.0;
         c = mix(c, c * 0.25 + vec3(0.03, 0.03, 0.07), smoothstep(0.2, 0.34, e));
-      } else if (uMode < 2.5) {
-        // Tramado de cómic: puntos de semitono en las sombras y degradados
-        float l = lum(c);
-        vec2 f = fract(px / 3.0) - 0.5;
-        float r = length(f);
-        float dotR = (1.0 - l) * 0.55;
-        c = sat(c, 1.3);
-        c = floor(clamp(c, 0.0, 1.0) * 12.0 + 0.5) / 12.0;
-        c *= 1.0 - step(r, dotR) * 0.28;
       } else if (uMode < 3.5) {
         // Consola de 16 bits: pocos tonos por canal, colores vivos, sin tramado
         c = sat(c, 1.35);
@@ -5947,6 +5935,13 @@ class Game {
         },
       ],
     ];
+    const pm = $<HTMLSelectElement>('set-pixel-mode');
+    pm.innerHTML = PIXEL_STYLES.map((x) => `<option value="${x.id}">${x.name}</option>`).join('');
+    pm.addEventListener('change', () => {
+      this.settings.pixelMode = Number(pm.value);
+      this.applyQuality();
+      this.persist();
+    });
     $('set-tilt').addEventListener('input', () => {
       this.settings.camTilt = Number($<HTMLInputElement>('set-tilt').value);
       this.rig.tilt = (this.settings.camTilt / 100) * 0.9;
@@ -6070,6 +6065,8 @@ class Game {
     set('set-vibration', s.vibration, 'Sí', 'No');
     set('set-ghost', s.ghost, 'Sí', 'No');
     set('set-pixel', s.pixel, 'Sí', 'No');
+    $<HTMLSelectElement>('set-pixel-mode').value = String(s.pixelMode);
+    show('set-pixel-mode-field', s.pixel);
     set('set-hud', s.hud === 'compact', 'Compacto', 'Clásico');
     $<HTMLInputElement>('set-tilt').value = String(s.camTilt);
     $('set-tilt-val').textContent = `${s.camTilt} %`;
