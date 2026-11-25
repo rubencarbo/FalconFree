@@ -72,7 +72,9 @@ import type { WeatherKind } from './weather';
 import { VoicePlayer, VoiceRecorder, VOICE_MAX_MS, decodeMuLaw } from './voice';
 import { PlanePreview, type PreviewMode } from './planePreview';
 import { Missions, Hazards, makeMission, advanceMission, rewardFor, MISSION_INFO, type MissionAction, type MissionNet, type MissionReward } from './missions';
-import { WAR_MISSIONS, WarOps, warMission, warStarsKey, type WarMission } from './warops';
+import { WAR_FRONTS, WAR_MISSIONS, WarOps, warMission, warStarsKey, type WarMission } from './warops';
+/** Tiempo para leer la sesión informativa antes de despegar (ms) */
+const WAR_BRIEF_MS = 15000;
 import { AutoQuality, QUALITY_LABELS, qualityPreset, type QualityPreset } from './quality';
 import type { QualityLevel, QualitySetting, TrailStyleSetting } from './settings';
 
@@ -207,6 +209,8 @@ class Game {
   war: WarOps | null = null;
   private warGoAt = 0;
   private warEnded = false;
+  /** Avión histórico de la misión de guerra en curso */
+  private planeOverride: PlaneId | null = null;
   stunts!: Stunts;
   season: Season;
   delivery: Delivery | null = null;
@@ -247,6 +251,9 @@ class Game {
   private frameStart = new THREE.Vector3();
   private probe = new THREE.Vector3();
   private canyonChain = 0;
+  /** fuego (s) y humo (s) tras un golpe contra el suelo */
+  private burnT = 0;
+  private smokeT = 0;
   private canyonLast = -99;
   private stageAurora: AuroraSky | null = null;
   /** Tráfico aéreo (Ciudad cyberpunk) */
@@ -516,6 +523,7 @@ class Game {
     this.missions = null;
     this.war?.dispose();
     this.war = null;
+    show('war-brief', false);
     this.hazards?.dispose();
     this.hazards = null;
     this.missionTeam = '';
@@ -541,22 +549,26 @@ class Game {
     const paint = pr.paint;
     const visible = this.jet.group.visible;
     this.scene.remove(this.jet.group);
+    // Misión de guerra: avión histórico prestado (no hace falta tenerlo)
+    const ov = this.planeOverride ? PLANES.find((x) => x.id === this.planeOverride) ?? null : null;
+    const variant = ov?.id ?? pr.p.plane;
+    const weapon = ov?.weapon ?? pr.plane.weapon;
     // En multijugador el avión lleva el color elegido en la sala (igual que lo ven los demás)
     const mp = this.room?.players.get(this.room.uid);
-    this.jet = mp ? new JetModel(mp.color, bodyTint(mp.color), pr.p.plane) : new JetModel(paint.accent, paint.body, pr.p.plane);
+    this.jet = mp ? new JetModel(mp.color, bodyTint(mp.color), variant) : new JetModel(paint.accent, paint.body, variant);
     this.jet.group.visible = visible;
     this.scene.add(this.jet.group);
-    this.flight.speedMul = mods.speed;
-    this.flight.agility = mods.agility;
-    this.maxHp = Math.round(100 * mods.armor);
+    this.flight.speedMul = ov ? ov.speed : mods.speed;
+    this.flight.agility = ov ? ov.agility : mods.agility;
+    this.maxHp = Math.round(100 * (ov ? ov.armor : mods.armor));
     if (this.guns) {
       this.guns.maxAmmo = MAX_AMMO + mods.ammoBonus;
       this.guns.ammo = Math.min(this.guns.ammo, this.guns.maxAmmo);
-      this.guns.setWeapon(pr.plane.weapon);
+      this.guns.setWeapon(weapon);
     }
-    if (this.missiles) this.missiles.max = pr.plane.weapon.missiles;
+    if (this.missiles) this.missiles.max = weapon.missiles;
     // Que los demás vean mi modelo de avión
-    if (this.room && mp && mp.plane !== pr.p.plane) void this.room.setProfile({ plane: pr.p.plane });
+    if (this.room && mp && mp.plane !== variant) void this.room.setProfile({ plane: variant });
   }
 
   private safeAltitude(x: number, z: number) {
@@ -566,6 +578,7 @@ class Game {
   /** Coloca el avión y reinicia su estado de vuelo */
   spawnAt(pos: THREE.Vector3, yaw: number) {
     this.flight.reset(pos.x, pos.y, pos.z, yaw);
+    this.burnT = this.smokeT = 0;
     this.prevPos.copy(this.flight.pos);
     this.hp = this.maxHp;
     this.alive = true;
@@ -580,6 +593,7 @@ class Game {
   // ================================================================ Sesiones
   private resetSession() {
     this.lastArena = null;
+    this.planeOverride = null;
     this.rings.enabled = true;
     this.ringCount = 0;
     this.ringsToMissile = 0;
@@ -1098,6 +1112,10 @@ class Game {
     this.mode = 'war';
     this.pfWar = def;
     this.resetSession();
+    if (def.plane) {
+      this.planeOverride = def.plane;
+      this.applyLoadout();
+    }
     this.drones.setActive(false);
     this.rings.enabled = false;
     this.rings.respawnAll([]);
@@ -1145,17 +1163,58 @@ class Game {
     this.spawnAt(pos, yaw);
     this.chunks.warmup(pos.x, pos.z, 16);
     this.flight.frozen = true;
-    this.warGoAt = startAt ?? this.now() + 4500;
+    // Unos segundos para leer la sesión informativa (se puede despegar antes en solitario)
+    this.warGoAt = startAt ?? this.now() + WAR_BRIEF_MS;
     this.lastCountdown = -1;
     this.setScreen('playing');
-    this.hud.split(`${def.year}${def.inspired ? ` · Inspirada en ${def.inspired}` : ' · Operación inventada'}`, 'neutral');
-    setTimeout(() => this.war === w && this.hud.toast(def.brief, 4200), 1600);
+    this.showWarBrief(def);
+  }
+
+  /** Sesión informativa: qué pasó de verdad, bandos, objetivo, resultado y tu avión */
+  private showWarBrief(def: WarMission) {
+    const front = WAR_FRONTS.find((x) => x.id === def.front);
+    $('wb-front').textContent = front ? front.name : '';
+    $('wb-title').textContent = def.title;
+    $('wb-date').textContent = def.inspired ? `${def.date} · Inspirada en ${def.inspired}` : `${def.date} · Operación inventada`;
+    const sides = $('wb-sides');
+    sides.replaceChildren();
+    if (def.sides) {
+      const a = document.createElement('span');
+      a.className = 'wb-a';
+      a.textContent = def.sides[0];
+      const vs = document.createElement('b');
+      vs.textContent = 'contra';
+      const b = document.createElement('span');
+      b.className = 'wb-b';
+      b.textContent = def.sides[1];
+      sides.append(a, vs, b);
+    }
+    show('wb-sides', !!def.sides);
+    $('wb-history').textContent = def.history;
+    $('wb-goal').textContent = def.goal ?? '';
+    $('wb-outcome').textContent = def.outcome ?? '';
+    show('wb-real', !!(def.goal || def.outcome));
+    $('wb-brief').textContent = def.brief;
+    const pl = def.plane ? PLANES.find((x) => x.id === def.plane) : null;
+    $('wb-plane').textContent = pl ? `✈️ Pilotas un ${pl.name} (${pl.country})` : `✈️ Pilotas tu ${this.progress.plane.name}`;
+    $('btn-wb-go').textContent = this.room ? 'Entendido' : '¡Despegar!';
+    show('war-brief', true);
+  }
+
+  private hideWarBrief() {
+    show('war-brief', false);
   }
 
   private updateWar(dt: number) {
     const w = this.war!;
     const f = this.flight;
     const t = (this.now() - this.warGoAt) / 1000;
+    // La sesión informativa se cierra sola al empezar la cuenta atrás
+    if (!$('war-brief').classList.contains('hidden')) {
+      const total = WAR_BRIEF_MS / 1000;
+      $('wb-bar').style.width = `${Math.min(100, Math.max(0, (1 - (-t - 3) / (total - 3)) * 100))}%`;
+      if (t > -3.2) this.hideWarBrief();
+    }
     if (t < 0) {
       f.frozen = true;
       const left = Math.ceil(-t);
@@ -1179,6 +1238,12 @@ class Game {
       else this.hud.split(`❌ ${w.reason.toUpperCase()}`, 'bad');
       setTimeout(() => this.finishWar(), 2600);
     }
+  }
+
+  /** Despegar ya (solo en solitario: en grupo manda el reloj de la sala) */
+  private skipWarBrief() {
+    this.hideWarBrief();
+    if (!this.room && this.war && (this.now() - this.warGoAt) / 1000 < -3.2) this.warGoAt = this.now() + 3200;
   }
 
   private finishWar() {
@@ -1859,6 +1924,40 @@ class Game {
     const f = this.flight;
     const v = f.forward().multiplyScalar(f.speed);
     const into = -v.dot(normal);
+    // Contra el suelo o una azotea: depende del ángulo. Un roce o un golpe con poco ángulo
+    // solo hace daño (y deja el avión ardiendo y echando humo un rato)
+    if (normal.y > 0.5 && !push) {
+      const angle = THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(into / Math.max(1, f.speed), 0, 1)));
+      if (angle > 32) {
+        this.destroy();
+        return;
+      }
+      const dmg = 5 + angle * 1.4;
+      if (this.hp - dmg <= 0 && angle >= 12) {
+        this.destroy();
+        return;
+      }
+      this.hp = Math.max(angle < 12 ? 6 : 1, this.hp - dmg);
+      this.burnT = Math.max(this.burnT, 6 + angle * 1.3);
+      this.smokeT = Math.max(this.smokeT, 90 + angle * 4);
+      // Rebote hacia arriba conservando casi toda la velocidad
+      v.y = Math.abs(v.y) * 0.35 + 8;
+      v.multiplyScalar(angle < 12 ? 0.9 : 0.75);
+      f.setVelocity(v);
+      f.pos.y = (box ? box.y0 + box.h : 0) + 4;
+      f.stun = angle < 12 ? 0.4 : 0.8;
+      this.stunts.crash();
+      this.fx.scrape(f.pos, normal);
+      this.fx.sparks(f.pos, normal, 40, 60);
+      this.recorder.event('scrape', f.pos);
+      this.recorder.highlight('Por los pelos');
+      this.audio.scrape();
+      Haptic.scrape();
+      this.rig.addShake(angle < 12 ? 3 : 6);
+      this.hud.damageFlash();
+      this.hud.toast(angle < 12 ? '¡Has rozado el suelo!' : '¡Golpe contra el suelo! El avión está ardiendo', 1300);
+      return;
+    }
     const dmg = 8 + into * 0.6;
     if (into > HARD_IMPACT || this.hp - dmg <= 0) {
       this.destroy();
@@ -2405,6 +2504,13 @@ class Game {
     if (!(this.screen === 'playing' && this.invuln > 0)) this.jet.group.visible = this.alive && this.rig.mode !== 'cockpit';
     this.contrails.setVisible(this.rig.mode !== 'cockpit');
     if (this.alive && !frozen) this.fx.damageTrail(this.flight.pos, this.hp / this.maxHp, dt);
+    // Fuego y humo tras un golpe: se van apagando con los minutos
+    if (this.alive && !frozen && (this.burnT > 0 || this.smokeT > 0)) {
+      this.burnT = Math.max(0, this.burnT - dt);
+      this.smokeT = Math.max(0, this.smokeT - dt);
+      const back = this.flight.forward().multiplyScalar(-4).add(this.flight.pos);
+      this.fx.wreckTrail(back, Math.min(1, this.burnT / 10), Math.min(1, this.smokeT / 120), dt);
+    }
     if (this.alive && this.shield > 0 && !frozen) this.fx.shieldSpark(this.flight.pos);
 
     const focus = (this.spectating && this.spectateFlight()?.pos) || this.flight.pos;
@@ -5173,9 +5279,10 @@ class Game {
       setTimeout(() => $<HTMLInputElement>('pilot-name').focus(), 50);
     });
     $('btn-season').addEventListener('click', () => this.openSeason());
+    $('btn-wb-go').addEventListener('click', () => this.skipWarBrief());
     $('btn-sum-retry').addEventListener('click', () => {
       if (this.mode === 'war') {
-        if (this.room) void this.room.startRound();
+        if (this.room) void this.room.startRound(WAR_BRIEF_MS);
         else this.startWar(this.pfWar);
       } else if (this.mode === 'delivery') this.startDelivery();
       else this.startWaves();
@@ -5395,7 +5502,7 @@ class Game {
       if (e.key === 'Enter') void this.joinRoom();
     });
     $('btn-lobby-leave').addEventListener('click', () => void this.leaveRoom());
-    $('btn-lobby-start').addEventListener('click', () => void this.room?.startRound());
+    $('btn-lobby-start').addEventListener('click', () => void this.room?.startRound(this.room.meta?.mode === 'war' ? WAR_BRIEF_MS : 5000));
     $<HTMLInputElement>('lobby-name').addEventListener('change', (e) => {
       const v = (e.target as HTMLInputElement).value.trim().slice(0, 16) || 'Piloto';
       this.settings.name = v;
@@ -5674,7 +5781,7 @@ class Game {
         const sel = pr.p.plane === pl.id;
         const el = document.createElement('div');
         const focus = (this.hangarFocus ?? pr.p.plane) === pl.id;
-        el.className = `hg-item plane${sel ? ' selected' : ''}${focus ? ' focus' : ''}${owned ? '' : ' locked'}${pl.tier === 'advanced' ? ' advanced' : ''}`;
+        el.className = `hg-item plane${sel ? ' selected' : ''}${focus ? ' focus' : ''}${owned ? '' : ' locked'}${pl.tier === 'advanced' ? ' advanced' : pl.tier === 'classic' ? ' advanced classic' : ''}`;
         el.innerHTML = `<img class="hg-thumb" alt="" /><div class="hg-head"><b></b><small></small></div><div class="plane-stats">${bar('Velocidad', pl.speed)}${bar('Agilidad', pl.agility)}${bar('Blindaje', pl.armor)}</div><div class="weapon"><span class="wn"></span><span class="wd"></span></div>`;
         (el.querySelector('b') as HTMLElement).textContent = pl.name;
         (el.querySelector('small') as HTMLElement).textContent = pl.description;
@@ -5712,6 +5819,8 @@ class Game {
         ...PLANES.filter((p) => p.tier === 'basic').map(item),
         section('Avanzados', 'Diseños evolucionados con armas mejores. Se canjean con créditos.'),
         ...PLANES.filter((p) => p.tier === 'advanced').map(item),
+        section('Clásicos de la Segunda Guerra Mundial', 'Se pilotan gratis en su misión de guerra. Aquí se compran para usarlos en los demás modos (llevan su librea histórica).'),
+        ...PLANES.filter((p) => p.tier === 'classic').map(item),
       );
     } else if (tab === 'paints') {
       list.replaceChildren(
@@ -5909,12 +6018,22 @@ class Game {
     this.renderPlanePicker();
   }
 
-  /** Lista de misiones de guerra (con medallas y un poco de historia) */
+  /** Lista de misiones de guerra agrupadas por frentes (con medallas y su avión) */
   private renderWarList() {
     const pick = this.pfWar;
-    $('pf-desc').textContent = `${pick.history} Objetivo: ${pick.brief}`;
-    $('war-list').replaceChildren(
-      ...WAR_MISSIONS.map((m) => {
+    const pl = pick.plane ? PLANES.find((x) => x.id === pick.plane) : null;
+    $('pf-desc').textContent = `${pick.brief}${pl ? ` Avión: ${pl.name}.` : ''}`;
+    const items: HTMLElement[] = [];
+    for (const fr of WAR_FRONTS) {
+      const list = WAR_MISSIONS.filter((m) => m.front === fr.id);
+      if (!list.length) continue;
+      const h = document.createElement('div');
+      h.className = 'war-front';
+      h.innerHTML = '<b></b><small></small>';
+      (h.querySelector('b') as HTMLElement).textContent = fr.name;
+      (h.querySelector('small') as HTMLElement).textContent = fr.sub;
+      items.push(h);
+      for (const m of list) {
         const b = document.createElement('button');
         b.className = `stage-card war-card${m.id === pick.id ? ' active' : ''}`;
         const stars = Number(store.get(warStarsKey(m.id)) ?? 0);
@@ -5925,20 +6044,29 @@ class Game {
         y.className = 'stage-tag war-year';
         y.textContent = m.year;
         t.append(y);
+        const mp = m.plane ? PLANES.find((x) => x.id === m.plane) : null;
         const d = document.createElement('small');
-        d.textContent = `${m.inspired ? `Inspirada en ${m.inspired}` : 'Operación inventada'} · ${getStage(m.stage).name}`;
+        d.textContent = `${m.inspired ? `Inspirada en ${m.inspired}` : 'Operación inventada'} · ${mp ? mp.name : 'tu avión'} · ${getStage(m.stage).name}`;
         const st = document.createElement('i');
         st.className = 'war-stars';
         st.textContent = '★'.repeat(stars) + '☆'.repeat(3 - stars);
+        if (mp) {
+          const img = document.createElement('img');
+          img.className = 'war-thumb';
+          img.alt = '';
+          img.src = this.preview.thumb(mp.id, 0xffffff, 0xffffff);
+          b.append(img);
+        }
         txt.append(t, d);
         b.append(txt, st);
         b.addEventListener('click', () => {
           this.pfWar = m;
           this.renderWarList();
         });
-        return b;
-      }),
-    );
+        items.push(b);
+      }
+    }
+    $('war-list').replaceChildren(...items);
   }
 
   private renderDailyChoice() {

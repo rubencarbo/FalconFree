@@ -1,3 +1,4 @@
+import { buildWarbird, isWarbird, type WarbirdId } from './warbirds';
 import * as THREE from 'three';
 
 export const KMH = 3.6;
@@ -49,6 +50,8 @@ export class Flight {
   pullUpAssist = 0;
   /** frenando (para efectos y HUD) */
   braking = false;
+  /** segundos que lleva pulsado el freno */
+  brakeHold = 0;
   private prevY = 500;
 
   reset(x: number, y: number, z: number, yaw: number) {
@@ -121,8 +124,12 @@ export class Flight {
     const braking = !!input.brake && this.burst <= 0;
     const target = braking ? BRAKE_KMH / KMH : ((this.burst > 0 ? MAX_KMH : input.boost ? BOOST_KMH : CRUISE_KMH) / KMH) * (this.burst > 0 ? 1 : this.speedMul);
     const accel = this.burst > 0 ? 260 : input.boost ? 110 : 45;
+    // Freno progresivo: suave al principio y cada vez más fuerte si se mantiene pulsado
+    if (braking) this.brakeHold += dt;
+    else this.brakeHold = Math.max(0, this.brakeHold - dt * 3);
+    const brakeDecel = Math.min(170, 28 + 62 * this.brakeHold * this.brakeHold);
     if (this.speed < target) this.speed = Math.min(target, this.speed + accel * dt);
-    else this.speed = Math.max(target, this.speed - (braking ? 220 : 35) * dt);
+    else this.speed = Math.max(target, this.speed - (braking ? brakeDecel : 35) * dt);
     this.speed -= Math.sin(this.pitch) * 9.81 * 1.6 * dt;
     // Sin turbo, un picado no pasa de ~1000 km/h (antes llegaba casi a la velocidad máxima
     // y parecía que el turbo se activaba solo)
@@ -152,7 +159,7 @@ export class Flight {
 }
 const _v = new THREE.Vector3();
 
-export type PlaneVariant = 'falcon' | 'sparrow' | 'raptor' | 'typhoon' | 'specter' | 'phoenix' | 'mantis' | 'storm' | 'comet' | 'aurora';
+export type PlaneVariant = 'falcon' | 'sparrow' | 'raptor' | 'typhoon' | 'specter' | 'phoenix' | 'mantis' | 'storm' | 'comet' | 'aurora' | WarbirdId;
 
 /** Color de las llamas y de las luces de cada avión */
 const VARIANT_GLOW: Partial<Record<PlaneVariant, { flame: number; glow: [number, number, number] }>> = {
@@ -186,6 +193,8 @@ export class JetModel {
   /** «Pintura viva» del santuario: los colores cambian continuamente */
   shimmer = false;
   private mats!: Mats;
+  /** Hélices de los aviones clásicos */
+  private props: THREE.Object3D[] = [];
 
   constructor(accentColor = 0xff7a1a, bodyColor = 0x40454e, variant: PlaneVariant = 'falcon') {
     const g = VARIANT_GLOW[variant];
@@ -207,6 +216,13 @@ export class JetModel {
       this.group.add(mesh);
       return mesh;
     };
+    if (isWarbird(variant)) {
+      // Clásico con su librea histórica (no usa la pintura del hangar)
+      const parts = buildWarbird(variant, this.group);
+      this.props = parts.props;
+      this.wingTips = parts.tips;
+      return;
+    }
     switch (variant) {
       case 'sparrow':
         this.buildSparrow(add, m);
@@ -572,6 +588,7 @@ export class JetModel {
     }
     this.group.position.copy(flight.pos);
     flight.quaternion(this.group.quaternion);
+    for (const p of this.props) p.rotation.z = time * (30 + flight.thrust * 25);
     const t = flight.thrust;
     // 0 en crucero, 1 con el turbo a tope: llamas mucho más largas, anchas y brillantes
     const boost = THREE.MathUtils.clamp((t - 0.6) / 0.4, 0, 1);

@@ -368,6 +368,26 @@ export class Fx {
     }
   }
 
+  /** Avión tocado tras un golpe: llamas (fire01) y humo (smoke01) que van a menos */
+  wreckTrail(pos: THREE.Vector3, fire01: number, smoke01: number, dt: number) {
+    const n = Math.floor(smoke01 * (this.high ? 30 : 16) * dt + Math.random());
+    for (let i = 0; i < n; i++) {
+      this.smoke.spawn({
+        x: pos.x + rnd(-0.8, 0.8),
+        y: pos.y + rnd(-0.5, 0.8),
+        z: pos.z + rnd(-0.8, 0.8),
+        vy: rnd(1.5, 4),
+        life: rnd(1.2, 2.6),
+        size0: 1.2,
+        size1: rnd(4, 7) * (0.5 + smoke01 * 0.6),
+        color: fire01 > 0.2 ? pick([0x1e1e1e, 0x2c2c2c]) : pick([0x5a5a5a, 0x7a7a7a, 0x8a8a8a]),
+        drag: 1,
+      });
+    }
+    const m = Math.floor(fire01 * (this.high ? 40 : 22) * dt + Math.random() * fire01);
+    for (let i = 0; i < m; i++) this.glow.spawn({ x: pos.x + rnd(-0.6, 0.6), y: pos.y + rnd(-0.3, 0.5), z: pos.z + rnd(-0.6, 0.6), vy: 2, life: rnd(0.15, 0.35), size0: rnd(1.5, 3.2), size1: 0.4, color: pick(FIRE) });
+  }
+
   /** Estela de un misil */
   missileTrail(pos: THREE.Vector3, dir: THREE.Vector3) {
     this.glow.spawn({ x: pos.x - dir.x * 2.5, y: pos.y - dir.y * 2.5, z: pos.z - dir.z * 2.5, life: 0.12, size0: 1.6, size1: 0.4, color: pick(FIRE) });

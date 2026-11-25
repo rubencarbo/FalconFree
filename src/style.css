@@ -4345,3 +4345,126 @@ html.standalone .install {
     font-size: 12px;
   }
 }
+
+/* ================================================================ Sesión informativa (misiones de guerra) */
+#war-brief .panel.brief {
+  width: min(560px, 100%);
+  max-height: 92vh;
+  overflow: auto;
+  background: linear-gradient(180deg, rgba(42, 34, 22, 0.97), rgba(20, 18, 14, 0.97));
+  border: 1px solid rgba(220, 180, 110, 0.45);
+}
+.wb-head small {
+  color: #e0b870;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 11px;
+}
+.wb-head h2 {
+  margin: 2px 0;
+}
+.wb-head span {
+  color: var(--muted);
+  font-size: 13px;
+}
+.wb-sides {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 10px 0 2px;
+}
+.wb-sides span {
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 13px;
+}
+.wb-sides .wb-a {
+  background: rgba(70, 140, 220, 0.25);
+  border: 1px solid rgba(110, 170, 240, 0.5);
+}
+.wb-sides .wb-b {
+  background: rgba(200, 70, 60, 0.22);
+  border: 1px solid rgba(230, 110, 100, 0.5);
+}
+.wb-sides b {
+  color: var(--muted);
+  font-size: 12px;
+}
+#war-brief p {
+  margin: 4px 0 8px;
+  line-height: 1.45;
+  font-size: 14px;
+}
+.wb-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 520px) {
+  .wb-grid {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+}
+.wb-mission {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 8px 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 180, 70, 0.12);
+  border: 1px solid rgba(255, 180, 70, 0.4);
+}
+.wb-mission b {
+  color: #ffc870;
+}
+.wb-mission small {
+  color: var(--muted);
+}
+.wb-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.12);
+  margin: 8px 0 10px;
+  overflow: hidden;
+}
+.wb-bar i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, #e0b870, #ff8a2a);
+}
+.war-front {
+  display: flex;
+  flex-direction: column;
+  margin: 10px 2px 2px;
+}
+.war-front b {
+  color: #e0b870;
+  font-size: 13px;
+}
+.war-front small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.war-thumb {
+  width: 64px;
+  height: 42px;
+  object-fit: contain;
+  flex: none;
+  margin-right: 8px;
+}
+#war-brief .panel.brief {
+  gap: 6px;
+  padding: 16px 18px;
+}
+#war-brief .panel.brief > * {
+  flex-shrink: 0;
+}
+#war-brief .set-group {
+  margin: 4px 0 0;
+}

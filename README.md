@@ -96,6 +96,9 @@ Para no perderse en un mundo abierto, sin mover los hitos (sería injusto en la 
 
 ## Aros, hitos y radar
 
+- **Golpes contra el suelo según el ángulo**: un roce o un golpe con poco ángulo (menos de 12°) solo hace daño; entre 12° y 32°, daño proporcional (puede destruirte si vas muy tocado); más de 32°, explosión. Tras el golpe el avión rebota y queda echando fuego y humo, que se apagan poco a poco en unos minutos.
+- **Freno progresivo**: suave al principio y cada vez más fuerte si mantienes el botón (de 650 a ~250 km/h en 1,5 s).
+
 - **Tocar cuenta**: rozar un aro con el ala o pasar pegado al marco de un hito vale igual que cruzarlo por el centro.
 - **Radar limpio**: siempre muestra hitos, objetivos y pilotos; del resto solo lo más cercano (4 aros, 2 recompensas, 5 drones, 3 puntos de interés, minas a menos de 500 m y el siguiente aro del reto).
 
@@ -121,26 +124,38 @@ cuenta como choque.
 ## Misiones de guerra
 
 Modo **Misiones de guerra** (Un jugador → Combate, o en grupo desde Multijugador → «Misión de
-guerra»). Cada misión tiene su escenario, una sesión informativa con un poco de historia, tiempo
-límite y medallas (★ cumplida, ★ con más del 30 % de tiempo de sobra, ★ con más del 60 % de
-blindaje). Inspiradas en episodios reales, sin nombres de bandos ni insignias:
+guerra»), agrupadas por frentes. Antes de despegar se muestra una **sesión informativa** de unos
+segundos (se puede saltar en solitario): fechas, **países enfrentados**, qué pasó, el objetivo real,
+cómo terminó, tu misión y el avión que pilotas. En cada misión histórica vuelas **su avión clásico**
+(gratis, solo para esa misión); en las inventadas, el tuyo. Medallas: ★ cumplida, ★ con más del
+30 % de tiempo de sobra, ★ con más del 60 % de blindaje.
 
-| Misión | Año | Inspirada en | Objetivo |
-| --- | --- | --- | --- |
-| La batalla del cielo | 1940 | la Batalla de Inglaterra | Derribar 8 bombarderos (con cazas de escolta que te disparan) antes de que 4 lleguen al centro |
-| Puente aéreo | 1948 | el puente aéreo de Berlín | Lanzar 6 cargas en vuelo bajo esquivando los cables de los globos de barrera |
-| Escolta | 1943 | las misiones de escolta | Derribar las pasadas de cazas para que al menos 2 de 4 bombarderos aliados lleguen |
-| Los rompepresas | 1943 | la Operación Chastise | Vuelo rasante por el cañón y bomba rebotante: < 40 m, < 800 km/h y a 200–480 m de la presa (3 pasadas) |
-| Cazadores de radares | 1942 | la Operación Biting | Destruir 6 radares; si un reflector te ilumina llega el fuego antiaéreo |
-| Operación Escarcha | inventada | — | Rescatar 4 tripulaciones en el glaciar (bajo y despacio) con ventisca y volver a la base |
-| Operación Liana | inventada | — | Encontrar y destruir 5 depósitos escondidos bajo la selva (solo se ven de cerca) |
+| Frente | Misión | Fecha | Bandos | Avión | Objetivo en el juego |
+| --- | --- | --- | --- | --- | --- |
+| Europa | La batalla del cielo | 1940 | Reino Unido vs. Alemania | Spitfire | Derribar 8 bombarderos He 111 (escoltados por Bf 109) antes de que 4 lleguen a la ciudad |
+| Europa | Cazadores de radares | 1942 | Reino Unido vs. Alemania | Mosquito | Destruir 6 radares (reflectores y antiaéreos) |
+| Europa | Tanques sobre Stalingrado | 1942–43 | URSS vs. Alemania | Il-2 Sturmovik | Destruir 8 carros que avanzan por la ciudad en ruinas, con nieve |
+| Europa | Los rompepresas | 1943 | Reino Unido vs. Alemania | Lancaster | Bomba rebotante por el cañón contra la presa (muro de hormigón) |
+| Europa | Escolta | 1944 | EE. UU. vs. Alemania | P-51 Mustang | Proteger 4 B-17 de las pasadas de Bf 109 |
+| Europa | Noche del Día D | 1944 | Aliados vs. Alemania | C-47 Skytrain | Lanzar 6 grupos de paracaidistas de noche entre reflectores y antiaéreos |
+| Pacífico | Pearl Harbor | 1941 | EE. UU. vs. Japón | P-40 Warhawk | Derribar 10 Zero antes de que 5 lleguen al puerto |
+| Pacífico | Midway | 1942 | EE. UU. vs. Japón | SBD Dauntless | Hundir 4 portaaviones con bombas en picado (2 cada uno), con Zero de patrulla y antiaéreos |
+| Posguerra | Puente aéreo | 1948 | Aliados vs. bloqueo soviético | C-47 Skytrain | Lanzar 6 cargas entre globos de barrera |
+| Inventada | Operación Escarcha | — | — | el tuyo | Rescate en el glaciar con ventisca |
+| Inventada | Operación Liana | — | — | el tuyo | Depósitos escondidos bajo la selva |
 
 En grupo, todo lo que se mueve depende del reloj común de la sala, así que todos ven lo mismo; lo
-que destruye o recoge un piloto cuenta para todos (se comparte en `rooms/{código}/rings/w_…`).
-Logro nuevo: *Veterano* (5 misiones cumplidas).
+que destruye o recoge un piloto cuenta para todos (se comparte en `rooms/{código}/rings/w_…`). Logro
+*Veterano* (5 misiones cumplidas).
 
-> Publica las reglas nuevas (`npm run deploy`): el modo `war` y los escenarios nuevos se validan
-> en Realtime Database y en Firestore (circuitos y tiempos).
+### Aviones clásicos
+
+Diez aviones de la Segunda Guerra Mundial con su librea y escarapelas históricas y hélices que giran:
+Spitfire, P-51 Mustang, P-40 Warhawk (boca de tiburón), A6M Zero, Bf 109, Il-2 Sturmovik, SBD
+Dauntless, Lancaster, C-47 Skytrain y Mosquito (más B-17 y He 111 como aliados y enemigos). Se
+pilotan gratis en su misión y en el **hangar → Clásicos** se compran para los demás modos a precio
+alto (15.000–30.000 créditos). Son más lentos que los reactores, pero cada uno tiene su carácter
+(el Zero gira como nadie, el Il-2 y el Lancaster aguantan muchísimo).
 
 ## Retos encadenados
 

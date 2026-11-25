@@ -688,7 +688,7 @@ export class Room {
   }
 
   /** El anfitrión lanza la cuenta atrás para todos */
-  async startRound() {
+  async startRound(delayMs = 5000) {
     if (!this.isHost || !this.meta) return;
     const db = firebase.database()!;
     await remove(ref(db, `rooms/${this.code}/results`));
@@ -699,7 +699,7 @@ export class Room {
     await remove(ref(db, `rooms/${this.code}/mission`)).catch(() => undefined);
     await remove(ref(db, `rooms/${this.code}/pause`)).catch(() => undefined);
     await set(ref(db, `rooms/${this.code}/pausedMs`), 0).catch(() => undefined);
-    await this.setMeta({ state: 'countdown', startAt: Math.round(this.serverNow() + 5000), round: this.meta.round + 1 });
+    await this.setMeta({ state: 'countdown', startAt: Math.round(this.serverNow() + delayMs), round: this.meta.round + 1 });
   }
 
   async backToLobby() {

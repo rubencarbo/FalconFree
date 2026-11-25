@@ -5,6 +5,7 @@ import type { StageId } from './stages';
 import type { WeatherKind } from './weather';
 import { fbm, mulberry32 } from './world/noise';
 import { canyonFloor, canyonH, jungleClearing, nunatakH } from './world/biomes';
+import { buildWarbird, type WarbirdId } from './warbirds';
 
 /**
  * Misiones de guerra: episodios inspirados en la historia de la aviación (sin nombres de bandos
@@ -12,89 +13,230 @@ import { canyonFloor, canyonH, jungleClearing, nunatakH } from './world/biomes';
  * de la misión, así que en grupo cada piloto ve lo mismo; lo destruido se comparte con
  * «claim» (rooms/{code}/rings/w_…).
  */
-export type WarKind = 'raid' | 'airlift' | 'escort' | 'dam' | 'sites' | 'rescue';
+export type WarKind = 'raid' | 'airlift' | 'escort' | 'dam' | 'sites' | 'rescue' | 'carriers' | 'convoy';
+
+export type WarFront = 'europa' | 'pacifico' | 'posguerra' | 'inventada';
+
+export const WAR_FRONTS: { id: WarFront; name: string; sub: string }[] = [
+  { id: 'europa', name: 'Frente europeo · 1940–1944', sub: 'De la Batalla de Inglaterra al Día D' },
+  { id: 'pacifico', name: 'Guerra del Pacífico · 1941–1942', sub: 'De Pearl Harbor a Midway' },
+  { id: 'posguerra', name: 'Posguerra · 1948', sub: 'El comienzo de la Guerra Fría' },
+  { id: 'inventada', name: 'Operaciones inventadas', sub: 'Con tu propio avión' },
+];
 
 export interface WarMission {
   id: string;
   title: string;
+  front: WarFront;
   /** año o «Inventada» */
   year: string;
+  /** fechas reales */
+  date: string;
   /** episodio real en que se inspira (o null si es inventada) */
   inspired: string | null;
+  /** bandos: [quien vuelas, adversario] */
+  sides?: [string, string];
   stage: StageId;
   kind: WarKind;
-  /** objetivo en una frase */
+  /** tu objetivo en el juego, en una frase */
   brief: string;
-  /** un poco de historia para la sesión informativa */
+  /** qué pasó (sesión informativa) */
   history: string;
+  /** objetivo real de la operación */
+  goal?: string;
+  /** cómo terminó */
+  outcome?: string;
+  /** avión histórico de la misión (si no, el tuyo) */
+  plane?: WarbirdId;
+  /** modelos enemigos y aliados */
+  enemy?: { bomber?: WarbirdId; fighter?: WarbirdId };
+  ally?: WarbirdId;
   /** tiempo límite (s) */
   time: number;
   weather?: WeatherKind;
   /** variante de «sites»: radares, depósitos ocultos… */
   variant?: 'radar' | 'depots';
+  /** raid: objetivo a defender y cuántos derribos hacen falta */
+  defend?: string;
+  goalCount?: number;
+  failMax?: number;
+  /** airlift con reflectores y antiaéreos */
+  flak?: boolean;
 }
 
 export const WAR_MISSIONS: WarMission[] = [
   {
     id: 'batalla',
     title: 'La batalla del cielo',
+    front: 'europa',
     year: '1940',
+    date: '10 de julio – 31 de octubre de 1940',
     inspired: 'la Batalla de Inglaterra',
+    sides: ['🇬🇧 Reino Unido (RAF)', 'Alemania (Luftwaffe)'],
     stage: 'warzone',
     kind: 'raid',
+    plane: 'spitfire',
+    enemy: { bomber: 'he111', fighter: 'bf109' },
+    defend: 'la ciudad',
     brief: 'Derriba 8 bombarderos antes de que 4 lleguen al centro de la ciudad.',
-    history: 'En el verano de 1940 unos pocos pilotos de caza defendieron su país durante semanas de ataques aéreos constantes. Despegaban varias veces al día para interceptar formaciones de bombarderos antes de que alcanzaran las ciudades.',
+    history: 'Tras la caída de Francia, Alemania quiso destruir la aviación británica para poder invadir Gran Bretaña. Durante meses, oleadas de bombarderos Heinkel y cazas Messerschmitt cruzaron el Canal de la Mancha. Los pilotos de Spitfire y Hurricane, guiados por radar, despegaban varias veces al día para interceptarlos.',
+    goal: 'Conseguir el dominio del aire sobre el sur de Inglaterra para preparar una invasión.',
+    outcome: 'La RAF resistió y la invasión se aplazó para siempre. Churchill: «Nunca tantos debieron tanto a tan pocos».',
     time: 240,
-  },
-  {
-    id: 'puente',
-    title: 'Puente aéreo',
-    year: '1948',
-    inspired: 'el puente aéreo de Berlín',
-    stage: 'warzone',
-    kind: 'airlift',
-    brief: 'Lanza 6 cargas de suministros sobre las zonas verdes, en vuelo bajo y esquivando los cables de los globos de barrera.',
-    history: 'Durante casi un año, aviones de transporte llevaron comida, carbón y medicinas a una ciudad aislada por tierra: llegó a aterrizar un avión cada pocos minutos. Algunos pilotos lanzaban caramelos con pequeños paracaídas para los niños.',
-    time: 270,
-  },
-  {
-    id: 'escolta',
-    title: 'Escolta',
-    year: '1943',
-    inspired: 'las misiones de escolta de bombarderos',
-    stage: 'warzone',
-    kind: 'escort',
-    brief: 'Protege la formación de 4 bombarderos aliados hasta el final de la ruta: al menos 2 tienen que llegar.',
-    history: 'Los bombarderos pesados volaban en formaciones cerradas y sufrían enormes pérdidas cuando iban sin protección. Los cazas de escolta de largo alcance cambiaron el curso de la guerra aérea al acompañarlos durante todo el viaje.',
-    time: 200,
-  },
-  {
-    id: 'presa',
-    title: 'Los rompepresas',
-    year: '1943',
-    inspired: 'la Operación Chastise',
-    stage: 'canyon',
-    kind: 'dam',
-    brief: 'Vuela por el cañón pegado al río y suelta la bomba rebotante sobre el agua: menos de 40 m de altura, a menos de 800 km/h y a 200–480 m de la presa.',
-    history: 'Una escuadrilla voló de noche a solo 18 m sobre el agua para lanzar una bomba que rebotaba sobre la superficie, como una piedra plana, hasta chocar con el muro de la presa. Hacía falta una altura, una velocidad y una distancia exactas.',
-    time: 300,
   },
   {
     id: 'radares',
     title: 'Cazadores de radares',
+    front: 'europa',
     year: '1942',
-    inspired: 'la Operación Biting',
+    date: '27–28 de febrero de 1942',
+    inspired: 'la Operación Biting (incursión de Bruneval)',
+    sides: ['🇬🇧 Reino Unido', 'Alemania'],
     stage: 'warzone',
     kind: 'sites',
     variant: 'radar',
+    plane: 'mosquito',
     brief: 'Destruye las 6 estaciones de radar. Si un reflector te ilumina, llega el fuego antiaéreo: sal del haz.',
-    history: 'Los primeros radares podían detectar aviones a decenas de kilómetros. Varias operaciones arriesgadas se organizaron para estudiar esos aparatos o dejarlos fuera de servicio antes de las grandes incursiones.',
+    history: 'Los radares alemanes Würzburg dirigían con precisión el fuego antiaéreo contra los bombarderos británicos. Una noche de invierno, paracaidistas británicos asaltaron una estación en la costa francesa, desmontaron sus piezas y se las llevaron por mar para estudiarlas.',
+    goal: 'Descubrir cómo funcionaba el radar enemigo para poder engañarlo.',
+    outcome: 'Las piezas permitieron crear contramedidas como el «Window» (tiras de aluminio que cegaban los radares).',
     time: 300,
+  },
+  {
+    id: 'stalingrado',
+    title: 'Tanques sobre Stalingrado',
+    front: 'europa',
+    year: '1942',
+    date: 'Agosto de 1942 – febrero de 1943',
+    inspired: 'la Batalla de Stalingrado',
+    sides: ['URSS (Fuerza Aérea Soviética)', 'Alemania y sus aliados'],
+    stage: 'warzone',
+    kind: 'convoy',
+    plane: 'sturmovik',
+    enemy: { fighter: 'bf109' },
+    weather: 'snow',
+    brief: 'Destruye 8 carros de combate que avanzan por las avenidas en ruinas. Ojo con los cazas y los antiaéreos.',
+    history: 'La ciudad del Volga se convirtió en una de las batallas más duras de la historia, luchada calle por calle entre ruinas y nieve. Los Il-2 Sturmovik, blindados y lentos, volaban muy bajo para atacar columnas de carros y abastecimientos.',
+    goal: 'Para Alemania, tomar la ciudad y cortar el río Volga; para la URSS, resistir y cercar al ejército atacante.',
+    outcome: 'La contraofensiva soviética (Operación Urano) cercó al 6.º Ejército alemán, que se rindió en febrero de 1943: el gran punto de inflexión en el Este.',
+    time: 270,
+  },
+  {
+    id: 'presa',
+    title: 'Los rompepresas',
+    front: 'europa',
+    year: '1943',
+    date: '16–17 de mayo de 1943',
+    inspired: 'la Operación Chastise',
+    sides: ['🇬🇧 Reino Unido (Escuadrón 617)', 'Alemania'],
+    stage: 'canyon',
+    kind: 'dam',
+    plane: 'lancaster',
+    brief: 'Vuela por el cañón pegado al río y suelta la bomba rebotante sobre el agua: menos de 40 m de altura, a menos de 800 km/h y a 200–480 m de la presa.',
+    history: '19 bombarderos Lancaster modificados volaron de noche a solo 18 m sobre el agua para lanzar «Upkeep», una bomba cilíndrica que giraba hacia atrás y rebotaba sobre la superficie, como una piedra plana, hasta hundirse junto al muro y explotar.',
+    goal: 'Romper las presas del Ruhr que daban agua y electricidad a la industria alemana.',
+    outcome: 'Cayeron las presas del Möhne y del Eder; la del Sorpe resistió. Fue una hazaña técnica con un coste altísimo: 8 de los 19 aviones no volvieron.',
+    time: 300,
+  },
+  {
+    id: 'escolta',
+    title: 'Escolta',
+    front: 'europa',
+    year: '1944',
+    date: 'Febrero de 1944 («Big Week»)',
+    inspired: 'las misiones de escolta de bombarderos',
+    sides: ['🇺🇸 EE. UU. (8.ª Fuerza Aérea)', 'Alemania'],
+    stage: 'warzone',
+    kind: 'escort',
+    plane: 'mustang',
+    ally: 'b17',
+    enemy: { fighter: 'bf109' },
+    brief: 'Protege la formación de 4 B-17 hasta el final de la ruta: al menos 2 tienen que llegar.',
+    history: 'Los B-17 «Fortalezas Volantes» volaban en formaciones cerradas sobre Alemania y sufrían pérdidas enormes. La llegada del P-51 Mustang, con alcance para acompañarlos todo el viaje, cambió la guerra aérea.',
+    goal: 'Destruir las fábricas de aviones alemanas y desgastar a sus cazas antes del desembarco.',
+    outcome: 'En pocos meses los Aliados lograron la superioridad aérea que haría posible el Día D.',
+    time: 200,
+  },
+  {
+    id: 'dday',
+    title: 'Noche del Día D',
+    front: 'europa',
+    year: '1944',
+    date: '6 de junio de 1944 (madrugada)',
+    inspired: 'los lanzamientos de paracaidistas en Normandía',
+    sides: ['🇺🇸 EE. UU., 🇬🇧 Reino Unido, 🇨🇦 Canadá y aliados', 'Alemania'],
+    stage: 'dusk',
+    kind: 'airlift',
+    plane: 'skytrain',
+    flak: true,
+    brief: 'Lanza 6 grupos de paracaidistas sobre las zonas verdes, en vuelo bajo, esquivando reflectores, fuego antiaéreo y cables de globos.',
+    history: 'Horas antes del desembarco en las playas, más de 800 aviones C-47 lanzaron unos 13.000 paracaidistas tras las líneas alemanas, de noche, entre nubes y fuego antiaéreo. Muchos cayeron lejos de sus zonas, pero sembraron el caos.',
+    goal: 'Tomar puentes y cruces de caminos para proteger las playas del desembarco.',
+    outcome: 'La Operación Overlord fue un éxito: se abrió el frente occidental que llevaría a la liberación de Francia.',
+    time: 300,
+  },
+  {
+    id: 'pearl',
+    title: 'Pearl Harbor',
+    front: 'pacifico',
+    year: '1941',
+    date: '7 de diciembre de 1941',
+    inspired: 'el ataque a Pearl Harbor',
+    sides: ['🇺🇸 EE. UU.', '🇯🇵 Japón'],
+    stage: 'archipelago',
+    kind: 'raid',
+    plane: 'warhawk',
+    enemy: { bomber: 'zero', fighter: 'zero' },
+    defend: 'el puerto',
+    goalCount: 10,
+    failMax: 5,
+    brief: 'Despega como pudieron hacerlo unos pocos P-40 y derriba 10 aviones atacantes antes de que 5 lleguen al puerto.',
+    history: 'Un domingo por la mañana, más de 350 aviones japoneses lanzados desde seis portaaviones atacaron por sorpresa la base naval de Pearl Harbor (Hawái). Solo un puñado de pilotos estadounidenses, como George Welch y Kenneth Taylor, logró despegar en sus P-40 y plantar cara.',
+    goal: 'Para Japón, inutilizar la flota estadounidense del Pacífico de un golpe.',
+    outcome: 'Se hundieron o dañaron 19 buques, pero los portaaviones estaban fuera del puerto. Al día siguiente EE. UU. entró en la guerra.',
+    time: 240,
+  },
+  {
+    id: 'midway',
+    title: 'Midway',
+    front: 'pacifico',
+    year: '1942',
+    date: '4–7 de junio de 1942',
+    inspired: 'la Batalla de Midway',
+    sides: ['🇺🇸 EE. UU. (Armada)', '🇯🇵 Japón (Armada Imperial)'],
+    stage: 'archipelago',
+    kind: 'carriers',
+    plane: 'dauntless',
+    enemy: { fighter: 'zero' },
+    brief: 'Encuentra los 4 portaaviones y hunde cada uno con 2 bombas en picado: pásales por encima picando fuerte (morro muy abajo) por debajo de 500 m.',
+    history: 'Gracias a que habían descifrado los códigos japoneses, los estadounidenses esperaban la flota enemiga cerca del atolón de Midway. Tras varios ataques fallidos, los bombarderos en picado SBD Dauntless encontraron los portaaviones con los aviones en cubierta y se lanzaron casi en vertical.',
+    goal: 'Para Japón, tomar Midway y destruir los portaaviones estadounidenses; para EE. UU., defender la isla.',
+    outcome: 'En cinco minutos ardieron tres portaaviones japoneses y luego un cuarto. Midway fue el punto de inflexión de la guerra en el Pacífico.',
+    time: 300,
+  },
+  {
+    id: 'puente',
+    title: 'Puente aéreo',
+    front: 'posguerra',
+    year: '1948',
+    date: '24 de junio de 1948 – 12 de mayo de 1949',
+    inspired: 'el puente aéreo de Berlín',
+    sides: ['🇺🇸 EE. UU., 🇬🇧 Reino Unido, 🇫🇷 Francia y aliados', 'Bloqueo soviético de Berlín Occidental'],
+    stage: 'warzone',
+    kind: 'airlift',
+    plane: 'skytrain',
+    brief: 'Lanza 6 cargas de suministros sobre las zonas verdes, en vuelo bajo y esquivando los cables de los globos.',
+    history: 'La URSS cortó todas las carreteras y vías de tren hacia Berlín Occidental. Durante casi un año, aviones de transporte llevaron comida, carbón y medicinas a dos millones de personas: llegó a aterrizar un avión cada pocos minutos. Algunos pilotos lanzaban caramelos con pequeños paracaídas para los niños.',
+    goal: 'Abastecer por aire a toda una ciudad aislada sin disparar un solo tiro.',
+    outcome: 'Se hicieron más de 270.000 vuelos. El bloqueo se levantó en mayo de 1949.',
+    time: 270,
   },
   {
     id: 'escarcha',
     title: 'Operación Escarcha',
+    front: 'inventada',
     year: 'Inventada',
+    date: 'Algún invierno',
     inspired: null,
     stage: 'glacier',
     kind: 'rescue',
@@ -106,7 +248,9 @@ export const WAR_MISSIONS: WarMission[] = [
   {
     id: 'liana',
     title: 'Operación Liana',
+    front: 'inventada',
     year: 'Inventada',
+    date: 'Temporada de lluvias',
     inspired: null,
     stage: 'jungle',
     kind: 'sites',
@@ -131,7 +275,7 @@ export interface WarHooks {
 
 interface Ent {
   id: string;
-  kind: 'bomber' | 'fighter' | 'ally' | 'attacker' | 'site' | 'balloon' | 'depot' | 'zone' | 'crew';
+  kind: 'bomber' | 'fighter' | 'ally' | 'attacker' | 'site' | 'balloon' | 'depot' | 'zone' | 'crew' | 'carrier' | 'tank';
   mesh: THREE.Object3D;
   pos: THREE.Vector3;
   vel: THREE.Vector3;
@@ -164,29 +308,65 @@ function box(w: number, h: number, d: number, color: number, x = 0, y = 0, z = 0
   return m;
 }
 
-/** Avión de cajas con el morro hacia +z */
-function planeModel(kind: 'bomber' | 'fighter' | 'ally' | 'attacker' | 'transport') {
-  const g = new THREE.Group();
-  const big = kind === 'bomber' || kind === 'ally' || kind === 'transport';
-  const body = kind === 'ally' ? 0x5c6a3e : kind === 'transport' ? 0x9aa0a6 : kind === 'bomber' ? 0x4a4e56 : 0x3e4248;
-  const stripe = kind === 'ally' ? 0xe8e4d8 : kind === 'transport' ? 0x2a5aa0 : 0x9a2a22;
-  if (big) {
-    g.add(box(4, 4, 26, body));
-    g.add(box(44, 1, 6, body, 0, 0.5, 1));
-    g.add(box(16, 0.8, 4, body, 0, 1, -11));
-    g.add(box(1, 6, 5, body, 0, 3.5, -11));
-    g.add(box(4.2, 1, 3, stripe, 0, 0, -6));
-    for (const x of [-14, -7, 7, 14]) g.add(box(2.2, 2.2, 5, 0x2a2c30, x, -0.6, 3));
-    g.add(box(2.6, 2, 3, 0x9ac0d8, 0, 1.4, 11));
-  } else {
-    g.add(box(2, 2, 11, body));
-    g.add(box(15, 0.6, 3.4, body, 0, 0, 1));
-    g.add(box(6, 0.5, 2, body, 0, 0.4, -4.5));
-    g.add(box(0.6, 3, 2.4, body, 0, 1.6, -4.5));
-    g.add(box(2.1, 0.8, 2.2, stripe, 0, 0.6, 3.5));
-    g.add(box(1.4, 1, 2, 0x9ac0d8, 0, 1.2, 1));
+/** Modelo clásico con el morro hacia +z (las entidades miran con lookAt) */
+function warbird(id: WarbirdId, props: THREE.Object3D[], scale = 1) {
+  const outer = new THREE.Group();
+  const inner = new THREE.Group();
+  const parts = buildWarbird(id, inner);
+  inner.rotation.y = Math.PI;
+  inner.scale.setScalar(scale);
+  outer.add(inner);
+  props.push(...parts.props);
+  return outer;
+}
+
+/**
+ * Hormigón de la presa: bloques con juntas de dilatación, tongadas horizontales, manchas de
+ * humedad que bajan, musgo en la base y una franja oscura donde llega el agua.
+ */
+let damTex: THREE.CanvasTexture | null = null;
+function damTexture(rx: number, ry: number) {
+  if (!damTex) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 256;
+    const x = c.getContext('2d')!;
+    x.fillStyle = '#b4b0a6';
+    x.fillRect(0, 0, 256, 256);
+    // grano del hormigón
+    for (let i = 0; i < 2600; i++) {
+      const v = 150 + Math.floor(Math.random() * 50);
+      x.fillStyle = `rgba(${v},${v - 4},${v - 10},0.35)`;
+      x.fillRect(Math.random() * 256, Math.random() * 256, 2, 2);
+    }
+    // tongadas horizontales y juntas verticales (bloques)
+    x.fillStyle = 'rgba(70,66,60,0.55)';
+    for (let y = 0; y < 256; y += 32) x.fillRect(0, y, 256, 2);
+    for (let i = 0; i < 4; i++) x.fillRect(i * 64 + 31, 0, 3, 256);
+    // manchas de humedad y óxido que bajan desde arriba
+    for (let i = 0; i < 18; i++) {
+      const sx = Math.random() * 256;
+      const len = 40 + Math.random() * 150;
+      const gr = x.createLinearGradient(0, 0, 0, len);
+      gr.addColorStop(0, i % 4 === 0 ? 'rgba(120,80,50,0.35)' : 'rgba(60,58,54,0.35)');
+      gr.addColorStop(1, 'rgba(60,58,54,0)');
+      x.fillStyle = gr;
+      x.fillRect(sx, 0, 3 + Math.random() * 6, len);
+    }
+    // musgo y suciedad en la base
+    const base = x.createLinearGradient(0, 200, 0, 256);
+    base.addColorStop(0, 'rgba(70,90,50,0)');
+    base.addColorStop(1, 'rgba(70,90,50,0.22)');
+    x.fillStyle = base;
+    x.fillRect(0, 200, 256, 56);
+    damTex = new THREE.CanvasTexture(c);
+    damTex.colorSpace = THREE.SRGBColorSpace;
+    damTex.wrapS = damTex.wrapT = THREE.RepeatWrapping;
+    damTex.magFilter = THREE.NearestFilter;
   }
-  return g;
+  const t = damTex.clone();
+  t.needsUpdate = true;
+  t.repeat.set(Math.max(1, Math.round(rx)), Math.max(1, Math.round(ry)));
+  return t;
 }
 
 function puffGeo() {
@@ -233,6 +413,8 @@ export class WarOps {
   private baseMesh: THREE.Object3D | null = null;
   private wonT = 0;
   private lastT = 0;
+  /** hélices de los aviones de la misión (giran) */
+  private props: THREE.Object3D[] = [];
   /** objetivo de la flecha */
   nav: THREE.Vector3 | null = null;
   navLabel = '';
@@ -266,6 +448,12 @@ export class WarOps {
         break;
       case 'rescue':
         this.setupRescue();
+        break;
+      case 'carriers':
+        this.setupCarriers();
+        break;
+      case 'convoy':
+        this.setupConvoy();
         break;
     }
   }
@@ -333,14 +521,14 @@ export class WarOps {
     } else {
       this.hooks.explosion(e.pos.clone(), e.kind === 'bomber' || e.kind === 'site' ? 1.4 : 0.8);
       this.kill(e, false);
-      if (e.kind === 'bomber' || e.kind === 'depot' || (e.kind === 'site' && e.n === 1)) this.count++;
+      if (e.kind === 'bomber' || e.kind === 'depot' || e.kind === 'tank' || e.kind === 'carrier' || (e.kind === 'site' && e.n === 1)) this.count++;
     }
   }
 
   /** Objetivos que se pueden disparar */
   targets(): Target[] {
     const out: Target[] = [];
-    for (const e of this.ents) if (e.alive && e.mesh.visible && (e.kind === 'bomber' || e.kind === 'fighter' || e.kind === 'attacker' || e.kind === 'site' || e.kind === 'balloon' || e.kind === 'depot')) out.push(e.target);
+    for (const e of this.ents) if (e.alive && e.mesh.visible && (e.kind === 'bomber' || e.kind === 'fighter' || e.kind === 'attacker' || e.kind === 'site' || e.kind === 'balloon' || e.kind === 'depot' || e.kind === 'tank')) out.push(e.target);
     return out;
   }
 
@@ -360,10 +548,11 @@ export class WarOps {
       site: [this.def.variant === 'radar' ? 'Radar destruido' : 'Antiaéreo destruido', 220],
       balloon: ['Globo de barrera', 60],
       depot: ['Depósito destruido', 250],
+      tank: ['Carro destruido', 220],
     };
     const [label, pts] = name[e.kind] ?? ['Objetivo', 100];
     this.hooks.score(label, pts);
-    if (e.kind === 'bomber' || e.kind === 'depot' || (e.kind === 'site' && e.n === 1)) {
+    if (e.kind === 'bomber' || e.kind === 'depot' || e.kind === 'tank' || (e.kind === 'site' && e.n === 1)) {
       this.count++;
       this.hooks.toast(`${label} · ${this.count}/${this.goal}`, 1400);
     } else this.hooks.toast(label, 1000);
@@ -372,27 +561,31 @@ export class WarOps {
 
   // ================================================================ Batalla del cielo
   private setupRaid() {
-    this.goal = 8;
-    this.failMax = 4;
+    this.goal = this.def.goalCount ?? 8;
+    this.failMax = this.def.failMax ?? 4;
+    const bomberId = this.def.enemy?.bomber ?? 'he111';
+    const fighterId = this.def.enemy?.fighter ?? 'bf109';
+    const small = bomberId === 'zero';
+    const waves = Math.max(4, Math.ceil((this.goal + this.failMax - 1) / 3));
     this.center.set(0, 0, 0);
     const a0 = this.rand() * Math.PI * 2;
     this.startYaw = a0 + Math.PI;
     this.start.set(Math.cos(a0) * 900, 0, Math.sin(a0) * 900);
     this.start.y = this.safeY(this.start.x, this.start.z, 260);
     this.startYaw = Math.atan2(this.start.x, this.start.z);
-    for (let w = 0; w < 4; w++) {
+    for (let w = 0; w < waves; w++) {
       const ang = a0 + 0.9 + w * 1.7 + (this.rand() - 0.5) * 0.4;
       const dir = new THREE.Vector3(Math.cos(ang), 0, Math.sin(ang));
       const side = new THREE.Vector3(-dir.z, 0, dir.x);
       for (let i = 0; i < 3; i++) {
-        const e = this.ent('bomber', `w_b${w}${i}`, planeModel('bomber'), 150, 16);
-        e.a.copy(dir).multiplyScalar(4200).addScaledVector(side, (i - 1) * 130).setY(480 + this.rand() * 140 + i * 20);
+        const e = this.ent('bomber', `w_b${w}${i}`, warbird(bomberId, this.props, small ? 1.3 : 1.25), small ? 70 : 150, small ? 10 : 16);
+        e.a.copy(dir).multiplyScalar(4200).addScaledVector(side, (i - 1) * 130).setY((small ? 300 : 480) + this.rand() * 140 + i * 20);
         e.b.set(0, e.a.y, 0).addScaledVector(side, (i - 1) * 130);
-        e.t0 = 8 + w * 30 + i * 1.5;
-        e.t1 = e.t0 + e.a.distanceTo(e.b) / 62;
+        e.t0 = 8 + w * (small ? 24 : 30) + i * 1.5;
+        e.t1 = e.t0 + e.a.distanceTo(e.b) / (small ? 80 : 62);
         e.mesh.visible = false;
         if (w > 0) {
-          const f = this.ent('fighter', `w_f${w}${i}`, planeModel('fighter'), 45, 8);
+          const f = this.ent('fighter', `w_f${w}${i}`, warbird(fighterId, this.props, 1.2), 45, 8);
           f.n = w * 3 + i;
           f.t0 = e.t0;
           f.t1 = e.t1;
@@ -413,7 +606,7 @@ export class WarOps {
         if (k < 0) continue;
         e.mesh.visible = true;
         const p = e.a.clone().lerp(e.b, Math.min(k, 1.3));
-        e.vel.copy(e.b).sub(e.a).normalize().multiplyScalar(62);
+        e.vel.copy(e.b).sub(e.a).normalize().multiplyScalar(this.def.enemy?.bomber === 'zero' ? 80 : 62);
         e.pos.copy(p);
         e.mesh.lookAt(p.clone().add(e.vel));
         if (k >= 1) {
@@ -421,7 +614,7 @@ export class WarOps {
           e.mesh.visible = false;
           e.target.alive = false;
           this.fails++;
-          this.hooks.big(`💥 ¡UN BOMBARDERO HA LLEGADO A LA CIUDAD! (${this.fails}/${this.failMax})`, 'bad');
+          this.hooks.big(`💥 ¡UN ATACANTE HA LLEGADO A ${(this.def.defend ?? 'la ciudad').toUpperCase()}! (${this.fails}/${this.failMax})`, 'bad');
           this.hooks.explosion(new THREE.Vector3(e.b.x, this.ground(e.b.x, e.b.z) + 10, e.b.z), 3);
           this.hooks.sound('alarm');
           continue;
@@ -498,6 +691,16 @@ export class WarOps {
       g.position.copy(p);
       const e = this.ent('zone', `w_z${i}`, g, 1, 40);
       e.n = i;
+    }
+    // Día D: reflectores y antiaéreos junto a las zonas de salto
+    if (this.def.flak) {
+      zones.forEach((z, k) => {
+        if (k % 2) return;
+        const side = new THREE.Vector3(Math.cos(k * 1.7), 0, Math.sin(k * 1.7)).multiplyScalar(260);
+        const q = z.clone().add(side);
+        q.y = this.ground(q.x, q.z);
+        this.addSite(q, `w_s${k}`, false);
+      });
     }
     // Globos de barrera con cable
     for (let i = 0; i < 16; i++) {
@@ -585,7 +788,7 @@ export class WarOps {
     this.routeLen = 0;
     for (let i = 1; i < this.route.length; i++) this.routeLen += this.route[i].distanceTo(this.route[i - 1]);
     for (let i = 0; i < 4; i++) {
-      const e = this.ent('ally', `w_a${i}`, planeModel('ally'), 100, 16);
+      const e = this.ent('ally', `w_a${i}`, warbird(this.def.ally ?? 'b17', this.props, 1.25), 100, 16);
       e.n = i;
       this.allyHp.push(100);
     }
@@ -597,7 +800,7 @@ export class WarOps {
     for (let T = 14; T < this.routeLen / 70 - 4; T += 10 + (k % 3)) {
       const n = k % 3 === 2 ? 2 : 1;
       for (let i = 0; i < n; i++) {
-        const e = this.ent('attacker', `w_x${k}${i}`, planeModel('attacker'), 32, 8);
+        const e = this.ent('attacker', `w_x${k}${i}`, warbird(this.def.enemy?.fighter ?? 'bf109', this.props, 1.2), 32, 8);
         e.t0 = T;
         e.t1 = T + 9;
         e.n = (k * 3 + i) % 4;
@@ -744,8 +947,10 @@ export class WarOps {
     const wallH = Math.max(50, Math.min(140, Math.min(canyonH(gen, end.x + side.x * (w + 20), end.z + side.z * (w + 20)), canyonH(gen, end.x - side.x * (w + 20), end.z - side.z * (w + 20))) - 10));
     const g = new THREE.Group();
     const conc = 0xb8b4aa;
-    const wall = box(w * 2 + 40, wallH, 16, conc, 0, wallH / 2, 0);
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(w * 2 + 40, wallH, 16), new THREE.MeshLambertMaterial({ map: damTexture((w * 2 + 40) / 24, wallH / 24) }));
+    wall.position.set(0, wallH / 2, 0);
     g.add(wall);
+    void conc;
     g.add(box(w * 2 + 40, 3, 20, 0x8a867e, 0, wallH + 1.5, 0));
     for (let k = -2; k <= 2; k++) g.add(box(10, 8, 6, 0x9a968e, k * (w / 2.5), wallH + 5, 0));
     // Embalse detrás
@@ -1141,7 +1346,14 @@ export class WarOps {
       case 'rescue':
         this.updateRescue(t, dt, me, speedKmh, alive);
         break;
+      case 'carriers':
+        this.updateCarriers(t, dt, me, vel, alive);
+        break;
+      case 'convoy':
+        this.updateConvoy(t, dt, me, alive);
+        break;
     }
+    for (const p of this.props) p.rotation.z += dt * 40;
     this.updateFlak(t, dt, me, vel, alive);
     this.updateFx(dt);
     if (this.state === 'running' && t > 0 && this.timeLeft <= 0) this.lose('Se ha acabado el tiempo');
@@ -1195,6 +1407,253 @@ export class WarOps {
     this.reason = why;
   }
 
+  // ================================================================ Midway: portaaviones
+  private bombCool = 0;
+  private hintT = 0;
+  private bombs: { m: THREE.Mesh; pos: THREE.Vector3; vel: THREE.Vector3; target: Ent | null }[] = [];
+
+  private setupCarriers() {
+    this.goal = 4;
+    const gen = this.gen;
+    // Mar abierto cerca del origen
+    let F: THREE.Vector3 | null = null;
+    for (let r = 6; r < 60 && !F; r++)
+      for (let k = 0; k < 16 && !F; k++) {
+        const a = (k / 16) * Math.PI * 2;
+        const x = Math.cos(a) * r * 120;
+        const z = Math.sin(a) * r * 120;
+        if (gen.isWater(x, z) && gen.maxHeightNear(x, z, 500) === 0 && gen.waterValue(x, z) < gen.stage.waterLevel - 0.05) F = new THREE.Vector3(x, 0, z);
+      }
+    F ??= new THREE.Vector3(2000, 0, 0);
+    this.center.copy(F);
+    const hd = this.rand() * Math.PI * 2;
+    const dir = new THREE.Vector3(Math.cos(hd), 0, Math.sin(hd));
+    const side = new THREE.Vector3(-dir.z, 0, dir.x);
+    const offs = [
+      [0, 0],
+      [320, -200],
+      [-300, -260],
+      [80, -520],
+    ];
+    offs.forEach(([lat, lon], i) => {
+      const g = new THREE.Group();
+      g.add(box(16, 9, 84, 0x5a5e62, 0, 1, 0));
+      g.add(box(19, 1, 90, 0x8a6a48, 0, 6, 0));
+      const disc = new THREE.Mesh(new THREE.CylinderGeometry(5, 5, 0.2, 20), new THREE.MeshBasicMaterial({ color: 0xc01818 }));
+      disc.position.set(0, 6.6, 30);
+      g.add(disc);
+      g.add(box(4, 10, 12, 0x4a4e52, 8, 11, -4));
+      g.add(box(2, 6, 2, 0x3a3e42, 8, 19, -4));
+      // aviones en cubierta
+      for (let k = 0; k < 5; k++) g.add(box(7, 1, 6, 0xc4c2a8, (k % 2) * 6 - 3, 7, -30 + k * 8));
+      const wake = new THREE.Mesh(new THREE.BoxGeometry(14, 0.3, 120), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.45 }));
+      wake.position.set(0, 0.4, -100);
+      g.add(wake);
+      const e = this.ent('carrier', `w_k${i}`, g, 999, 40);
+      e.a.copy(F!).addScaledVector(side, lat).addScaledVector(dir, lon);
+      e.b.copy(dir);
+      e.n = 0;
+      // Zero de patrulla
+      for (let c = 0; c < (i < 2 ? 2 : 1); c++) {
+        const f = this.ent('fighter', `w_f${i}${c}`, warbird(this.def.enemy?.fighter ?? 'zero', this.props, 1.2), 40, 8);
+        f.n = i * 2 + c;
+        f.extra = g;
+        f.a.set(0, 140 + c * 70, 0);
+      }
+    });
+    this.start.copy(F).addScaledVector(dir, -2600).addScaledVector(side, 600).setY(650);
+    const to = F.clone().sub(this.start);
+    this.startYaw = Math.atan2(-to.x, -to.z);
+  }
+
+  /** Cazas que escoltan a un anfitrión (portaaviones o columna de carros) y te disparan */
+  private updateEscorts(t: number, dt: number, me: THREE.Vector3, alive: boolean) {
+    for (const e of this.ents) {
+      if (e.kind !== 'fighter' || !e.alive) continue;
+      const host = this.ents.find((x) => x.mesh === e.extra);
+      const active = !!host && host.alive;
+      e.mesh.visible = active;
+      e.target.alive = active;
+      if (!active || !host) continue;
+      const ph = t * (0.8 + (e.n % 3) * 0.12) + e.n * 1.3;
+      const R = 160 + (e.n % 2) * 60;
+      const p = host.pos.clone().add(new THREE.Vector3(Math.cos(ph) * R, e.a.y + Math.sin(ph * 2) * 15, Math.sin(ph) * R));
+      e.vel.copy(p).sub(e.pos).divideScalar(Math.max(dt, 0.001));
+      if (e.vel.lengthSq() > 260 * 260) e.vel.setLength(260);
+      e.pos.copy(p);
+      e.mesh.lookAt(p.clone().add(new THREE.Vector3(-Math.sin(ph), 0, Math.cos(ph))));
+      if (alive && e.pos.distanceTo(me) < 300) {
+        e.flakT = (e.flakT ?? 0) - dt;
+        if (e.flakT <= 0) {
+          e.flakT = 0.35;
+          this.tracer(e.pos, me);
+          if (this.rand() < 0.5) this.hooks.damage(2, '¡Te disparan los cazas enemigos!');
+        }
+      }
+    }
+  }
+
+  private updateCarriers(t: number, dt: number, me: THREE.Vector3, vel: THREE.Vector3, alive: boolean) {
+    this.bombCool = Math.max(0, this.bombCool - dt);
+    this.hintT = Math.max(0, this.hintT - dt);
+    let near: Ent | null = null;
+    let bd = Infinity;
+    for (const e of this.ents) {
+      if (e.kind !== 'carrier') continue;
+      const tt = Math.max(0, t);
+      e.pos.copy(e.a).addScaledVector(e.b, tt * 3);
+      e.mesh.lookAt(e.pos.clone().add(e.b));
+      if (!e.alive) {
+        // hundiéndose
+        e.mesh.position.y = Math.max(-30, e.mesh.position.y - dt * 2);
+        e.mesh.rotation.z = Math.min(0.4, e.mesh.rotation.z + dt * 0.05);
+        continue;
+      }
+      const d = e.pos.distanceTo(me);
+      if (d < bd) {
+        bd = d;
+        near = e;
+      }
+      // Antiaéreos del barco
+      if (alive && d < 1400) {
+        e.flakT = (e.flakT ?? 0) - dt;
+        if (e.flakT <= 0) {
+          e.flakT = 1.1;
+          const at = me.clone().addScaledVector(vel, 0.5).add(new THREE.Vector3((this.rand() - 0.5) * 70, (this.rand() - 0.5) * 40, (this.rand() - 0.5) * 70));
+          this.flak(at, me);
+        }
+      }
+    }
+    this.updateEscorts(t, dt, me, alive);
+    this.nav = near ? near.pos.clone().setY(40) : null;
+    this.navLabel = 'PORTAAVIONES';
+    if (alive && near && bd < 1200 && this.hintT <= 0) {
+      this.hintT = 12;
+      this.hooks.toast('Sube, ponte encima y pica con el morro muy abajo: la bomba sale sola', 2600);
+    }
+    // Bombardeo en picado: la bomba sigue la dirección del morro hasta el agua
+    const sp = vel.length();
+    if (alive && near && this.bombCool <= 0 && sp > 1) {
+      const dive = vel.y / sp;
+      const agl = me.y;
+      if (dive < -0.42 && agl < 520 && agl > 25) {
+        const tHit = me.y / -vel.y;
+        const impact = me.clone().addScaledVector(vel, tHit);
+        for (const e of this.ents) {
+          if (e.kind !== 'carrier' || !e.alive) continue;
+          const rel = impact.clone().sub(e.pos);
+          const along = rel.dot(e.b);
+          const lat = rel.dot(new THREE.Vector3(-e.b.z, 0, e.b.x));
+          if (Math.abs(along) < 50 && Math.abs(lat) < 18) {
+            this.bombCool = 2.2;
+            const m = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 2.4, 8), new THREE.MeshLambertMaterial({ color: 0x3a3a3a }));
+            this.group.add(m);
+            this.bombs.push({ m, pos: me.clone().add(new THREE.Vector3(0, -2, 0)), vel: vel.clone().multiplyScalar(0.9), target: e });
+            this.hooks.sound('drop');
+            this.hooks.big('💣 ¡BOMBA FUERA! ¡RECUPERA!', 'good');
+            break;
+          }
+        }
+      }
+    }
+    for (const b of [...this.bombs]) {
+      b.vel.y -= 9.8 * dt;
+      b.pos.addScaledVector(b.vel, dt);
+      b.m.position.copy(b.pos);
+      b.m.lookAt(b.pos.clone().add(b.vel));
+      if (b.pos.y < 8) {
+        this.group.remove(b.m);
+        this.bombs.splice(this.bombs.indexOf(b), 1);
+        const e = b.target;
+        if (e && e.alive && b.pos.distanceTo(e.pos) < 70) {
+          e.n++;
+          this.hooks.explosion(b.pos.clone(), 2.2);
+          this.hooks.sound('boom');
+          if (e.n >= 2) {
+            this.kill(e);
+            this.count++;
+            this.hooks.score('Portaaviones hundido', 600);
+            this.hooks.big(`🔥 ¡PORTAAVIONES HUNDIDO! ${this.count}/${this.goal}`, 'good');
+          } else {
+            this.hooks.score('Impacto en cubierta', 250);
+            this.hooks.toast('¡Impacto! Una bomba más para hundirlo', 1600);
+          }
+        } else {
+          this.hooks.explosion(b.pos.clone(), 0.6);
+          this.hooks.toast('Bomba al agua: pica más recto sobre la cubierta', 1500);
+        }
+      }
+    }
+    if (this.count >= this.goal) this.win('¡Los cuatro portaaviones hundidos!');
+  }
+
+  // ================================================================ Stalingrado: columnas de carros
+  private setupConvoy() {
+    this.goal = 8;
+    const step = 400;
+    const cols = [-1, 0, 1];
+    let n = 0;
+    cols.forEach((c, ci) => {
+      const lane = c * step + 8;
+      const count = ci === 2 ? 2 : 3;
+      for (let k = 0; k < count; k++) {
+        const g = new THREE.Group();
+        g.add(box(7, 2.2, 9, 0x4a4e48, 0, 1.3, 0));
+        g.add(box(8, 1.4, 9.6, 0x2a2c28, 0, 0.7, 0));
+        g.add(box(4.2, 1.6, 4.4, 0x50544e, 0, 3.2, -0.5));
+        g.add(box(0.5, 0.5, 6, 0x3a3c38, 0, 3.3, 4.5));
+        for (const sx of [-1, 1]) {
+          g.add(box(0.05, 1, 0.3, 0xf4f4f4, sx * 3.53, 1.6, 0));
+          g.add(box(0.05, 0.3, 1, 0xf4f4f4, sx * 3.53, 1.6, 0));
+        }
+        g.add(box(0.6, 0.6, 0.6, 0xffffff, 0, 4.2, -2));
+        const e = this.ent('tank', `w_t${n}`, g, 60, 7);
+        e.a.set(lane + (k % 2 ? 4 : -4), 0, -700 + ci * 250 - k * 34);
+        e.n = n;
+        n++;
+      }
+      // cazas que protegen la cabeza de cada columna
+      const lead = this.ents.filter((x) => x.kind === 'tank')[n - count];
+      for (let f = 0; f < (ci === 1 ? 2 : 1); f++) {
+        const fe = this.ent('fighter', `w_f${ci}${f}`, warbird(this.def.enemy?.fighter ?? 'bf109', this.props, 1.2), 45, 8);
+        fe.n = ci * 2 + f;
+        fe.extra = lead.mesh;
+        fe.a.set(0, 150 + f * 60, 0);
+      }
+      // antiaéreo junto a la columna
+      if (ci !== 1) {
+        const q = new THREE.Vector3(lane + 60, 0, -200 + ci * 150);
+        q.y = this.ground(q.x, q.z);
+        this.addSite(q, `w_s${ci}`, false);
+      }
+    });
+    this.start.set(-1300, 0, -1500);
+    this.start.y = this.safeY(this.start.x, this.start.z, 240);
+    this.startYaw = Math.atan2(this.start.x, this.start.z);
+  }
+
+  private updateConvoy(t: number, dt: number, me: THREE.Vector3, alive: boolean) {
+    let near: Ent | null = null;
+    let bd = Infinity;
+    for (const e of this.ents) {
+      if (e.kind !== 'tank') continue;
+      const z = e.a.z + Math.max(0, t) * 6;
+      e.pos.set(e.a.x, this.ground(e.a.x, z) > 3 ? 0 : 0, z);
+      e.vel.set(0, 0, 6);
+      e.mesh.rotation.y = 0;
+      if (!e.alive) continue;
+      const d = e.pos.distanceTo(me);
+      if (d < bd) {
+        bd = d;
+        near = e;
+      }
+    }
+    this.updateEscorts(t, dt, me, alive);
+    this.nav = near ? near.pos.clone().setY(8) : null;
+    this.navLabel = 'CARRO';
+    if (this.count >= this.goal) this.win('¡Las columnas de carros han sido detenidas!');
+  }
+
   /** Dónde reaparecer tras caer (null = encima de donde caíste) */
   respawnPoint(): { pos: THREE.Vector3; yaw: number } | null {
     if (this.def.kind === 'dam') return { pos: this.start.clone(), yaw: this.startYaw };
@@ -1216,6 +1675,7 @@ export class WarOps {
       else if (e.kind === 'zone') out.push({ pos: e.pos, kind: 'gate', color: '#60e070' });
       else if (e.kind === 'crew') out.push({ pos: e.pos, kind: 'gate', color: '#ff6a4a' });
       else if (e.kind === 'ally') out.push({ pos: e.pos, kind: 'ally' });
+      else if (e.kind === 'carrier' || e.kind === 'tank') out.push({ pos: e.pos, kind: 'gate', color: '#ff6040' });
     }
     if (this.dam) out.push({ pos: this.dam.pos, kind: 'gate', color: '#ffd040' });
     return out;
@@ -1225,7 +1685,7 @@ export class WarOps {
   objective(): string {
     switch (this.def.kind) {
       case 'raid':
-        return `Derribados ${this.count}/${this.goal} · en la ciudad ${this.fails}/${this.failMax}`;
+        return `Derribados ${this.count}/${this.goal} · en ${this.def.defend ?? 'la ciudad'} ${this.fails}/${this.failMax}`;
       case 'airlift':
         return `Cargas ${this.count}/${this.goal}`;
       case 'escort':
@@ -1236,6 +1696,10 @@ export class WarOps {
         return `${this.def.variant === 'depots' ? 'Depósitos' : 'Radares'} ${this.count}/${this.goal}`;
       case 'rescue':
         return this.count >= this.goal ? 'Vuelve a la base' : `Rescatados ${this.count}/${this.goal}`;
+      case 'carriers':
+        return `Portaaviones hundidos ${this.count}/${this.goal}`;
+      case 'convoy':
+        return `Carros destruidos ${this.count}/${this.goal}`;
     }
   }
 
