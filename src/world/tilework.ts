@@ -9,7 +9,8 @@
 import { VectorTile, classifyRings } from '@mapbox/vector-tile';
 import Pbf from 'pbf';
 import { Geo, lat2tile, lon2tile, tile2lat, tile2lon } from './geo';
-import { CELL_B, CELL_C, CELL_E, COARSE_N, COARSE_TEX, COARSE_Z, NC, NE, REGION, type WorkIn, type WorkOut } from './streamconst';
+import { unzlibSync } from 'fflate';
+import { CELL_B, CELL_C, CELL_E, COARSE_N, COARSE_TEX, COARSE_Z, NC, NE, REGION, type Diag, type WorkIn, type WorkOut } from './streamconst';
 
 /** Clases de suelo (las mismas que src/world/real.ts) */
 const K = {
@@ -20,6 +21,12 @@ const K = {
 const S = { OFFICE: 0, GLASS: 1, RESID: 2, INDUST: 3, HOUSE: 5 };
 
 let geo = new Geo(0, 0);
+const diag: Diag = { osmOk: 0, osmFail: 0, demOk: 0, demFail: 0, err: '', regionMs: 0 };
+const fail = (what: 'osm' | 'dem', e: unknown) => {
+  if (what === 'osm') diag.osmFail++;
+  else diag.demFail++;
+  diag.err = `${what === 'osm' ? 'OpenFreeMap' : 'relieve'}: ${(e as Error)?.message ?? e}`;
+};
 let tplP: Promise<string> | null = null;
 
 async function getRetry(url: string, tries = 3): Promise<Response | null> {
@@ -63,19 +70,89 @@ function dem(z: number, x: number, y: number) {
     p = (async () => {
       const r = await getRetry(`https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${k}.png`);
       if (!r) return null;
-      const bmp = await createImageBitmap(await r.blob(), { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
-      const c = new OffscreenCanvas(256, 256);
-      const ctx = c.getContext('2d', { willReadFrequently: true })!;
-      ctx.drawImage(bmp, 0, 0);
-      const d = ctx.getImageData(0, 0, 256, 256).data;
+      // Decodificador PNG propio: igual en todos los navegadores (sin gestión de color ni canvas)
+      const img = decodePng(new Uint8Array(await r.arrayBuffer()));
       const out = new Float32Array(256 * 256);
-      for (let i = 0; i < out.length; i++) out[i] = d[i * 4] * 256 + d[i * 4 + 1] + d[i * 4 + 2] / 256 - 32768;
+      const ch = img.channels;
+      for (let i = 0; i < out.length; i++) out[i] = img.data[i * ch] * 256 + img.data[i * ch + 1] + img.data[i * ch + 2] / 256 - 32768;
+      diag.demOk++;
       return out;
-    })().catch(() => null);
+    })().catch((e) => {
+      fail('dem', e);
+      demCache.delete(k);
+      return null;
+    });
     demCache.set(k, p);
     if (demCache.size > 40) demCache.delete(demCache.keys().next().value!);
   }
   return p;
+}
+
+/** PNG de 8 bits por canal (RGB, RGBA o con paleta), sin entrelazado */
+function decodePng(b: Uint8Array): { w: number; h: number; channels: number; data: Uint8Array } {
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  let o = 8;
+  let w = 0;
+  let h = 0;
+  let type = 2;
+  let depth = 8;
+  let pal: Uint8Array | null = null;
+  const idat: Uint8Array[] = [];
+  while (o < b.length) {
+    const len = dv.getUint32(o);
+    const t = String.fromCharCode(b[o + 4], b[o + 5], b[o + 6], b[o + 7]);
+    const d = b.subarray(o + 8, o + 8 + len);
+    if (t === 'IHDR') {
+      w = dv.getUint32(o + 8);
+      h = dv.getUint32(o + 12);
+      depth = d[8];
+      type = d[9];
+    } else if (t === 'PLTE') pal = d;
+    else if (t === 'IDAT') idat.push(d);
+    else if (t === 'IEND') break;
+    o += 12 + len;
+  }
+  if (depth !== 8) throw new Error(`PNG de ${depth} bits`);
+  let total = 0;
+  for (const c of idat) total += c.length;
+  const z = new Uint8Array(total);
+  let p = 0;
+  for (const c of idat) {
+    z.set(c, p);
+    p += c.length;
+  }
+  const raw = unzlibSync(z);
+  const bpp = type === 6 ? 4 : type === 2 ? 3 : type === 0 ? 1 : type === 4 ? 2 : 1;
+  const stride = w * bpp;
+  const out = new Uint8Array(w * h * bpp);
+  for (let y = 0; y < h; y++) {
+    const f = raw[y * (stride + 1)];
+    const src = y * (stride + 1) + 1;
+    const dst = y * stride;
+    for (let x = 0; x < stride; x++) {
+      const a = x >= bpp ? out[dst + x - bpp] : 0;
+      const up = y > 0 ? out[dst - stride + x] : 0;
+      const c = x >= bpp && y > 0 ? out[dst - stride + x - bpp] : 0;
+      let v = raw[src + x];
+      if (f === 1) v += a;
+      else if (f === 2) v += up;
+      else if (f === 3) v += (a + up) >> 1;
+      else if (f === 4) {
+        const pp = a + up - c;
+        const pa = Math.abs(pp - a);
+        const pb = Math.abs(pp - up);
+        const pc = Math.abs(pp - c);
+        v += pa <= pb && pa <= pc ? a : pb <= pc ? up : c;
+      }
+      out[dst + x] = v & 255;
+    }
+  }
+  if (type === 3 && pal) {
+    const rgb = new Uint8Array(w * h * 3);
+    for (let i = 0; i < w * h; i++) rgb.set(pal.subarray(out[i] * 3, out[i] * 3 + 3), i * 3);
+    return { w, h, channels: 3, data: rgb };
+  }
+  return { w, h, channels: bpp, data: out };
 }
 
 /** Altura (m) en un punto con teselas Terrarium de zoom z ya cargadas */
@@ -114,7 +191,17 @@ function tileFeats(x: number, y: number): Promise<Feat[]> {
   const k = `${x},${y}`;
   let p = featCache.get(k);
   if (!p) {
-    p = loadFeats(x, y).catch(() => []);
+    p = loadFeats(x, y).then(
+      (f) => {
+        diag.osmOk++;
+        return f;
+      },
+      (e) => {
+        fail('osm', e);
+        featCache.delete(k);
+        return [] as Feat[];
+      },
+    );
     featCache.set(k, p);
     if (featCache.size > 36) featCache.delete(featCache.keys().next().value!);
   }
@@ -394,7 +481,19 @@ async function region(rx: number, rz: number): Promise<WorkOut> {
 // ---------------------------------------------------------------- Teselas lejanas (z10)
 async function coarse(x: number, y: number): Promise<WorkOut> {
   const z = COARSE_Z;
-  const [d, vt] = await Promise.all([dem(z, x, y), vectorTile(z, x, y).catch(() => null)]);
+  const [d, vt] = await Promise.all([
+    dem(z, x, y),
+    vectorTile(z, x, y).then(
+      (t) => {
+        diag.osmOk++;
+        return t;
+      },
+      (e) => {
+        fail('osm', e);
+        return null;
+      },
+    ),
+  ]);
   const T = COARSE_TEX;
   const el = d ?? new Float32Array(256 * 256);
   const at = (px: number, py: number) => el[Math.min(255, Math.max(0, py)) * 256 + Math.min(255, Math.max(0, px))];
@@ -412,9 +511,8 @@ async function coarse(x: number, y: number): Promise<WorkOut> {
       low[j * N + i] = Math.max(0, mn) - 14;
     }
   // Textura: color por altura con sombreado del relieve y encima bosques, ciudades y agua
-  const c = new OffscreenCanvas(T, T);
-  const ctx = c.getContext('2d', { willReadFrequently: true })!;
-  const img = ctx.createImageData(T, T);
+  // (dibujo propio, sin canvas: funciona igual en todos los navegadores)
+  const rgba = new Uint8ClampedArray(T * T * 4);
   for (let py = 0; py < T; py++)
     for (let px = 0; px < T; px++) {
       const e = at(px, py);
@@ -428,14 +526,21 @@ async function coarse(x: number, y: number): Promise<WorkOut> {
       else col = [236, 240, 248];
       const sh = e <= 0.5 ? 1 : Math.min(1.35, Math.max(0.6, 1 + ((at(px - 1, py) - at(px + 1, py)) * 0.7 + (at(px, py - 1) - at(px, py + 1))) * 0.006));
       const o = (py * T + px) * 4;
-      img.data[o] = Math.min(255, col[0] * sh);
-      img.data[o + 1] = Math.min(255, col[1] * sh);
-      img.data[o + 2] = Math.min(255, col[2] * sh);
-      img.data[o + 3] = 255;
+      rgba[o] = col[0] * sh;
+      rgba[o + 1] = col[1] * sh;
+      rgba[o + 2] = col[2] * sh;
+      rgba[o + 3] = 255;
     }
-  ctx.putImageData(img, 0, 0);
   if (vt) {
-    const draw = (layer: string, style: (p: Record<string, unknown>, type: number) => { fill?: string; stroke?: string; w?: number } | null) => {
+    const grid: Grid = { x0: 0, z0: 0, cell: 1, n: T };
+    const blend = (c: [number, number, number, number]) => (k: number) => {
+      const o = k * 4;
+      rgba[o] += (c[0] - rgba[o]) * c[3];
+      rgba[o + 1] += (c[1] - rgba[o + 1]) * c[3];
+      rgba[o + 2] += (c[2] - rgba[o + 2]) * c[3];
+    };
+    type St = { fill?: [number, number, number, number]; stroke?: [number, number, number, number]; w?: number } | null;
+    const draw = (layer: string, style: (p: Record<string, unknown>, type: number) => St) => {
       const L = vt.layers[layer];
       if (!L) return;
       const k = T / L.extent;
@@ -443,44 +548,41 @@ async function coarse(x: number, y: number): Promise<WorkOut> {
         const f = L.feature(i);
         const st = style(f.properties as Record<string, unknown>, f.type);
         if (!st) continue;
-        ctx.beginPath();
-        for (const ring of f.loadGeometry()) {
-          ring.forEach((p, n) => (n ? ctx.lineTo(p.x * k, p.y * k) : ctx.moveTo(p.x * k, p.y * k)));
-          if (f.type === 3) ctx.closePath();
-        }
-        if (st.fill && f.type === 3) {
-          ctx.fillStyle = st.fill;
-          ctx.fill('evenodd');
-        }
-        if (st.stroke) {
-          ctx.strokeStyle = st.stroke;
-          ctx.lineWidth = st.w ?? 1;
-          ctx.stroke();
-        }
+        const geom = f.loadGeometry();
+        const toPx = (ring: { x: number; y: number }[]) => {
+          const a = new Float64Array(ring.length * 2);
+          ring.forEach((p, n) => {
+            a[n * 2] = p.x * k;
+            a[n * 2 + 1] = p.y * k;
+          });
+          return a;
+        };
+        if (st.fill && f.type === 3) for (const poly of classifyRings(geom)) fillPoly(poly.map(toPx), grid, blend(st.fill));
+        const rings = st.stroke ? geom.map(toPx) : [];
+        if (st.stroke) for (const r of rings) strokeLine(r, st.w ?? 1, grid, blend(st.stroke));
       }
     };
     draw('landcover', (p) => {
       const c2 = p.class;
-      if (c2 === 'wood') return { fill: 'rgba(42, 96, 46, 0.82)' };
-      if (c2 === 'grass') return { fill: 'rgba(112, 166, 82, 0.5)' };
-      if (c2 === 'farmland') return { fill: 'rgba(186, 176, 108, 0.45)' };
-      if (c2 === 'ice') return { fill: 'rgba(240, 244, 250, 0.95)' };
-      if (c2 === 'rock') return { fill: 'rgba(140, 134, 128, 0.7)' };
-      if (c2 === 'sand') return { fill: 'rgba(222, 206, 150, 0.9)' };
+      if (c2 === 'wood') return { fill: [42, 96, 46, 0.82] };
+      if (c2 === 'grass') return { fill: [112, 166, 82, 0.5] };
+      if (c2 === 'farmland') return { fill: [186, 176, 108, 0.45] };
+      if (c2 === 'ice') return { fill: [240, 244, 250, 0.95] };
+      if (c2 === 'rock') return { fill: [140, 134, 128, 0.7] };
+      if (c2 === 'sand') return { fill: [222, 206, 150, 0.9] };
       return null;
     });
     draw('landuse', (p) => {
       const c2 = String(p.class);
-      if (['residential', 'suburb', 'neighbourhood', 'quarter', 'commercial', 'retail'].includes(c2)) return { fill: 'rgba(150, 144, 138, 0.88)' };
-      if (['industrial', 'railway', 'garages', 'quarry'].includes(c2)) return { fill: 'rgba(138, 136, 148, 0.88)' };
+      if (['residential', 'suburb', 'neighbourhood', 'quarter', 'commercial', 'retail'].includes(c2)) return { fill: [150, 144, 138, 0.88] };
+      if (['industrial', 'railway', 'garages', 'quarry'].includes(c2)) return { fill: [138, 136, 148, 0.88] };
       return null;
     });
-    draw('water', (p) => (p.class === 'swimming_pool' ? null : { fill: 'rgb(44, 98, 168)' }));
-    draw('waterway', (p, ty) => (ty === 2 && (p.class === 'river' || p.class === 'canal') ? { stroke: 'rgb(52, 108, 178)', w: 1.2 } : null));
-    draw('transportation', (p, ty) => (ty === 2 && (p.class === 'motorway' || p.class === 'trunk') ? { stroke: 'rgba(70, 70, 78, 0.85)', w: 0.9 } : null));
-    draw('aeroway', (p, ty) => (ty === 2 && p.class === 'runway' ? { stroke: 'rgb(60, 60, 66)', w: 1.5 } : null));
+    draw('water', (p) => (p.class === 'swimming_pool' ? null : { fill: [44, 98, 168, 1] }));
+    draw('waterway', (p, ty) => (ty === 2 && (p.class === 'river' || p.class === 'canal') ? { stroke: [52, 108, 178, 1], w: 1.2 } : null));
+    draw('transportation', (p, ty) => (ty === 2 && (p.class === 'motorway' || p.class === 'trunk') ? { stroke: [70, 70, 78, 0.85], w: 0.9 } : null));
+    draw('aeroway', (p, ty) => (ty === 2 && p.class === 'runway' ? { stroke: [60, 60, 66, 1], w: 1.5 } : null));
   }
-  const rgba = ctx.getImageData(0, 0, T, T).data;
   return { type: 'coarse', x, y, raw, low, rgba };
 }
 
@@ -495,15 +597,19 @@ scope.onmessage = async (ev: MessageEvent<WorkIn>) => {
   }
   try {
     if (msg.type === 'region') {
+      const t0 = performance.now();
       const r = (await region(msg.rx, msg.rz)) as Extract<WorkOut, { type: 'region' }>;
+      diag.regionMs = diag.regionMs ? diag.regionMs * 0.7 + (performance.now() - t0) * 0.3 : performance.now() - t0;
+      r.diag = { ...diag };
       scope.postMessage(r, [r.elev.buffer, r.cls.buffer, r.rects.buffer]);
     } else {
       const r = (await coarse(msg.x, msg.y)) as Extract<WorkOut, { type: 'coarse' }>;
+      r.diag = { ...diag };
       scope.postMessage(r, [r.raw.buffer, r.low.buffer, r.rgba.buffer]);
     }
   } catch (e) {
     const err = (e as Error).message || 'error';
-    if (msg.type === 'region') scope.postMessage({ type: 'region', rx: msg.rx, rz: msg.rz, elev: new Float32Array(0), cls: new Uint8Array(0), rects: new Float32Array(0), error: err });
-    else scope.postMessage({ type: 'coarse', x: msg.x, y: msg.y, raw: new Float32Array(0), low: new Float32Array(0), rgba: new Uint8ClampedArray(0), error: err });
+    if (msg.type === 'region') scope.postMessage({ type: 'region', rx: msg.rx, rz: msg.rz, elev: new Float32Array(0), cls: new Uint8Array(0), rects: new Float32Array(0), error: err, diag: { ...diag } });
+    else scope.postMessage({ type: 'coarse', x: msg.x, y: msg.y, raw: new Float32Array(0), low: new Float32Array(0), rgba: new Uint8ClampedArray(0), error: err, diag: { ...diag } });
   }
 };

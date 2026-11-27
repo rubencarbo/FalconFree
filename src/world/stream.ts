@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import TileWorker from './tilework?worker&inline';
 import { Geo, lat2tile, lon2tile, tile2lat, tile2lon } from './geo';
 import { RC, type RealRect, type RealSource } from './real';
-import { CELL_C, CELL_E, COARSE_N, COARSE_TEX, COARSE_Z, NC, NE, REGION, type WorkOut } from './streamconst';
+import { CELL_C, CELL_E, COARSE_N, COARSE_TEX, COARSE_Z, NC, NE, REGION, type Diag, type WorkOut } from './streamconst';
 
 const PERIOD = 80;
 const bkey = (bx: number, bz: number) => (bx + 32768) * 65536 + (bz + 32768);
@@ -46,6 +46,8 @@ export class StreamWorld implements RealSource {
   /** radio (m) de las regiones con detalle */
   detailRadius = 2600;
   lastError = '';
+  /** descargas correctas y fallidas (OpenFreeMap y relieve) */
+  diag: Diag = { osmOk: 0, osmFail: 0, demOk: 0, demFail: 0, err: '', regionMs: 0 };
   /** regiones y teselas lejanas cargadas (para el marcador) */
   get stats() {
     return { regions: this.regions.size, coarse: this.coarse.size, loading: this.loadingR.size + this.loadingC.size };
@@ -185,6 +187,7 @@ export class StreamWorld implements RealSource {
 
   private receive(msg: WorkOut) {
     const now = performance.now();
+    if (msg.diag) this.diag = msg.diag;
     if (msg.type === 'region') {
       const k = `${msg.rx},${msg.rz}`;
       this.loadingR.delete(k);

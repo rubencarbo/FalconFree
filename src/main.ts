@@ -611,6 +611,7 @@ class Game {
   private disposeWorld() {
     this.stream?.dispose();
     this.stream = null;
+    document.getElementById('open-status')?.remove();
     $('btn-cruise').hidden = true;
     this.camera.far = 9000;
     this.camera.near = 1;
@@ -2878,6 +2879,25 @@ class Game {
     const sw = this.stream!;
     sw.detail = this.cruise < 1.6;
     sw.update(focus.x, focus.z, performance.now());
+    // Estado de las descargas (para saber qué falla si no se ve el mapa)
+    this.openDiagT -= 1 / 60;
+    if (this.openDiagT <= 0) {
+      this.openDiagT = 1;
+      const d = sw.diag;
+      const st = sw.stats;
+      let el = document.getElementById('open-status');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'open-status';
+        document.body.append(el);
+      }
+      el.hidden = this.screen !== 'playing';
+      el.textContent = `Mapa: ${st.regions} zonas con detalle · ${st.coarse} teselas lejanas · OSM ✓${d.osmOk} ✗${d.osmFail} · relieve ✓${d.demOk} ✗${d.demFail} · ${(d.regionMs / 1000).toFixed(1)} s/zona${st.loading ? ' · cargando…' : ''}`;
+      if (d.err && (d.osmFail + d.demFail) % 5 === 1 && this.openErrShown !== d.osmFail + d.demFail) {
+        this.openErrShown = d.osmFail + d.demFail;
+        this.hud.toast(`⚠ No llegan datos del mapa (${d.err})`, 4000);
+      }
+    }
     const alt = Math.max(0, focus.y - Math.max(0, sw.ground(focus.x, focus.z)));
     const far = THREE.MathUtils.clamp(9000 + focus.y * 22, 9000, 140000);
     const near = THREE.MathUtils.clamp(alt / 500, 1, 6);
@@ -2963,6 +2983,8 @@ class Game {
   cruise = 1;
   cruiseOn = false;
   private cruiseWarnT = 0;
+  private openDiagT = 0;
+  private openErrShown = 0;
   private sightT = 0;
   private sightSeen = new Map<string, number>();
   private updateRealBounds(dt: number) {

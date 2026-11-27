@@ -11,7 +11,18 @@ export const COARSE_TEX = 256;
 
 
 export type WorkIn = { type: 'init'; lat0: number; lon0: number } | { type: 'region'; rx: number; rz: number } | { type: 'coarse'; x: number; y: number };
+/** Diagnóstico de descargas (se muestra en pantalla en el mundo abierto) */
+export interface Diag {
+  osmOk: number;
+  osmFail: number;
+  demOk: number;
+  demFail: number;
+  err: string;
+  /** tiempo medio (ms) de preparar una zona con detalle */
+  regionMs: number;
+}
+
 export type WorkOut =
-  | { type: 'region'; rx: number; rz: number; elev: Float32Array; cls: Uint8Array; rects: Float32Array; error?: string }
-  | { type: 'coarse'; x: number; y: number; raw: Float32Array; low: Float32Array; rgba: Uint8ClampedArray; error?: string };
+  | { type: 'region'; rx: number; rz: number; elev: Float32Array; cls: Uint8Array; rects: Float32Array; error?: string; diag?: Diag }
+  | { type: 'coarse'; x: number; y: number; raw: Float32Array; low: Float32Array; rgba: Uint8ClampedArray; error?: string; diag?: Diag };
 
