@@ -14,6 +14,23 @@ export interface PilotTag {
   enemy: boolean;
   /** URL del avatar (o null) */
   av?: string | null;
+  /** vida 0..1 (barra bajo la etiqueta) */
+  hp?: number;
+}
+
+/** Barra de vida flotante para enemigos que no son pilotos (drones, misiones de guerra, jefe) */
+export interface HealthBar {
+  id: string;
+  pos: THREE.Vector3;
+  hp: number;
+  enemy: boolean;
+  /** altura sobre el centro del objetivo (m) */
+  up?: number;
+}
+
+/** Color de la barra según la vida que queda */
+export function hpColor(hp: number) {
+  return hp > 0.55 ? '#4be37a' : hp > 0.28 ? '#ffd23a' : '#ff4a3a';
 }
 
 const _up = new THREE.Vector3(0, 7, 0);
@@ -159,7 +176,7 @@ export class Hud {
       if (!el) {
         el = document.createElement('div');
         el.className = 'pilot';
-        el.innerHTML = '<span class="pi-icon"></span><span class="pi-name"></span><span class="pi-dist"></span><img class="pi-av" alt="" hidden />';
+        el.innerHTML = '<span class="pi-icon"></span><span class="pi-name"></span><span class="pi-dist"></span><img class="pi-av" alt="" hidden /><i class="pi-hp" hidden><b></b></i>';
         root.append(el);
         this.pilotEls.set(p.id, el);
       }
@@ -177,6 +194,14 @@ export class Hud {
         img.hidden = false;
       } else img.hidden = true;
       el.classList.toggle('enemy', p.enemy);
+      const bar = el.children[4] as HTMLElement;
+      bar.hidden = p.hp === undefined;
+      if (p.hp !== undefined) {
+        const b = bar.firstElementChild as HTMLElement;
+        const hp = Math.max(0, Math.min(1, p.hp));
+        b.style.width = `${hp * 100}%`;
+        b.style.background = hpColor(hp);
+      }
       const v = this.v.copy(p.pos).add(_up).project(camera);
       const behind = v.z > 1;
       let x = v.x;
@@ -203,6 +228,51 @@ export class Hud {
       if (!seen.has(id)) {
         el.remove();
         this.pilotEls.delete(id);
+      }
+    }
+  }
+
+  private barEls = new Map<string, HTMLElement>();
+
+  /** Barras de vida flotantes (solo las cercanas y visibles en pantalla, como mucho 16) */
+  updateHealthBars(camera: THREE.PerspectiveCamera, me: THREE.Vector3, list: HealthBar[]) {
+    const root = $('pilots');
+    const W = window.innerWidth;
+    const H = window.innerHeight - this.panelH;
+    const shown = new Set<string>();
+    const near = list
+      .map((b) => ({ b, d: b.pos.distanceTo(me) }))
+      .filter((x) => x.d < 2200)
+      .sort((a, b) => a.d - b.d);
+    for (const { b, d } of near) {
+      if (shown.size >= 16) break;
+      const v = this.v.copy(b.pos);
+      v.y += b.up ?? 8;
+      v.project(camera);
+      if (v.z > 1 || Math.abs(v.x) > 1 || Math.abs(v.y) > 1) continue;
+      shown.add(b.id);
+      let el = this.barEls.get(b.id);
+      if (!el) {
+        el = document.createElement('i');
+        el.className = 'hpbar';
+        el.innerHTML = '<b></b>';
+        root.append(el);
+        this.barEls.set(b.id, el);
+      }
+      const hp = Math.max(0, Math.min(1, b.hp));
+      const fill = el.firstElementChild as HTMLElement;
+      fill.style.width = `${hp * 100}%`;
+      fill.style.background = hpColor(hp);
+      el.classList.toggle('ally', !b.enemy);
+      // Más pequeña cuanto más lejos
+      const w = Math.round(Math.max(26, Math.min(56, 56 - d / 40)));
+      el.style.width = `${w}px`;
+      el.style.transform = `translate(${((v.x + 1) / 2) * W - w / 2}px, ${((1 - v.y) / 2) * H}px)`;
+    }
+    for (const [id, el] of this.barEls) {
+      if (!shown.has(id)) {
+        el.remove();
+        this.barEls.delete(id);
       }
     }
   }

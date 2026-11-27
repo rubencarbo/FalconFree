@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { CityGen } from './world/city';
 import type { Target } from './combat';
+import type { HealthBar } from './hud';
 import type { StageId } from './stages';
 import type { WeatherKind } from './weather';
 import { fbm, mulberry32 } from './world/noise';
@@ -280,6 +281,7 @@ interface Ent {
   pos: THREE.Vector3;
   vel: THREE.Vector3;
   hp: number;
+  maxHp: number;
   alive: boolean;
   radius: number;
   target: Target;
@@ -468,6 +470,7 @@ export class WarOps {
       pos,
       vel: new THREE.Vector3(),
       hp,
+      maxHp: hp,
       alive: true,
       radius,
       target: { id, pos, vel: new THREE.Vector3(), radius, alive: true, name: '' },
@@ -1666,6 +1669,18 @@ export class WarOps {
   }
 
   /** Puntos para el radar */
+  /** Barras de vida: enemigos que se pueden derribar y aviones aliados */
+  healthBars(): HealthBar[] {
+    const out: HealthBar[] = [];
+    for (const e of this.ents) {
+      if (!e.alive || !e.mesh.visible || !(e.maxHp > 0) || !Number.isFinite(e.maxHp)) continue;
+      const enemy = e.kind === 'bomber' || e.kind === 'fighter' || e.kind === 'attacker' || e.kind === 'site' || e.kind === 'balloon' || e.kind === 'depot' || e.kind === 'tank';
+      if (!enemy && e.kind !== 'ally') continue;
+      out.push({ id: e.id, pos: e.pos, hp: e.hp / e.maxHp, enemy, up: e.radius + 4 });
+    }
+    return out;
+  }
+
   radar(): { pos: THREE.Vector3; kind: 'enemy' | 'gate' | 'ally'; color?: string }[] {
     const out: { pos: THREE.Vector3; kind: 'enemy' | 'gate' | 'ally'; color?: string }[] = [];
     for (const e of this.ents) {

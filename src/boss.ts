@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Guns, STANDARD_WEAPON, type Target, type WeaponDef } from './combat';
 import type { CityGen } from './world/city';
+import type { HealthBar } from './hud';
 import type { Fx } from './fx';
 import type { Missiles } from './missiles';
 
@@ -275,6 +276,11 @@ export class Boss {
 
   get defeated() {
     return this.phase >= 4;
+  }
+
+  /** Barras de vida de las partes que se pueden dañar ahora */
+  healthBars(): HealthBar[] {
+    return this.vulnerable.filter((p) => p.hp > 0).map((p) => ({ id: p.id, pos: p.target.pos, hp: p.hp / p.maxHp, enemy: true, up: p.target.radius + 3 }));
   }
 
   /** Vida total restante de la fase (0..1) */

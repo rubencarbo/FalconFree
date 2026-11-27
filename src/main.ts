@@ -18,7 +18,7 @@ import { Guns, MAX_AMMO, type Target } from './combat';
 import { Drones } from './drones';
 import { Race, SKIP_PENALTY, GOLD_BONUS, MEDAL_ICONS, MEDAL_LABELS, medalFor, medalTimes, type Medal, COURSES, buildCourse, courseId, formatTime, formatDelta, loadBest, type CourseDef, type RaceEvent } from './race';
 import { Input } from './input';
-import { Hud } from './hud';
+import { Hud, type HealthBar } from './hud';
 import { GameAudio } from './audio';
 import { firebase, countryName, playerCountry } from './firebase';
 import { Room, NetError, type PauseState, formatCode, normalizeCode, MAX_PLAYERS, PLAYER_COLORS, type NetEvent, type PublicRoom, type RoomMeta, type RoomMode, type VoiceChunk } from './net';
@@ -4612,11 +4612,22 @@ class Game {
         const pi = this.pilotInfo(t.id);
         const tagMode = this.battle?.config.kind === 'tag';
         const enemy = tagMode ? t.id === this.battle!.it : this.battle ? this.battle.enemies(this.myId, t.id) : false;
-        tags.push({ id: t.id, name: pi.name, glyph: ICON_GLYPH[pi.icon], color: pi.teamColor, pos: t.pos, enemy, av: this.settings.avatarSize ? pi.av : null });
+        // Vida de bots y jugadores remotos (0..100)
+        const hpRaw = this.bots.find((b) => b.target === t)?.hp ?? this.remotes.get(t.id)?.hp;
+        const hp = hpRaw === undefined ? undefined : hpRaw / 100;
+        tags.push({ id: t.id, name: pi.name, glyph: ICON_GLYPH[pi.icon], color: pi.teamColor, pos: t.pos, enemy, av: this.settings.avatarSize ? pi.av : null, hp });
       }
       for (const [i, r] of this.rivals.entries()) if (!r.ghost.finished) tags.push({ id: `rival${i}`, name: `${r.label}: ${r.name}`, glyph: '👻', color: r.color, pos: r.ghost.pos, enemy: false });
     }
     this.hud.updatePilots(this.camera, f.pos, tags, this.settings.avatarSize);
+    // Barras de vida del resto de enemigos: drones, misiones de guerra y jefe final
+    const bars: HealthBar[] = [];
+    if (this.screen === 'playing') {
+      bars.push(...this.drones.healthBars());
+      if (this.war) bars.push(...this.war.healthBars());
+      if (this.boss) bars.push(...this.boss.healthBars());
+    }
+    this.hud.updateHealthBars(this.camera, f.pos, bars);
     // Estelas largas de los demás aviones, del color de cada uno
     if (this.otherTrails) {
       const tr: { id: string; pos: THREE.Vector3; alive: boolean; color: string }[] = [];
@@ -5152,6 +5163,7 @@ class Game {
     this.room = null;
     this.applyLoadout();
     this.hud.updatePilots(this.camera, this.flight.pos, []);
+    this.hud.updateHealthBars(this.camera, this.flight.pos, []);
   }
 
   private async leaveRoom() {

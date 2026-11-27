@@ -1,11 +1,14 @@
 import * as THREE from 'three';
 import type { Target } from './combat';
+import type { HealthBar } from './hud';
 import type { CityGen } from './world/city';
 
 const MAX_HP = 24;
 
 interface Drone extends Target {
   hp: number;
+  /** vida inicial (las oleadas pueden subirla) */
+  maxHp?: number;
   mesh: THREE.Group;
   center: THREE.Vector3;
   radiusPath: number;
@@ -96,11 +99,18 @@ export class Drones {
       if (i < n) {
         this.place(d, player, forward);
         d.hp = hp;
+        d.maxHp = hp;
       } else {
         d.alive = false;
         d.mesh.visible = false;
       }
     });
+  }
+
+  /** Barras de vida de los drones visibles */
+  healthBars(): HealthBar[] {
+    if (!this.active) return [];
+    return this.list.filter((d) => d.alive && d.mesh.visible).map((d) => ({ id: d.id, pos: d.pos, hp: d.hp / (d.maxHp ?? MAX_HP), enemy: true, up: 6 }));
   }
 
   get aliveCount() {
