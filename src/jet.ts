@@ -187,6 +187,8 @@ interface Mats {
 
 /** Caza vóxel construido con cajas. Mira hacia -Z. */
 export class JetModel {
+  /** Modo Arcade HD: llamas de tobera grandes y siempre visibles (todos los aviones) */
+  static bigFlames = false;
   group = new THREE.Group();
   private flames: THREE.Mesh[] = [];
   wingTips = [new THREE.Vector3(-7.2, 0.1, 3.6), new THREE.Vector3(7.2, 0.1, 3.6)];
@@ -594,18 +596,30 @@ export class JetModel {
     const boost = THREE.MathUtils.clamp((t - 0.6) / 0.4, 0, 1);
     for (let i = 0; i < this.flames.length; i++) {
       const flicker = 0.85 + Math.sin(time * 60 + i * 2.1) * 0.08 + Math.random() * (0.1 + boost * 0.25);
-      const len = (0.35 + t * 1.3) * (1 + boost * 1.1) * flicker;
-      const wid = (0.8 + t * 0.4) * (1 + boost * 0.3);
+      const big = JetModel.bigFlames;
+      const len = (big ? 0.85 + t * 0.9 : 0.35 + t * 1.3) * (1 + boost * 1.1) * flicker;
+      const wid = (0.8 + t * 0.4) * (1 + boost * 0.3) * (big ? 1.75 : 1);
       const fl = this.flames[i];
       fl.scale.set(wid, wid, len);
       const outer = fl.material as THREE.MeshBasicMaterial;
-      outer.opacity = 0.45 + boost * 0.1;
+      outer.opacity = (big ? 0.92 : 0.45) + boost * 0.05;
+      // Arcade HD: llama de dibujo opaca (naranja con núcleo amarillo) en vez de resplandor aditivo
+      const blend = big ? THREE.NormalBlending : THREE.AdditiveBlending;
+      if (outer.blending !== blend) {
+        outer.blending = blend;
+        outer.needsUpdate = true;
+      }
       const core = fl.children[0] as THREE.Mesh | undefined;
       if (core) {
         // Núcleo azul-blanco con anillos de choque al ir a tope
         const cm = core.material as THREE.MeshBasicMaterial;
         // Sin pasar de 1: así el resplandor (bloom) no lo convierte en un fogonazo
-        cm.color.setRGB(0.6 + boost * 0.15, 0.5 + boost * 0.15, 0.36 + boost * 0.3);
+        if (big) cm.color.setRGB(1, 0.86, 0.32);
+        else cm.color.setRGB(0.6 + boost * 0.15, 0.5 + boost * 0.15, 0.36 + boost * 0.3);
+        if (cm.blending !== blend) {
+          cm.blending = blend;
+          cm.needsUpdate = true;
+        }
         core.scale.set(1, 1, 1 + boost * 0.4 + (boost > 0.5 ? Math.sin(time * 90 + i) * 0.15 : 0));
       }
     }

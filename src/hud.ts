@@ -37,6 +37,8 @@ export interface HudData {
   lockPos: THREE.Vector3 | null;
   lockStrength: number;
   lockName?: string;
+  /** distancia al objetivo fijado (m) */
+  lockDist?: number;
 }
 
 export class Hud {
@@ -136,7 +138,9 @@ export class Hud {
     this.lockEl.style.transform = `translate(${sx - size / 2}px, ${sy - size / 2}px)`;
     this.lockEl.style.width = this.lockEl.style.height = `${size}px`;
     this.lockEl.classList.toggle('locked', d.lockStrength >= 1);
-    this.lockName.textContent = d.lockName ?? '';
+    // Etiqueta bajo el retículo: «FIJADO» al completar la fijación, nombre y distancia
+    const parts = [d.lockStrength >= 1 ? 'FIJADO' : '', d.lockName ?? '', d.lockDist ? `${Math.round(d.lockDist)} m` : ''];
+    this.lockName.textContent = parts.filter(Boolean).join(' · ');
   }
 
   private pilotEls = new Map<string, HTMLElement>();

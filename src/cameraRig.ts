@@ -18,6 +18,8 @@ export class CameraRig {
   private shake = 0;
   /** fracción del alabeo que copia la cámara (ajuste «Inclinación de la cámara») */
   tilt = 0.25;
+  /** Modo Arcade HD: cámara de persecución más cerca, el avión se ve grande */
+  close = false;
 
   constructor(public camera: THREE.PerspectiveCamera) {}
 
@@ -58,8 +60,8 @@ export class CameraRig {
       targetLook = f.pos.clone().addScaledVector(flat, 40);
       up.copy(flat);
     } else {
-      const back = this.mode === 'far' ? 130 : 42;
-      const height = this.mode === 'far' ? 48 : 12;
+      const back = this.mode === 'far' ? 130 : this.close ? 30 : 42;
+      const height = this.mode === 'far' ? 48 : this.close ? 8.5 : 12;
       targetPos = f.pos.clone().addScaledVector(fwd, -back).add(new THREE.Vector3(0, height, 0));
       targetLook = f.pos.clone().addScaledVector(fwd, 40).add(new THREE.Vector3(0, height * 0.25, 0));
     }

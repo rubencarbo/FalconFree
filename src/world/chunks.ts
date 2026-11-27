@@ -10,6 +10,37 @@ const TEX = CHUNK / PX;
 
 const unitBox = new THREE.BoxGeometry(1, 1, 1);
 unitBox.translate(0, 0.5, 0);
+/** Esfera unidad apoyada en y = 0 (nubes esponjosas del modo Arcade HD) */
+const unitBall = new THREE.IcosahedronGeometry(0.5, 2);
+unitBall.translate(0, 0.5, 0);
+
+/** Nube de dibujo animado: blanca arriba y lila azulada por debajo, sin depender de las luces */
+function createPuffyCloudMaterial(light: THREE.Color, shadow: THREE.Color) {
+  const mat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uCloudLight = { value: light };
+    shader.uniforms.uCloudShadow = { value: shadow };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying float vUpN;')
+      .replace(
+        '#include <defaultnormal_vertex>',
+        `#include <defaultnormal_vertex>
+        vec3 cloudN = objectNormal;
+        #ifdef USE_INSTANCING
+          cloudN = mat3(instanceMatrix) * cloudN;
+        #endif
+        vUpN = normalize(mat3(modelMatrix) * cloudN).y;`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vUpN;\nuniform vec3 uCloudLight;\nuniform vec3 uCloudShadow;')
+      .replace(
+        '#include <opaque_fragment>',
+        `outgoingLight = mix(uCloudShadow, uCloudLight, smoothstep(-0.55, 0.65, vUpN));
+        #include <opaque_fragment>`,
+      );
+  };
+  return mat;
+}
 
 interface Chunk {
   cx: number;
@@ -313,6 +344,9 @@ export class ChunkManager {
   private buildingMat: THREE.MeshLambertMaterial;
   private propMat: THREE.MeshLambertMaterial;
   private cloudMat: THREE.MeshLambertMaterial;
+  private puffyMat: THREE.MeshLambertMaterial;
+  /** Modo Arcade HD: nubes de cúmulos redondos en lugar de cajas */
+  private puffy = false;
   private beaconMat: THREE.MeshBasicMaterial;
   private smokeMat: THREE.MeshLambertMaterial;
   private smokeTime = { value: 0 };
@@ -361,6 +395,8 @@ export class ChunkManager {
       transparent: true,
       opacity: 0.92,
     });
+    const cl = new THREE.Color(st.palette.cloud).multiplyScalar(st.night ? 0.32 : 1);
+    this.puffyMat = createPuffyCloudMaterial(cl, cl.clone().multiply(new THREE.Color(0.66, 0.7, 0.9)));
     this.beaconMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 0.2, 0.15) });
     this.smokeMat = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.5, depthWrite: false });
     // El humo se mece con el viento: cuanto más alto, más se desplaza
@@ -548,7 +584,7 @@ export class ChunkManager {
         for (const src of b.smoke ?? []) smokeColumn(src, smoke, fires);
       }
     }
-    const clouds = this.gen.cloudsForChunk(cx, cz);
+    const clouds = this.puffy ? this.gen.puffyCloudsForChunk(cx, cz) : this.gen.cloudsForChunk(cx, cz);
 
     const chunk: Chunk = { cx, cz, group, ground, tex, mat, ltex };
     if (buildings.length) {
@@ -564,7 +600,7 @@ export class ChunkManager {
       group.add(chunk.props);
     }
     if (clouds.length) {
-      chunk.clouds = this.instanced(clouds, this.cloudMat);
+      chunk.clouds = this.puffy ? this.instanced(clouds, this.puffyMat, false, unitBall) : this.instanced(clouds, this.cloudMat);
       group.add(chunk.clouds);
     }
     if (smoke.length) {
@@ -581,8 +617,25 @@ export class ChunkManager {
     this.onChunkAdded?.(cx, cz);
   }
 
-  private instanced(boxes: Box[], mat: THREE.Material, withInfo = false) {
-    let geo = unitBox;
+  /** Cambia el tipo de nubes y rehace las de los trozos ya cargados */
+  setPuffyClouds(on: boolean) {
+    if (on === this.puffy) return;
+    this.puffy = on;
+    for (const ch of this.chunks.values()) {
+      if (ch.clouds) {
+        ch.group.remove(ch.clouds);
+        ch.clouds.dispose();
+        ch.clouds = undefined;
+      }
+      const clouds = on ? this.gen.puffyCloudsForChunk(ch.cx, ch.cz) : this.gen.cloudsForChunk(ch.cx, ch.cz);
+      if (!clouds.length) continue;
+      ch.clouds = on ? this.instanced(clouds, this.puffyMat, false, unitBall) : this.instanced(clouds, this.cloudMat);
+      ch.group.add(ch.clouds);
+    }
+  }
+
+  private instanced(boxes: Box[], mat: THREE.Material, withInfo = false, baseGeo: THREE.BufferGeometry = unitBox) {
+    let geo = baseGeo;
     if (withInfo) {
       // Atributo por instancia: estilo, aleatorio y altura (para el shader)
       geo = unitBox.clone();
@@ -915,6 +968,7 @@ export class ChunkManager {
     this.buildingMat.dispose();
     this.propMat.dispose();
     this.cloudMat.dispose();
+    this.puffyMat.dispose();
     this.beaconMat.dispose();
     this.smokeMat.dispose();
     this.fireMat.dispose();

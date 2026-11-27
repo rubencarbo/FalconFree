@@ -114,6 +114,7 @@ const HARD_IMPACT = 48;
  * El id es el modo del shader (el 2, tramado de cómic, se descartó).
  */
 export const PIXEL_STYLES = [
+  { id: 6, name: 'Arcade HD (nubes, cámara cercana)', scale: 1 / 3 },
   { id: 4, name: 'Recreativa CRT', scale: 1 / 3 },
   { id: 5, name: 'Portátil de 4 tonos', scale: 1 / 4 },
   { id: 3, name: 'Consola de 16 bits', scale: 1 / 4 },
@@ -137,6 +138,18 @@ const PIXEL_SHADER = {
     }
     float lum(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
     vec3 sat(vec3 c, float k) { return mix(vec3(lum(c)), c, k); }
+    // Contorno solo en siluetas: la diferencia debe seguir a 2 píxeles y darse en un solo lado
+    // (así los destellos sueltos del agua no se marcan)
+    float edge(float l, vec2 t) {
+      vec4 d;
+      for (int i = 0; i < 4; i++) {
+        vec2 o = i == 0 ? vec2(t.x, 0.0) : i == 1 ? vec2(-t.x, 0.0) : i == 2 ? vec2(0.0, t.y) : vec2(0.0, -t.y);
+        float a1 = abs(l - lum(texture2D(tDiffuse, vUv + o).rgb));
+        float a2 = abs(l - lum(texture2D(tDiffuse, vUv + o * 2.0).rgb));
+        d[i] = min(a1, a2);
+      }
+      return max(abs(d.x - d.y), abs(d.z - d.w));
+    }
     void main() {
       vec3 c = texture2D(tDiffuse, vUv).rgb;
       vec2 px = gl_FragCoord.xy;
@@ -144,16 +157,7 @@ const PIXEL_SHADER = {
       if (uMode < 1.5) {
         // Píxel nítido con contorno oscuro (como los shooters de píxel modernos)
         float l = lum(c);
-        // Contorno solo en siluetas: la diferencia debe seguir a 2 píxeles y darse en un solo lado
-        // (así los destellos sueltos del agua no se marcan)
-        vec4 d;
-        for (int i = 0; i < 4; i++) {
-          vec2 o = i == 0 ? vec2(t.x, 0.0) : i == 1 ? vec2(-t.x, 0.0) : i == 2 ? vec2(0.0, t.y) : vec2(0.0, -t.y);
-          float a1 = abs(l - lum(texture2D(tDiffuse, vUv + o).rgb));
-          float a2 = abs(l - lum(texture2D(tDiffuse, vUv + o * 2.0).rgb));
-          d[i] = min(a1, a2);
-        }
-        float e = max(abs(d.x - d.y), abs(d.z - d.w));
+        float e = edge(l, t);
         c = sat(c, 1.25);
         c = floor(clamp(c, 0.0, 1.0) * 20.0 + 0.5) / 20.0;
         c = mix(c, c * 0.25 + vec3(0.03, 0.03, 0.07), smoothstep(0.2, 0.34, e));
@@ -171,11 +175,20 @@ const PIXEL_SHADER = {
         c *= m < 1.0 ? vec3(1.12, 0.92, 0.92) : m < 2.0 ? vec3(0.92, 1.12, 0.92) : vec3(0.92, 0.92, 1.12);
         vec2 v = vUv - 0.5;
         c *= 1.0 - dot(v, v) * 1.1;
-      } else {
+      } else if (uMode < 5.5) {
         // Portátil de 4 tonos verdes con tramado
         float l = lum(c) * 1.1 + (bayer(px) - 0.5) / 3.5;
         float q = floor(clamp(l, 0.0, 1.0) * 3.0 + 0.5);
         c = q < 0.5 ? vec3(0.06, 0.22, 0.06) : q < 1.5 ? vec3(0.19, 0.38, 0.19) : q < 2.5 ? vec3(0.55, 0.67, 0.06) : vec3(0.61, 0.74, 0.06);
+      } else {
+        // Arcade HD: píxel grande con muchos colores, tonos vivos, sombras frías y contorno azul marino
+        float l = lum(c);
+        float e = edge(l, t);
+        c = sat(c, 1.22);
+        c = mix(c, c * c * (3.0 - 2.0 * c), 0.3);
+        c = mix(c, c * vec3(0.8, 0.9, 1.18), (1.0 - smoothstep(0.12, 0.55, l)) * 0.55);
+        c = floor(clamp(c, 0.0, 1.0) * 40.0 + 0.5) / 40.0;
+        c = mix(c, c * 0.3 + vec3(0.04, 0.05, 0.14), smoothstep(0.22, 0.4, e) * 0.85);
       }
       gl_FragColor = vec4(c, 1.0);
     }`,
@@ -495,6 +508,7 @@ class Game {
     store.set('stage', stage.id);
     this.gen = new CityGen(stage);
     this.chunks = new ChunkManager(this.scene, this.gen, this.gfx.radius);
+    this.chunks.setPuffyClouds(this.arcade);
     this.rings = new Rings(this.scene, this.gen);
     this.powerups = new PowerUps(this.scene, this.gen);
     this.chunks.onChunkAdded = (cx, cz) => {
@@ -4546,6 +4560,7 @@ class Game {
       infiniteAmmo: !!this.battle,
       maxAmmo: this.guns.maxAmmo,
       lockPos: lock?.pos ?? null,
+      lockDist: lock ? lock.pos.distanceTo(this.flight.pos) : 0,
       lockStrength: this.guns.lockStrength,
       lockName: lock?.name,
     });
@@ -5334,6 +5349,26 @@ class Game {
     }
     if (this.fx) this.fx.high = this.gfx.fxHigh;
     this.chunks?.setRadius(this.gfx.radius);
+    this.applyArcade();
+  }
+
+  /** Modo Arcade HD (como el vídeo de referencia): nubes esponjosas, cámara cerca y llamas grandes */
+  private get arcade() {
+    return this.settings.pixel && this.settings.pixelMode === 6;
+  }
+
+  /** Al elegir Arcade HD la cámara se inclina con el avión como en el vídeo (se puede bajar con la barra) */
+  private arcadeTilt() {
+    if (!this.arcade || this.settings.camTilt >= 75) return;
+    this.settings.camTilt = 75;
+    this.rig.tilt = (this.settings.camTilt / 100) * 0.9;
+  }
+
+  private applyArcade() {
+    const on = this.arcade;
+    this.chunks?.setPuffyClouds(on);
+    this.rig.close = on;
+    JetModel.bigFlames = on;
   }
 
   /** Estela: forma elegida y sus ajustes */
@@ -5924,6 +5959,7 @@ class Game {
         'set-pixel',
         () => {
           this.settings.pixel = !this.settings.pixel;
+          this.arcadeTilt();
           this.applyQuality();
         },
       ],
@@ -5939,8 +5975,10 @@ class Game {
     pm.innerHTML = PIXEL_STYLES.map((x) => `<option value="${x.id}">${x.name}</option>`).join('');
     pm.addEventListener('change', () => {
       this.settings.pixelMode = Number(pm.value);
+      this.arcadeTilt();
       this.applyQuality();
       this.persist();
+      this.renderSettings();
     });
     $('set-tilt').addEventListener('input', () => {
       this.settings.camTilt = Number($<HTMLInputElement>('set-tilt').value);

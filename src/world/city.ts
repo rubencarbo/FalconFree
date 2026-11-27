@@ -575,6 +575,48 @@ export class CityGen {
     }
     return out;
   }
+
+  /**
+   * Nubes esponjosas (modo Arcade HD): cúmulos de esferas, una capa alta y otra baja
+   * entre la que se vuela. Cada caja es la caja que envuelve una esfera.
+   */
+  puffyCloudsForChunk(cx: number, cz: number): Box[] {
+    const seed = this.stage.seed + 913;
+    const out: Box[] = [];
+    const color = hexToInt(this.stage.palette.cloud);
+    const rand = mulberry32(Math.floor(hash2(cx, cz, seed + 1) * 4294967296));
+    const cumulus = (ccx: number, ccy: number, ccz: number, R: number) => {
+      const ball = (x: number, y: number, z: number, r: number, flat = 1) =>
+        out.push({ x0: x - r, z0: z - r, x1: x + r, z1: z + r, y0: y - r * flat, h: 2 * r * flat, color });
+      const base = 5 + Math.floor(rand() * 4);
+      for (let i = 0; i < base; i++) {
+        const a = (i / base) * Math.PI * 2 + rand() * 0.6;
+        const d = R * (0.45 + rand() * 0.55);
+        ball(ccx + Math.cos(a) * d * 1.3, ccy, ccz + Math.sin(a) * d, R * (0.5 + rand() * 0.3), 0.75);
+      }
+      const mid = 3 + Math.floor(rand() * 3);
+      for (let i = 0; i < mid; i++) {
+        const a = rand() * Math.PI * 2;
+        const d = R * rand() * 0.5;
+        ball(ccx + Math.cos(a) * d, ccy + R * (0.45 + rand() * 0.2), ccz + Math.sin(a) * d, R * (0.55 + rand() * 0.2));
+      }
+      ball(ccx + (rand() - 0.5) * R * 0.3, ccy + R * (0.95 + rand() * 0.25), ccz + (rand() - 0.5) * R * 0.3, R * (0.45 + rand() * 0.15));
+    };
+    // Capa alta (como las nubes normales, pero redondas)
+    if (hash2(cx, cz, this.stage.seed + 777) <= 0.45) {
+      const n = 1 + Math.floor(rand() * 2);
+      for (let c = 0; c < n; c++) cumulus((cx + rand()) * CHUNK, 650 + rand() * 650, (cz + rand()) * CHUNK, 55 + rand() * 60);
+    }
+    // Capa baja: cúmulos sueltos a la altura de vuelo
+    if (hash2(cx, cz, seed + 5) <= 0.3) {
+      const x = (cx + 0.15 + rand() * 0.7) * CHUNK;
+      const z = (cz + 0.15 + rand() * 0.7) * CHUNK;
+      let top = 0;
+      for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) top = Math.max(top, this.heightAt(x + i * 70, z + j * 70));
+      cumulus(x, Math.max(top + 90, 170 + rand() * 260), z, 26 + rand() * 30);
+    }
+    return out;
+  }
 }
 
 const STYLE_PALETTES: Record<number, string[]> = {
