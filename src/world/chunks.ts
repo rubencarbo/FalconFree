@@ -3,6 +3,7 @@ import type { Stage } from '../stages';
 import { CHUNK, CityGen, PERIOD, ROAD, hexToInt, type Box } from './city';
 import { fbm, hash2, mulberry32 } from './noise';
 import { canyonFloor, canyonH, iceCrevasse, jungleClearing, nunatakH, tepuiH, volcanic } from './biomes';
+import { RC } from './real';
 
 /** Metros por píxel de la textura del suelo (look pixelado) */
 const PX = 2;
@@ -345,6 +346,10 @@ export class ChunkManager {
   private propMat: THREE.MeshLambertMaterial;
   private cloudMat: THREE.MeshLambertMaterial;
   private puffyMat: THREE.MeshLambertMaterial;
+  /** Mapas reales: relieve de todo el mapa en baja resolución (se ve a lo lejos) */
+  private realFar: THREE.Mesh | null = null;
+  /** centro (x, z) y medio lado del cuadrado de trozos ya cargados */
+  private farCut = { value: new THREE.Vector3(0, 0, 0) };
   /** Modo Arcade HD: nubes de cúmulos redondos en lugar de cajas */
   private puffy = false;
   private beaconMat: THREE.MeshBasicMaterial;
@@ -391,7 +396,7 @@ export class ChunkManager {
     this.propMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
     this.cloudMat = new THREE.MeshLambertMaterial({
       color: 0xffffff,
-      emissive: new THREE.Color(st.palette.cloud).multiplyScalar(st.night ? 0.25 : 0.55),
+      emissive: new THREE.Color(st.palette.cloud).multiplyScalar(st.night ? 0.25 : st.biome === 'real' ? 0.2 : 0.55),
       transparent: true,
       opacity: 0.92,
     });
@@ -443,6 +448,7 @@ export class ChunkManager {
       pitchA: st.night ? [40, 90, 50] : [74, 160, 64],
       pitchB: st.night ? [34, 80, 44] : [64, 146, 56],
     };
+    this.buildRealFar();
   }
 
   /** Cambia la distancia de dibujado (calidad gráfica) */
@@ -464,6 +470,8 @@ export class ChunkManager {
     this.fireMat.color.setRGB(fl, 0.42 * fl, 0.08);
     const cx = Math.floor(x / CHUNK);
     const cz = Math.floor(z / CHUNK);
+    // El relieve lejano se recorta en el cuadrado que cabe dentro del círculo de trozos cargados
+    this.farCut.value.set((cx + 0.5) * CHUNK, (cz + 0.5) * CHUNK, this.pending.length > 4 ? 0 : Math.max(0, this.radius / Math.SQRT2 - 0.5) * CHUNK);
     if (cx !== this.lastCx || cz !== this.lastCz) {
       this.lastCx = cx;
       this.lastCz = cz;
@@ -560,7 +568,20 @@ export class ChunkManager {
       ltex.needsUpdate = true;
     }
     const mat = new THREE.MeshLambertMaterial({ map: tex, emissiveMap: ltex ?? null, emissive: ltex ? new THREE.Color(1.8, 1.8, 1.8) : new THREE.Color(0) });
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(CHUNK, CHUNK), mat);
+    const real = this.gen.real;
+    const seg = real ? (this.gen.stage.real === 'everest' ? 26 : 20) : 1;
+    const geo = new THREE.PlaneGeometry(CHUNK, CHUNK, seg, seg);
+    if (real) {
+      // Relieve real: se desplazan los vértices (el plano aún no está girado: y local = -z del mundo)
+      const pos = geo.attributes.position;
+      for (let k = 0; k < pos.count; k++) {
+        const wx = x0 + CHUNK / 2 + pos.getX(k);
+        const wz = z0 + CHUNK / 2 - pos.getY(k);
+        pos.setZ(k, real.ground(wx, wz));
+      }
+      geo.computeVertexNormals();
+    }
+    const ground = new THREE.Mesh(geo, mat);
     ground.rotation.x = -Math.PI / 2;
     ground.position.set(x0 + CHUNK / 2, 0, z0 + CHUNK / 2);
     group.add(ground);
@@ -615,6 +636,69 @@ export class ChunkManager {
     this.scene.add(group);
     this.chunks.set(`${cx},${cz}`, chunk);
     this.onChunkAdded?.(cx, cz);
+  }
+
+  /** Relieve lejano de un mapa real: una malla gruesa por debajo de los trozos con detalle */
+  private buildRealFar() {
+    const m = this.gen.real;
+    if (!m || this.realFar) return;
+    const h = m.hd;
+    const N = 160;
+    const margin = 2400;
+    const W = h.w + margin * 2;
+    const H = h.h + margin * 2;
+    const geo = new THREE.PlaneGeometry(W, H, N, N);
+    geo.rotateX(-Math.PI / 2);
+    const pos = geo.attributes.position;
+    const col = new Float32Array(pos.count * 3);
+    const cx = h.x0 + h.w / 2;
+    const cz = h.z0 + h.h / 2;
+    for (let k = 0; k < pos.count; k++) {
+      const x = cx + pos.getX(k);
+      const z = cz + pos.getZ(k);
+      pos.setX(k, x);
+      pos.setZ(k, z);
+      // Un poco por debajo para que mande el suelo con detalle donde lo hay
+      pos.setY(k, m.ground(x, z) - 4);
+      // Color medio de la zona
+      let r = 0, g = 0, b = 0;
+      for (let i = -1; i <= 1; i++)
+        for (let j = -1; j <= 1; j++) {
+          const c = this.realGround(x + i * 14, z + j * 14);
+          r += c[0];
+          g += c[1];
+          b += c[2];
+        }
+      const lin = (v: number) => Math.pow(v / 9 / 255, 2.2);
+      col[k * 3] = lin(r);
+      col[k * 3 + 1] = lin(g);
+      col[k * 3 + 2] = lin(b);
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    geo.computeVertexNormals();
+    const mat = new THREE.MeshLambertMaterial({ vertexColors: true, polygonOffset: true, polygonOffsetFactor: 2, polygonOffsetUnits: 4 });
+    // Donde ya hay trozos con detalle no se dibuja (evita que asome por los valles)
+    const u = this.farCut;
+    mat.onBeforeCompile = (sh) => {
+      sh.uniforms.uFarCut = u;
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vFarXZ;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvFarXZ = (modelMatrix * vec4(transformed, 1.0)).xz;');
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', '#include <common>\nvarying vec2 vFarXZ;\nuniform vec3 uFarCut;')
+        .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\nif (max(abs(vFarXZ.x - uFarCut.x), abs(vFarXZ.y - uFarCut.y)) < uFarCut.z) discard;');
+    };
+    this.realFar = new THREE.Mesh(geo, mat);
+    this.realFar.frustumCulled = false;
+    this.scene.add(this.realFar);
+  }
+
+  /** Descarta todos los trozos (se vuelven a generar, p. ej. al llegar el mapa real) */
+  reset() {
+    this.buildRealFar();
+    for (const ch of this.chunks.values()) this.disposeChunk(ch);
+    this.chunks.clear();
+    this.pending = [];
+    this.lastCx = Infinity;
+    this.lastCz = Infinity;
   }
 
   /** Cambia el tipo de nubes y rehace las de los trozos ya cargados */
@@ -681,6 +765,8 @@ export class ChunkManager {
         return this.warGround(x, z);
       case 'cyber':
         return this.cyberGround(x, z);
+      case 'real':
+        return this.realGround(x, z);
     }
     return this.cityGround(x, z);
   }
@@ -921,6 +1007,66 @@ export class ChunkManager {
   }
 
   /** Mar con atolones (anillo de arena con vegetación y laguna turquesa) */
+  /** Suelo de los mapas reales según la clase de OpenStreetMap */
+  private realGround(x: number, z: number): RGB {
+    const m = this.gen.real;
+    const C = this.colors;
+    if (!m) return C.water[0];
+    let c = m.clsAt(x, z);
+    const n = hash2(Math.floor(x / 2), Math.floor(z / 2), 17);
+    const n4 = hash2(Math.floor(x / 6), Math.floor(z / 6), 18);
+    if (c === RC.OUT) {
+      // Fuera del mapa: mar en las ciudades de costa (base a nivel del mar); campo o roca tierra adentro
+      c = m.hd.base <= 0 ? RC.SEA : this.gen.stage.real === 'everest' ? RC.ROCK : RC.FIELD;
+    }
+    // Montaña: las paredes muy empinadas no sujetan la nieve (roca oscura)
+    if (this.gen.stage.real === 'everest' && (c === RC.GLACIER || c === RC.ROCK)) {
+      const e = 6;
+      const sl = Math.hypot(m.ground(x + e, z) - m.ground(x - e, z), m.ground(x, z + e) - m.ground(x, z - e)) / (2 * e);
+      if (sl > 0.95) return n4 < 0.5 ? [72, 68, 70] : [86, 80, 80];
+      if (sl > 0.7 && c !== RC.ROCK) return n < 0.5 ? [150, 148, 152] : [170, 170, 176];
+    }
+    switch (c) {
+      case RC.SEA:
+      case RC.WATER:
+        return this.waterColor(c === RC.WATER ? 0.04 : 0.1, x, z);
+      case RC.PARK:
+        return n < 0.5 ? C.grass[0] : C.grass[1];
+      case RC.FOREST:
+        return n4 < 0.5 ? [52, 110, 44] : [44, 98, 38];
+      case RC.SCRUB:
+        return n4 < 0.4 ? [110, 120, 70] : n < 0.5 ? [124, 130, 82] : [100, 110, 64];
+      case RC.FIELD:
+        return this.gen.stage.real === 'everest' ? (n4 < 0.5 ? [150, 140, 112] : [138, 132, 104]) : n4 < 0.5 ? [168, 170, 96] : [150, 156, 84];
+      case RC.SAND:
+        return n < 0.5 ? C.sand : shade(C.sand, 0.94);
+      case RC.ROAD_BIG:
+        return n < 0.04 ? C.line : C.road;
+      case RC.ROAD:
+        return shade(C.road, 1.12);
+      case RC.PATH:
+        return C.path;
+      case RC.RAIL:
+        return Math.floor(x / 2 + z / 2) % 3 === 0 ? [110, 96, 84] : C.rail;
+      case RC.PITCH:
+        return Math.floor((x + z) / 6) % 2 === 0 ? C.pitchA : C.pitchB;
+      case RC.PLAZA:
+        return Math.floor(x / 3) % 2 === Math.floor(z / 3) % 2 ? C.paveA : C.paveB;
+      case RC.PARKING:
+        return C.parking;
+      case RC.ROCK:
+        return n4 < 0.33 ? [118, 112, 108] : n4 < 0.66 ? [104, 98, 96] : [130, 124, 118];
+      case RC.GLACIER:
+        return n < 0.85 ? [236, 242, 250] : [214, 226, 240];
+      case RC.INDUSTRIAL:
+        return n4 < 0.5 ? [150, 148, 144] : [140, 138, 134];
+      case RC.CEMETERY:
+        return n < 0.3 ? [180, 176, 168] : C.grass[1];
+    }
+    // Urbano: aceras y patios
+    return n4 < 0.5 ? C.lot : C.lotDark;
+  }
+
   private seaColor(depth: number, x: number, z: number): RGB {
     const at = this.gen.atollAt(x, z);
     if (at) {
@@ -962,6 +1108,12 @@ export class ChunkManager {
   }
 
   dispose() {
+    if (this.realFar) {
+      this.scene.remove(this.realFar);
+      this.realFar.geometry.dispose();
+      (this.realFar.material as THREE.Material).dispose();
+      this.realFar = null;
+    }
     for (const ch of this.chunks.values()) this.disposeChunk(ch);
     this.chunks.clear();
     this.pending = [];

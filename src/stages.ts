@@ -1,7 +1,7 @@
-export type StageId = 'metropolis' | 'archipelago' | 'dusk' | 'jungle' | 'warzone' | 'canyon' | 'glacier' | 'cyber';
+export type StageId = 'metropolis' | 'archipelago' | 'dusk' | 'jungle' | 'warzone' | 'canyon' | 'glacier' | 'cyber' | 'barcelona' | 'madrid' | 'nuevayork' | 'everest';
 
 /** Tipo de mundo: ciudad o escenarios naturales / en ruinas */
-export type Biome = 'city' | 'jungle' | 'war' | 'canyon' | 'ice' | 'cyber';
+export type Biome = 'city' | 'jungle' | 'war' | 'canyon' | 'ice' | 'cyber' | 'real';
 
 type WeatherOption = ['clear' | 'rain' | 'fog' | 'storm' | 'snow', number];
 
@@ -26,6 +26,10 @@ export interface Stage {
   aurora?: boolean;
   /** Etiqueta corta para tarjetas */
   tag?: string;
+  /** Mundo real: id del mapa (public/real/<id>.dat) */
+  real?: string;
+  /** Mundo real: lugares destacados (posición en el mundo del juego, se rellenan al cargar) */
+  sights?: { name: string; lat: number; lon: number }[];
   sky: { top: string; horizon: string; fog: string };
   fogDensity: number;
   sun: { color: string; intensity: number; dir: [number, number, number] };
@@ -276,6 +280,131 @@ export const STAGES: Stage[] = [
       tree: ['#163a2a', '#1a4a34'],
       cloud: '#6a4a8a',
     },
+  },
+  {
+    id: 'barcelona',
+    name: 'Barcelona',
+    tag: 'Mundo real',
+    description: 'Barcelona real en vóxeles: el Eixample, la Sagrada Família, Montjuïc, el puerto y las playas. Datos de OpenStreetMap.',
+    seed: 1882,
+    biome: 'real',
+    real: 'barcelona',
+    waterLevel: 0.5,
+    waterScale: 1400,
+    parkChance: 0,
+    heightMul: 1,
+    night: false,
+    sky: { top: '#3d82d6', horizon: '#bcd9f2', fog: '#c4dcef' },
+    fogDensity: 0.0003,
+    sun: { color: '#fff4e0', intensity: 2.2, dir: [0.5, 0.8, 0.3] },
+    hemi: { sky: '#cfe6ff', ground: '#6b7a5a', intensity: 1.3 },
+    palette: {
+      buildings: ['#e8d8b8', '#d9c29a', '#f0e6d0', '#c8a878', '#e0c8a0', '#d8b890', '#efe4cc', '#bfa47e'],
+      water: ['#1f5fb8', '#2f78d0', '#4f98e2'],
+      grass: ['#5aa840', '#4a9434'],
+      road: '#3a3c42',
+      sidewalk: '#cfc6b0',
+      sand: '#e6d49c',
+      lot: '#c9c0aa',
+      window: '#2c4f73',
+      tree: ['#3a7a2a', '#2e6a24'],
+      cloud: '#ffffff',
+    },
+    sights: [{ name: 'Sagrada Família', lat: 41.4036, lon: 2.1744 }, { name: 'Montjuïc', lat: 41.3634, lon: 2.1586 }, { name: 'Tibidabo', lat: 41.4218, lon: 2.1188 }, { name: 'Torre Glòries', lat: 41.4034, lon: 2.1896 }, { name: 'Camp Nou', lat: 41.3809, lon: 2.1228 }, { name: 'Port Vell', lat: 41.3755, lon: 2.1810 }],
+  },
+  {
+    id: 'madrid',
+    name: 'Madrid',
+    tag: 'Mundo real',
+    description: 'Madrid real en vóxeles: Gran Vía, el Palacio Real, el Retiro, el Bernabéu y las Cuatro Torres. Datos de OpenStreetMap.',
+    seed: 1561,
+    biome: 'real',
+    real: 'madrid',
+    waterLevel: 0.5,
+    waterScale: 1400,
+    parkChance: 0,
+    heightMul: 1,
+    night: false,
+    sky: { top: '#3d82d6', horizon: '#bcd9f2', fog: '#c4dcef' },
+    fogDensity: 0.0003,
+    sun: { color: '#fff4e0', intensity: 2.2, dir: [0.5, 0.8, 0.3] },
+    hemi: { sky: '#cfe6ff', ground: '#6b7a5a', intensity: 1.3 },
+    palette: {
+      buildings: ['#e8dcc4', '#d8c4a4', '#c87a5a', '#e6e0d2', '#b8664a', '#f0ead8', '#cfb894', '#a85a40'],
+      water: ['#1f5fb8', '#2f78d0', '#4f98e2'],
+      grass: ['#5aa840', '#4a9434'],
+      road: '#3a3c42',
+      sidewalk: '#cfc6b0',
+      sand: '#e6d49c',
+      lot: '#c9c0aa',
+      window: '#2c4f73',
+      tree: ['#3a7a2a', '#2e6a24'],
+      cloud: '#ffffff',
+    },
+    sights: [{ name: 'Puerta del Sol', lat: 40.4169, lon: -3.7035 }, { name: 'Palacio Real', lat: 40.4180, lon: -3.7143 }, { name: 'Retiro', lat: 40.4153, lon: -3.6845 }, { name: 'Bernabéu', lat: 40.4531, lon: -3.6883 }, { name: 'Cuatro Torres', lat: 40.4776, lon: -3.6880 }, { name: 'Plaza de España', lat: 40.4234, lon: -3.7122 }],
+  },
+  {
+    id: 'nuevayork',
+    name: 'Nueva York',
+    tag: 'Mundo real',
+    description: 'Manhattan real en vóxeles: rascacielos de Midtown, Central Park, el Empire State, el One World Trade Center y los puentes. Datos de OpenStreetMap.',
+    seed: 1624,
+    biome: 'real',
+    real: 'nuevayork',
+    waterLevel: 0.5,
+    waterScale: 1400,
+    parkChance: 0,
+    heightMul: 1,
+    night: false,
+    sky: { top: '#3d82d6', horizon: '#bcd9f2', fog: '#c4dcef' },
+    fogDensity: 0.0003,
+    sun: { color: '#fff4e0', intensity: 2.2, dir: [0.5, 0.8, 0.3] },
+    hemi: { sky: '#cfe6ff', ground: '#6b7a5a', intensity: 1.3 },
+    palette: {
+      buildings: ['#b8a088', '#9a8a7a', '#c8beb0', '#8a6a5a', '#a87a5a', '#d8d0c4', '#7a8a9a', '#6a7a8a'],
+      water: ['#1f5fb8', '#2f78d0', '#4f98e2'],
+      grass: ['#5aa840', '#4a9434'],
+      road: '#3a3c42',
+      sidewalk: '#cfc6b0',
+      sand: '#e6d49c',
+      lot: '#c9c0aa',
+      window: '#2c4f73',
+      tree: ['#3a7a2a', '#2e6a24'],
+      cloud: '#ffffff',
+    },
+    sights: [{ name: 'Empire State', lat: 40.7484, lon: -73.9857 }, { name: 'One World Trade Center', lat: 40.7127, lon: -74.0134 }, { name: 'Central Park', lat: 40.7740, lon: -73.9710 }, { name: 'Times Square', lat: 40.7580, lon: -73.9855 }, { name: 'Puente de Brooklyn', lat: 40.7061, lon: -73.9969 }, { name: 'Chrysler', lat: 40.7516, lon: -73.9755 }],
+  },
+  {
+    id: 'everest',
+    name: 'Everest',
+    tag: 'Mundo real',
+    description: 'El techo del mundo con su relieve real: el Everest, el Lhotse, el Nuptse y el glaciar del Khumbu (a escala 40 %).',
+    seed: 8848,
+    biome: 'real',
+    real: 'everest',
+    waterLevel: 0.5,
+    waterScale: 1400,
+    parkChance: 0,
+    heightMul: 1,
+    night: false,
+    weather: [['clear', 0.6], ['snow', 0.25], ['fog', 0.15]],
+    sky: { top: '#2a5fb0', horizon: '#c8dcf0', fog: '#d4e2f0' },
+    fogDensity: 0.00022,
+    sun: { color: '#fff8ec', intensity: 2.4, dir: [0.4, 0.75, 0.5] },
+    hemi: { sky: '#d8e8ff', ground: '#6a6a72', intensity: 1.35 },
+    palette: {
+      buildings: ['#c84a3a', '#3a6ac8', '#e8c040'],
+      water: ['#3a7aa8', '#4a8ab8', '#6aa8c8'],
+      grass: ['#7a8a4a', '#6a7a42'],
+      road: '#8a7a6a',
+      sidewalk: '#9a8a78',
+      sand: '#a89a88',
+      lot: '#8a8580',
+      window: '#2c4f73',
+      tree: ['#4a6a30', '#3e5a2a'],
+      cloud: '#ffffff',
+    },
+    sights: [{ name: 'Everest', lat: 27.9881, lon: 86.9250 }, { name: 'Lhotse', lat: 27.9617, lon: 86.9333 }, { name: 'Nuptse', lat: 27.9670, lon: 86.8860 }, { name: 'Campo base', lat: 28.0026, lon: 86.8528 }],
   },
 ];
 

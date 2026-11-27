@@ -20,6 +20,8 @@ export default defineConfig({
             navigateFallback: '/index.html',
             cleanupOutdatedCaches: true,
             clientsClaim: true,
+            // Mapas del mundo real: se guardan al descargarlos la primera vez (para jugar sin conexión)
+            runtimeCaching: [{ urlPattern: /\/real\/.*\.dat$/, handler: 'CacheFirst', options: { cacheName: 'real-maps', expiration: { maxEntries: 8 } } }],
           },
           manifest: {
             id: '/',

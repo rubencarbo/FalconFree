@@ -108,7 +108,8 @@ export class SkyFun {
     const center = new THREE.Vector3((cx + 0.2 + rand() * 0.6) * CELL, 0, (cz + 0.2 + rand() * 0.6) * CELL);
     if (pick < 0.3) return new WindTunnel(this.scene, this.gen, center, rand, this.hooks);
     if (pick < 0.55) return new Balloons(this.scene, this.gen, center, rand, this.hooks, this);
-    if (pick < 0.75) return new Ramp(this.scene, this.gen, center, rand, this.hooks);
+    // En los mapas reales no hay montañas flotantes (rampa): en su lugar, pasos entre edificios
+    if (pick < 0.75 && !this.gen.isReal) return new Ramp(this.scene, this.gen, center, rand, this.hooks);
     return Gap.find(this.scene, this.gen, center, rand, this.hooks);
   }
 

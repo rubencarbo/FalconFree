@@ -1,6 +1,7 @@
 import type { Stage } from '../stages';
 import { fbm, hash2, hash3, mulberry32 } from './noise';
 import { canyonFloor, canyonH, cyberBlock, genCanyonBlock, genIceBlock, genJungleBlock, ruinBlock } from './biomes';
+import { RC, realMap, type RealMap } from './real';
 
 /** Ancho de calle (m) */
 export const ROAD = 16;
@@ -40,6 +41,8 @@ export interface Box {
   arch?: boolean;
   /** Giro sobre el eje vertical (rad), solo decorativo (humo) */
   rot?: number;
+  /** Terreno (mapas reales): caja ficticia para los choques con el relieve */
+  terrain?: boolean;
 }
 
 export type BlockKind = 'buildings' | 'park' | 'plaza' | 'parking' | 'sports' | 'port';
@@ -71,13 +74,36 @@ export class CityGen {
   private blockCache = new Map<number, BlockData>();
   private treeColors: number[];
 
+  /** Mapa real (relieve, suelo y edificios de OpenStreetMap) si el escenario es del mundo real */
+  real: RealMap | null = null;
+
   constructor(public readonly stage: Stage) {
     this.treeColors = stage.palette.tree.map(hexToInt);
+    if (stage.real) this.real = realMap(stage.real);
+  }
+
+  /** Pone el mapa real cuando termina de descargarse (y olvida las manzanas generadas sin él) */
+  setReal(m: RealMap) {
+    this.real = m;
+    this.blockCache.clear();
+  }
+
+  get isReal() {
+    return this.stage.biome === 'real';
+  }
+
+  /** Altura del terreno (0 salvo en los mapas reales) */
+  groundAt(x: number, z: number): number {
+    return this.real ? this.real.ground(x, z) : 0;
   }
 
   /** Valor bruto del ruido de agua (menor = más profundo) */
   waterValue(x: number, z: number): number {
     const st = this.stage;
+    if (st.biome === 'real') {
+      const c = this.real ? this.real.clsAt(x, z) : RC.SEA;
+      return c === RC.SEA || c === RC.WATER ? 0 : 1;
+    }
     if (st.biome === 'jungle') {
       // Ríos que serpentean (ruido "en cresta") y alguna laguna
       const wx = x + (fbm(x / 500, z / 500, st.seed + 7, 2) - 0.5) * 380;
@@ -128,6 +154,7 @@ export class CityGen {
   private genBlock(bx: number, bz: number): BlockData {
     const st = this.stage;
     const rand = mulberry32(Math.floor(hash2(bx, bz, st.seed) * 4294967296));
+    if (st.biome === 'real') return this.genRealBlock(bx, bz, rand);
     if (st.biome === 'jungle' || st.biome === 'canyon' || st.biome === 'ice') {
       const out: BlockData = { kind: 'buildings', park: false, buildings: [], trees: [], lights: [], maxH: 0 };
       if (st.biome === 'jungle') genJungleBlock(this, bx, bz, rand, out);
@@ -150,6 +177,66 @@ export class CityGen {
     }
     if (st.biome === 'cyber') cyberBlock(this, bx, bz, rand, out);
     return out;
+  }
+
+  /** Manzana de un mapa real: edificios de OpenStreetMap sobre el relieve y árboles */
+  private genRealBlock(bx: number, bz: number, rand: () => number): BlockData {
+    const out: BlockData = { kind: 'buildings', park: false, buildings: [], trees: [], lights: [], maxH: 0 };
+    const m = this.real;
+    if (!m) return out;
+    const x0 = bx * PERIOD;
+    const z0 = bz * PERIOD;
+    // Altura máxima del terreno en la manzana
+    let gmax = 0;
+    for (let i = 0; i <= 4; i++) for (let j = 0; j <= 4; j++) gmax = Math.max(gmax, m.ground(x0 + i * 20, z0 + j * 20));
+    out.maxH = gmax;
+    const night = this.stage.night;
+    for (const r of m.rectsIn(bx, bz)) {
+      const g = Math.min(m.ground(r.x0, r.z0), m.ground(r.x1, r.z0), m.ground(r.x0, r.z1), m.ground(r.x1, r.z1), m.ground((r.x0 + r.x1) / 2, (r.z0 + r.z1) / 2));
+      const rr = mulberry32(Math.floor(r.seed * 4294967296) || 1);
+      let color = this.realColor(r.style, rr);
+      if (night) color = mixInt(color, 0x1a2040, 0.5);
+      // Si el edificio empieza en el suelo, que no flote sobre las cuestas
+      const y0 = r.minH > 0 ? g + r.minH : g - 1;
+      const h = r.h - r.minH + (r.minH > 0 ? 0 : 1);
+      // Tejados de vivienda: sin césped ni placas solares (el shader los elige con seed < 0.55)
+      const seed = r.style === S_RESID ? 0.55 + r.seed * 0.45 : r.seed;
+      out.buildings.push({ x0: r.x0, z0: r.z0, x1: r.x1, z1: r.z1, y0, h, color, style: r.style, seed });
+      const top = y0 + h;
+      if (top > out.maxH) out.maxH = top;
+      if (r.h > 150 && (r.x1 - r.x0) * (r.z1 - r.z0) < 900 && out.lights.length < 2) out.lights.push({ x: (r.x0 + r.x1) / 2, y: top + 0.6, z: (r.z0 + r.z1) / 2 });
+    }
+    // Árboles: los de OpenStreetMap y relleno en parques y bosques
+    const tree = (x: number, z: number, big: number) => {
+      const t = this.tree(x, z, rand);
+      const g = m.ground(x, z);
+      const k = big;
+      const cx = (t.x0 + t.x1) / 2, cz = (t.z0 + t.z1) / 2;
+      const hw = ((t.x1 - t.x0) / 2) * k;
+      out.trees.push({ ...t, x0: cx - hw, x1: cx + hw, z0: cz - hw, z1: cz + hw, y0: g + t.y0 * k, h: t.h * k });
+    };
+    for (const [x, z] of m.treesIn(bx, bz)) tree(x, z, 1);
+    const everest = this.stage.real === 'everest';
+    for (let k = 0; k < 14; k++) {
+      const x = x0 + rand() * PERIOD;
+      const z = z0 + rand() * PERIOD;
+      const c = m.clsAt(x, z);
+      if (c === RC.FOREST || (c === RC.PARK && k < 5) || (c === RC.CEMETERY && k < 3) || (c === RC.SCRUB && k < (everest ? 2 : 6))) {
+        if (m.rectsIn(bx, bz).some((r) => x > r.x0 - 2 && x < r.x1 + 2 && z > r.z0 - 2 && z < r.z1 + 2)) continue;
+        tree(x, z, everest ? 0.5 : 1.15);
+      }
+    }
+    return out;
+  }
+
+  /** Color de un edificio real según su estilo */
+  private realColor(style: number, rand: () => number): number {
+    if (style === S_RESID || style === S_OFFICE) {
+      const list = this.stage.palette.buildings;
+      return hexToInt(list[Math.floor(rand() * list.length)]);
+    }
+    const pal = STYLE_PALETTES[style] ?? this.stage.palette.buildings;
+    return hexToInt(pal[Math.floor(rand() * pal.length)]);
   }
 
   private genCityBlock(bx: number, bz: number, rand: () => number): BlockData {
@@ -456,7 +543,7 @@ export class CityGen {
     const lz = z - bz * PERIOD;
     if (this.roadsFree && (lx < ROAD || lz < ROAD)) return 0;
     const b = this.block(bx, bz);
-    let h = 0;
+    let h = this.real ? this.real.ground(x, z) : 0;
     for (const box of b.buildings) {
       if (box.arch) continue;
       const top = box.y0 + box.h;
@@ -489,6 +576,11 @@ export class CityGen {
     if (this.roadsFree && (lx < ROAD || lz < ROAD)) return null;
     for (const box of this.block(bx, bz).buildings) {
       if (x >= box.x0 && x <= box.x1 && z >= box.z0 && z <= box.z1 && y < box.y0 + box.h + 0.5 && y > box.y0 - 0.5) return box;
+    }
+    // Relieve de los mapas reales: caja ficticia sin anchura (la normal del choque sale de la posición anterior)
+    if (this.real) {
+      const g = this.real.ground(x, z);
+      if (y < g + 0.8) return { x0: x, z0: z, x1: x, z1: z, y0: 0, h: g, color: 0, terrain: true };
     }
     return null;
   }
@@ -551,6 +643,14 @@ export class CityGen {
     return out;
   }
 
+  /** Mapas reales: las nubes altas van por encima del relieve de la zona */
+  private realCloudBase(x: number, z: number) {
+    const m = this.real!;
+    let g = 0;
+    for (let i = -2; i <= 2; i++) for (let j = -2; j <= 2; j++) g = Math.max(g, m.ground(x + i * 300, z + j * 300));
+    return g;
+  }
+
   /** Cubos de nubes de un chunk */
   cloudsForChunk(cx: number, cz: number): Box[] {
     const seed = this.stage.seed + 777;
@@ -562,7 +662,7 @@ export class CityGen {
     for (let c = 0; c < clusters; c++) {
       const ccx = (cx + rand()) * CHUNK;
       const ccz = (cz + rand()) * CHUNK;
-      const ccy = 700 + rand() * 700;
+      const ccy = 700 + rand() * 700 + (this.real ? this.realCloudBase(ccx, ccz) : 0);
       const count = 8 + Math.floor(rand() * 18);
       const spread = 50 + rand() * 70;
       for (let i = 0; i < count; i++) {
@@ -605,10 +705,13 @@ export class CityGen {
     // Capa alta (como las nubes normales, pero redondas)
     if (hash2(cx, cz, this.stage.seed + 777) <= 0.45) {
       const n = 1 + Math.floor(rand() * 2);
-      for (let c = 0; c < n; c++) cumulus((cx + rand()) * CHUNK, 650 + rand() * 650, (cz + rand()) * CHUNK, 55 + rand() * 60);
+      for (let c = 0; c < n; c++) {
+        const x = (cx + rand()) * CHUNK, z = (cz + rand()) * CHUNK;
+        cumulus(x, 650 + rand() * 650 + (this.real ? this.realCloudBase(x, z) : 0), z, 55 + rand() * 60);
+      }
     }
-    // Capa baja: cúmulos sueltos a la altura de vuelo
-    if (hash2(cx, cz, seed + 5) <= 0.3) {
+    // Capa baja: cúmulos sueltos a la altura de vuelo (en las montañas reales, menos)
+    if (hash2(cx, cz, seed + 5) <= (this.stage.real === 'everest' ? 0.1 : 0.3)) {
       const x = (cx + 0.15 + rand() * 0.7) * CHUNK;
       const z = (cz + 0.15 + rand() * 0.7) * CHUNK;
       let top = 0;

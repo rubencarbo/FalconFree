@@ -19,6 +19,7 @@ import { Drones } from './drones';
 import { Race, SKIP_PENALTY, GOLD_BONUS, MEDAL_ICONS, MEDAL_LABELS, medalFor, medalTimes, type Medal, COURSES, buildCourse, courseId, formatTime, formatDelta, loadBest, type CourseDef, type RaceEvent } from './race';
 import { Input } from './input';
 import { Hud, type HealthBar } from './hud';
+import { loadRealMap } from './world/real';
 import { GameAudio } from './audio';
 import { firebase, countryName, playerCountry } from './firebase';
 import { Room, NetError, type PauseState, formatCode, normalizeCode, MAX_PLAYERS, PLAYER_COLORS, type NetEvent, type PublicRoom, type RoomMeta, type RoomMode, type VoiceChunk } from './net';
@@ -507,8 +508,10 @@ class Game {
     this.stage = stage;
     store.set('stage', stage.id);
     this.gen = new CityGen(stage);
-    this.chunks = new ChunkManager(this.scene, this.gen, this.gfx.radius);
+    this.chunks = new ChunkManager(this.scene, this.gen, this.viewRadius());
     this.chunks.setPuffyClouds(this.arcade);
+    if (stage.real && !this.gen.real) this.fetchRealMap(stage);
+    this.showRealCredit();
     this.rings = new Rings(this.scene, this.gen);
     this.powerups = new PowerUps(this.scene, this.gen);
     this.chunks.onChunkAdded = (cx, cz) => {
@@ -2807,8 +2810,90 @@ class Game {
     else this.renderer.render(this.scene, this.camera);
   }
 
+  /** Descarga el mapa real del escenario y rehace el mundo cuando llega */
+  private fetchRealMap(stage: Stage) {
+    const id = stage.real!;
+    // Capa que tapa los menús mientras se descarga (así nadie empieza una partida sin el mapa)
+    const ov = document.createElement('div');
+    ov.className = 'real-loading';
+    ov.innerHTML = `<b>Descargando ${stage.name}…</b><small>Mapa real de OpenStreetMap · solo la primera vez</small>`;
+    document.body.append(ov);
+    const done = () => ov.remove();
+    loadRealMap(id).then(
+      (m) => {
+        done();
+        if (this.stage !== stage || this.gen.real) return;
+        this.gen.setReal(m);
+        this.chunks.reset();
+        // Si el avión ha quedado dentro del relieve, subirlo
+        const f = this.flight;
+        const floor = this.gen.maxHeightNear(f.pos.x, f.pos.z, 200) + 120;
+        if (f.pos.y < floor) f.pos.y = floor;
+        this.rig.snap();
+        this.hud.toast(`${stage.name} lista`, 1500);
+        this.showRealCredit();
+      },
+      (e) => {
+        done();
+        this.hud.toast(`No se pudo cargar el mapa: ${(e as Error).message}`, 4000);
+      },
+    );
+  }
+
+  /** Crédito obligatorio de los datos (licencia ODbL de OpenStreetMap) mientras se juega en un mapa real */
+  private showRealCredit() {
+    let el = document.getElementById('real-credit');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'real-credit';
+      el.textContent = '© colaboradores de OpenStreetMap · OpenFreeMap · OpenMapTiles · relieve: Mapzen';
+      document.body.append(el);
+    }
+    el.hidden = !this.gen.real;
+  }
+
+  /** Mundo real: al salir del mapa se avisa y el avión gira solo hacia el centro */
+  private realBoundsT = 0;
+  private sightT = 0;
+  private sightSeen = new Map<string, number>();
+  private updateRealBounds(dt: number) {
+    const m = this.gen.real;
+    if (!m) return;
+    const f = this.flight;
+    // Lugares famosos: aviso al pasar cerca (una vez cada 2 minutos por lugar)
+    this.sightT -= dt;
+    if (this.sightT <= 0) {
+      this.sightT = 0.5;
+      for (const sg of this.stage.sights ?? []) {
+        const [sx, sz] = m.toWorld(sg.lat, sg.lon);
+        if (Math.hypot(f.pos.x - sx, f.pos.z - sz) > 450 || f.pos.y - m.ground(sx, sz) > 900) continue;
+        const last = this.sightSeen.get(sg.name) ?? -1e9;
+        if (this.time - last < 120) continue;
+        this.sightSeen.set(sg.name, this.time);
+        this.hud.toast(`📍 ${sg.name}`, 2500);
+        break;
+      }
+    }
+    const out = m.outside(f.pos.x, f.pos.z);
+    if (out < 150) return;
+    this.realBoundsT -= dt;
+    if (this.realBoundsT <= 0) {
+      this.hud.toast('Fin del mapa: da la vuelta', 1600);
+      this.realBoundsT = 4;
+    }
+    if (out > 500 && !f.frozen) {
+      const cx = m.hd.x0 + m.hd.w / 2 - f.pos.x;
+      const cz = m.hd.z0 + m.hd.h / 2 - f.pos.z;
+      const want = Math.atan2(-cx, -cz);
+      let d = want - f.yaw;
+      d = Math.atan2(Math.sin(d), Math.cos(d));
+      f.yaw += Math.sign(d) * Math.min(Math.abs(d), dt * (0.4 + Math.min(1.2, out / 1500)));
+    }
+  }
+
   private updatePlaying(dt: number) {
     const f = this.flight;
+    this.updateRealBounds(dt);
     this.invuln = Math.max(0, this.invuln - dt);
     this.bumpCooldown = Math.max(0, this.bumpCooldown - dt);
     this.shotSoundTimer -= dt;
@@ -5360,8 +5445,13 @@ class Game {
       this.resize();
     }
     if (this.fx) this.fx.high = this.gfx.fxHigh;
-    this.chunks?.setRadius(this.gfx.radius);
+    this.chunks?.setRadius(this.viewRadius());
     this.applyArcade();
+  }
+
+  /** Trozos de mundo alrededor del avión: en los mapas reales (mucho más densos) uno menos en móviles */
+  private viewRadius() {
+    return this.gfx.radius - (isTouch && this.stage?.real ? 1 : 0);
   }
 
   /** Modo Arcade HD (como el vídeo de referencia): nubes esponjosas, cámara cerca y llamas grandes */

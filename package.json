@@ -14,12 +14,16 @@
     "deploy:multijugador": "firebase deploy --only database"
   },
   "dependencies": {
+    "fflate": "^0.8.2",
     "firebase": "^13.4.0",
     "three": "^0.187.0"
   },
   "devDependencies": {
+    "@mapbox/vector-tile": "^2.0.5",
     "@types/three": "^0.187.0",
     "firebase-tools": "^15.37.0",
+    "pbf": "^4.0.2",
+    "pngjs": "^7.0.0",
     "typescript": "^5.9.3",
     "vite": "^8.3.8",
     "vite-plugin-pwa": "^2.0.0",
