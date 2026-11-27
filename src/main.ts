@@ -612,6 +612,9 @@ class Game {
     this.stream?.dispose();
     this.stream = null;
     document.getElementById('open-status')?.remove();
+    document.getElementById('place-label')?.remove();
+    document.getElementById('place-banner')?.remove();
+    this.placeCity = '';
     $('btn-cruise').hidden = true;
     this.camera.far = 9000;
     this.camera.near = 1;
@@ -2827,7 +2830,7 @@ class Game {
     this.sun.position.copy(this.flight.pos).add(new THREE.Vector3(...this.stage.sun.dir).multiplyScalar(100));
     this.sun.target.position.copy(this.flight.pos);
     this.sun.target.updateMatrixWorld();
-    show('loading', this.chunks.loadingCount >= 30 && this.screen === 'playing');
+    show('loading', this.chunks.loadingCount >= (this.stream ? 90 : 30) && this.screen === 'playing');
 
     this.lastHudDt = frozen ? 0 : dt;
     if (this.screen === 'playing' || this.screen === 'crashed' || this.screen === 'results') this.updateHud();
@@ -2878,6 +2881,9 @@ class Game {
   private updateOpenWorld(focus: THREE.Vector3) {
     const sw = this.stream!;
     sw.detail = this.cruise < 1.6;
+    // Zonas con detalle algo más allá de los trozos dibujados (llegan antes de verse)
+    sw.detailRadius = (this.viewRadius() + 2.5) * 320;
+    this.updatePlaceLabel(sw, focus);
     sw.update(focus.x, focus.z, performance.now());
     // Estado de las descargas (para saber qué falla si no se ve el mapa)
     this.openDiagT -= 1 / 60;
@@ -2912,6 +2918,39 @@ class Game {
     // En crucero no se generan trozos con detalle
     const r = this.cruise > 1.6 ? 1 : this.viewRadius();
     this.chunks.setRadius(r);
+  }
+
+  /** Rótulo de ciudad y barrio que se sobrevuela (y cartel grande al entrar en otra ciudad) */
+  private placeT = 0;
+  private placeCity = '';
+  private updatePlaceLabel(sw: StreamWorld, focus: THREE.Vector3) {
+    this.placeT -= 1 / 60;
+    if (this.placeT > 0) return;
+    this.placeT = 0.5;
+    let el = document.getElementById('place-label');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'place-label';
+      el.innerHTML = '<b></b><span></span>';
+      document.getElementById('hud')?.append(el);
+    }
+    const { city, district } = sw.whereAt(focus.x, focus.z);
+    el.hidden = this.screen !== 'playing' || !city;
+    (el.children[0] as HTMLElement).textContent = city;
+    (el.children[1] as HTMLElement).textContent = district;
+    if (city && city !== this.placeCity) {
+      this.placeCity = city;
+      let big = document.getElementById('place-banner');
+      if (!big) {
+        big = document.createElement('div');
+        big.id = 'place-banner';
+        document.getElementById('hud')?.append(big);
+      }
+      big.textContent = city;
+      big.classList.remove('show');
+      void big.offsetWidth;
+      big.classList.add('show');
+    }
   }
 
   /** Crucero (K): viaje rápido a gran altura en el mundo abierto */
@@ -5602,6 +5641,8 @@ class Game {
 
   /** Trozos de mundo alrededor del avión: en los mapas reales (mucho más densos) uno menos en móviles */
   private viewRadius() {
+    // Mundo abierto en ordenador: dos trozos más de detalle (el horizonte sin cargar queda más lejos)
+    if (this.stage?.open) return this.gfx.radius + (isTouch ? 0 : 2);
     return this.gfx.radius - (isTouch && this.stage?.real ? 1 : 0);
   }
 

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import TileWorker from './tilework?worker&inline';
 import { Geo, lat2tile, lon2tile, tile2lat, tile2lon } from './geo';
 import { RC, type RealRect, type RealSource } from './real';
-import { CELL_C, CELL_E, COARSE_N, COARSE_TEX, COARSE_Z, NC, NE, REGION, type Diag, type WorkOut } from './streamconst';
+import { CELL_C, CELL_E, COARSE_N, COARSE_TEX, COARSE_Z, MID_TEX, MID_Z, NC, NE, REGION, type Diag, type Place, type WorkOut } from './streamconst';
 
 const PERIOD = 80;
 const bkey = (bx: number, bz: number) => (bx + 32768) * 65536 + (bz + 32768);
@@ -16,6 +16,7 @@ interface Region {
 }
 
 interface CoarseTile {
+  z: number;
   x: number;
   y: number;
   mesh: THREE.Mesh;
@@ -90,19 +91,65 @@ export class StreamWorld implements RealSource {
   /** Altura aproximada con las teselas lejanas (mientras no hay detalle) */
   coarseGround(x: number, z: number): number {
     const [lat, lon] = this.geo.toLatLon(x, z);
-    const tx = lon2tile(lon, COARSE_Z);
-    const ty = lat2tile(lat, COARSE_Z);
-    const t = this.coarse.get(`${Math.floor(tx)},${Math.floor(ty)}`);
-    if (!t) return 0;
-    const N = COARSE_N;
-    const fx = (tx - t.x) * (N - 1);
-    const fy = (ty - t.y) * (N - 1);
-    const i = Math.min(N - 2, Math.floor(fx));
-    const j = Math.min(N - 2, Math.floor(fy));
-    const ax = fx - i;
-    const ay = fy - j;
-    const a = t.raw;
-    return (a[j * N + i] * (1 - ax) + a[j * N + i + 1] * ax) * (1 - ay) + (a[(j + 1) * N + i] * (1 - ax) + a[(j + 1) * N + i + 1] * ax) * ay;
+    for (const zz of [MID_Z, COARSE_Z]) {
+      const tx = lon2tile(lon, zz);
+      const ty = lat2tile(lat, zz);
+      const t = this.coarse.get(`${zz}/${Math.floor(tx)},${Math.floor(ty)}`);
+      if (!t) continue;
+      const N = COARSE_N;
+      const fx = (tx - t.x) * (N - 1);
+      const fy = (ty - t.y) * (N - 1);
+      const i = Math.min(N - 2, Math.floor(fx));
+      const j = Math.min(N - 2, Math.floor(fy));
+      const ax = fx - i;
+      const ay = fy - j;
+      const a = t.raw;
+      return (a[j * N + i] * (1 - ax) + a[j * N + i + 1] * ax) * (1 - ay) + (a[(j + 1) * N + i] * (1 - ax) + a[(j + 1) * N + i + 1] * ax) * ay;
+    }
+    return 0;
+  }
+
+  // ------------------------------------------------------------ Lugares
+  private places = new Map<string, Place>();
+
+  private addPlaces(list: Place[] | undefined) {
+    for (const p of list ?? []) {
+      const k = `${p.cls}|${p.name}|${Math.round(p.x / 2000)}|${Math.round(p.z / 2000)}`;
+      if (!this.places.has(k)) this.places.set(k, p);
+    }
+    if (this.places.size > 4000) {
+      // Olvida los más antiguos
+      const n = this.places.size - 3000;
+      let i = 0;
+      for (const k of this.places.keys()) {
+        if (i++ >= n) break;
+        this.places.delete(k);
+      }
+    }
+  }
+
+  /** Ciudad (o pueblo) y barrio más cercanos a (x, z) */
+  whereAt(x: number, z: number): { city: string; district: string } {
+    const CITY: Record<string, number> = { city: 11000, town: 4500, village: 2000, hamlet: 900, isolated_dwelling: 400, island: 3000 };
+    const DIST: Record<string, number> = { suburb: 2600, quarter: 1500, neighbourhood: 900 };
+    let city = '';
+    let cs = 1;
+    let district = '';
+    let ds = 1;
+    for (const p of this.places.values()) {
+      const d = Math.hypot(p.x - x, p.z - z);
+      const rc = CITY[p.cls];
+      if (rc && d / rc < cs) {
+        cs = d / rc;
+        city = p.name;
+      }
+      const rd = DIST[p.cls];
+      if (rd && d / rd < ds) {
+        ds = d / rd;
+        district = p.name;
+      }
+    }
+    return { city, district: district === city ? '' : district };
   }
 
   clsAt(x: number, z: number): number {
@@ -154,26 +201,32 @@ export class StreamWorld implements RealSource {
     for (const [k, r] of this.regions) {
       if (Math.hypot((r.rx + 0.5) * REGION - x, (r.rz + 0.5) * REGION - z) > 9000) this.regions.delete(k);
     }
-    // Teselas lejanas
+    // Teselas lejanas (z10, horizonte) e intermedias (z12, alrededores)
     const [lat, lon] = this.geo.toLatLon(x, z);
-    const cx = Math.floor(lon2tile(lon, COARSE_Z));
-    const cy = Math.floor(lat2tile(lat, COARSE_Z));
-    const wantC: { k: string; tx: number; ty: number; d: number }[] = [];
-    for (let i = -2; i <= 2; i++)
-      for (let j = -2; j <= 2; j++) {
-        const tx = cx + i;
-        const ty = cy + j;
-        const k = `${tx},${ty}`;
-        if (this.coarse.has(k) || this.loadingC.has(k) || (this.retryC.get(k) ?? 0) > now) continue;
-        wantC.push({ k, tx, ty, d: Math.hypot(i, j) });
-      }
+    const wantC: { k: string; tx: number; ty: number; z: number; d: number }[] = [];
+    const centers: Record<number, [number, number]> = {};
+    for (const zz of [MID_Z, COARSE_Z]) {
+      const cx = Math.floor(lon2tile(lon, zz));
+      const cy = Math.floor(lat2tile(lat, zz));
+      centers[zz] = [cx, cy];
+      for (let i = -2; i <= 2; i++)
+        for (let j = -2; j <= 2; j++) {
+          const tx = cx + i;
+          const ty = cy + j;
+          const k = `${zz}/${tx},${ty}`;
+          if (this.coarse.has(k) || this.loadingC.has(k) || (this.retryC.get(k) ?? 0) > now) continue;
+          // Primero lo cercano de cada nivel; el nivel intermedio un poco antes
+          wantC.push({ k, tx, ty, z: zz, d: Math.hypot(i, j) + (zz === MID_Z ? 0 : 0.6) });
+        }
+    }
     wantC.sort((a, b) => a.d - b.d);
     for (const w of wantC) {
       if (this.loadingC.size >= 3) break;
       this.loadingC.add(w.k);
-      this.worker.postMessage({ type: 'coarse', x: w.tx, y: w.ty });
+      this.worker.postMessage({ type: 'coarse', x: w.tx, y: w.ty, z: w.z });
     }
     for (const [k, t] of this.coarse) {
+      const [cx, cy] = centers[t.z];
       if (Math.abs(t.x - cx) > 3 || Math.abs(t.y - cy) > 3) {
         this.group.remove(t.mesh);
         t.mesh.geometry.dispose();
@@ -206,31 +259,33 @@ export class StreamWorld implements RealSource {
         l.push(r);
       }
       this.regions.set(k, { rx: msg.rx, rz: msg.rz, elev: msg.elev, cls: msg.cls, byBlock });
+      this.addPlaces(msg.places);
       this.onRegion?.(msg.rx * REGION, msg.rz * REGION, (msg.rx + 1) * REGION, (msg.rz + 1) * REGION);
     } else {
-      const k = `${msg.x},${msg.y}`;
+      const k = `${msg.z}/${msg.x},${msg.y}`;
       this.loadingC.delete(k);
+      this.addPlaces(msg.places);
       if (msg.error) {
         this.lastError = msg.error;
         this.retryC.set(k, now + 8000);
         return;
       }
-      const mesh = this.coarseMesh(msg.x, msg.y, msg.low, msg.rgba);
+      const mesh = this.coarseMesh(msg.x, msg.y, msg.z, msg.low, msg.rgba);
       this.group.add(mesh);
-      this.coarse.set(k, { x: msg.x, y: msg.y, mesh, raw: msg.raw });
+      this.coarse.set(k, { z: msg.z, x: msg.x, y: msg.y, mesh, raw: msg.raw });
     }
   }
 
   /** Malla de una tesela lejana: 65×65 vértices con faldón para tapar las juntas */
-  private coarseMesh(tx: number, ty: number, low: Float32Array, rgba: Uint8ClampedArray) {
+  private coarseMesh(tx: number, ty: number, tz: number, low: Float32Array, rgba: Uint8ClampedArray) {
     const N = COARSE_N;
-    const [ccx, ccz] = this.geo.toWorld(tile2lat(ty + 0.5, COARSE_Z), tile2lon(tx + 0.5, COARSE_Z));
+    const [ccx, ccz] = this.geo.toWorld(tile2lat(ty + 0.5, tz), tile2lon(tx + 0.5, tz));
     const pos: number[] = [];
     const uv: number[] = [];
     const idx: number[] = [];
     const vert = (i: number, j: number, dy: number) => {
-      const lon = tile2lon(tx + i / (N - 1), COARSE_Z);
-      const lat = tile2lat(ty + j / (N - 1), COARSE_Z);
+      const lon = tile2lon(tx + i / (N - 1), tz);
+      const lat = tile2lat(ty + j / (N - 1), tz);
       const [wx, wz] = this.geo.toWorld(lat, lon);
       pos.push(wx - ccx, low[j * N + i] + dy, wz - ccz);
       uv.push(i / (N - 1), j / (N - 1));
@@ -277,7 +332,8 @@ export class StreamWorld implements RealSource {
     const nrm = geo.attributes.normal as THREE.BufferAttribute;
     for (let k = N * N; k < nrm.count; k++) nrm.setXYZ(k, 0, 1, 0);
     geo.setIndex(idx);
-    const tex = new THREE.DataTexture(new Uint8Array(rgba.buffer, rgba.byteOffset, rgba.byteLength), COARSE_TEX, COARSE_TEX, THREE.RGBAFormat);
+    const T = tz === MID_Z ? MID_TEX : COARSE_TEX;
+    const tex = new THREE.DataTexture(new Uint8Array(rgba.buffer, rgba.byteOffset, rgba.byteLength), T, T, THREE.RGBAFormat);
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.magFilter = THREE.NearestFilter;
     tex.minFilter = THREE.LinearMipmapLinearFilter;

@@ -9,7 +9,7 @@
 import { VectorTile, classifyRings } from './mvt';
 import { Geo, lat2tile, lon2tile, tile2lat, tile2lon } from './geo';
 import { unzlibSync } from 'fflate';
-import { CELL_B, CELL_C, CELL_E, COARSE_N, COARSE_TEX, COARSE_Z, NC, NE, REGION, type Diag, type WorkIn, type WorkOut } from './streamconst';
+import { CELL_B, CELL_C, CELL_E, COARSE_N, COARSE_TEX, MID_TEX, MID_Z, NC, NE, REGION, type Diag, type Place, type WorkIn, type WorkOut } from './streamconst';
 
 /** Clases de suelo (las mismas que src/world/real.ts) */
 const K = {
@@ -170,6 +170,28 @@ function demAt(tiles: Map<string, Float32Array | null>, z: number, lat: number, 
   return (px(ix, iy) * (1 - ax) + px(ix + 1, iy) * ax) * (1 - ay) + (px(ix, iy + 1) * (1 - ax) + px(ix + 1, iy + 1) * ax) * ay;
 }
 
+// ---------------------------------------------------------------- Lugares con nombre
+const PLACE_CLS = ['city', 'town', 'village', 'hamlet', 'suburb', 'quarter', 'neighbourhood', 'isolated_dwelling', 'island'];
+function placesOf(t: VectorTile, z: number, tx: number, ty: number): Place[] {
+  const L = t.layers.place;
+  if (!L) return [];
+  const out: Place[] = [];
+  for (let i = 0; i < L.length; i++) {
+    const f = L.feature(i);
+    const p = f.properties;
+    const cls = String(p.class);
+    if (f.type !== 1 || !PLACE_CLS.includes(cls)) continue;
+    const name = String(p['name:es'] ?? p.name ?? '');
+    if (!name) continue;
+    const pt = f.loadGeometry()[0]?.[0];
+    if (!pt || pt.x < 0 || pt.y < 0 || pt.x > L.extent || pt.y > L.extent) continue;
+    const [x, wz] = geo.toWorld(tile2lat(ty + pt.y / L.extent, z), tile2lon(tx + pt.x / L.extent, z));
+    out.push({ name, cls, x, z: wz });
+  }
+  return out;
+}
+const tilePlaces = new Map<string, Place[]>();
+
 // ---------------------------------------------------------------- Teselas z14 proyectadas
 interface Feat {
   /** 0 edificio · 1 área · 2 línea */
@@ -213,6 +235,8 @@ async function loadFeats(tx: number, ty: number): Promise<Feat[]> {
   const z = 14;
   const t = await vectorTile(z, tx, ty);
   if (!t) return [];
+  tilePlaces.set(`${tx},${ty}`, placesOf(t, z, tx, ty));
+  if (tilePlaces.size > 60) tilePlaces.delete(tilePlaces.keys().next().value!);
   const out: Feat[] = [];
   const proj = (pts: { x: number; y: number }[], ext: number) => {
     const a = new Float64Array(pts.length * 2);
@@ -410,7 +434,9 @@ async function region(rx: number, rz: number): Promise<WorkOut> {
       elev[j * NE + i] = Math.max(0, rawE[j * NE + i]);
     }
   // OpenStreetMap
-  const feats = (await Promise.all(tilesFor(s - m, w - m, n + m, e + m, 14).map(([x, y]) => tileFeats(x, y)))).flat();
+  const t14 = tilesFor(s - m, w - m, n + m, e + m, 14);
+  const feats = (await Promise.all(t14.map(([x, y]) => tileFeats(x, y)))).flat();
+  const places = t14.flatMap(([x, y]) => tilePlaces.get(`${x},${y}`) ?? []);
   const gc: Grid = { x0, z0, cell: CELL_C, n: NC };
   const cls = new Uint8Array(NC * NC).fill(K.COUNTRY);
   const areas = feats.filter((f) => f.k === 1).sort((a, b) => a.prio - b.prio);
@@ -474,12 +500,12 @@ async function region(rx: number, rz: number): Promise<WorkOut> {
       for (let b = 0; b < d; b++) for (let a = 0; a < ww; a++) used[(j + b) * NB + i + a] = 1;
       rects.push(x0 + i * CELL_B, z0 + j * CELL_B, x0 + (i + ww) * CELL_B, z0 + (j + d) * CELL_B, bh[k], bm[k], styleFor(bh[k]), bs[k]);
     }
-  return { type: 'region', rx, rz, elev, cls, rects: new Float32Array(rects) };
+  return { type: 'region', rx, rz, elev, cls, rects: new Float32Array(rects), places };
 }
 
 // ---------------------------------------------------------------- Teselas lejanas (z10)
-async function coarse(x: number, y: number): Promise<WorkOut> {
-  const z = COARSE_Z;
+async function coarse(x: number, y: number, z: number): Promise<WorkOut> {
+  const mid = z === MID_Z;
   const [d, vt] = await Promise.all([
     dem(z, x, y),
     vectorTile(z, x, y).then(
@@ -493,8 +519,10 @@ async function coarse(x: number, y: number): Promise<WorkOut> {
       },
     ),
   ]);
-  const T = COARSE_TEX;
+  const T = mid ? MID_TEX : COARSE_TEX;
   const el = d ?? new Float32Array(256 * 256);
+  // Píxel de la textura -> píxel del relieve (256)
+  const tq = 256 / T;
   const at = (px: number, py: number) => el[Math.min(255, Math.max(0, py)) * 256 + Math.min(255, Math.max(0, px))];
   const N = COARSE_N;
   const raw = new Float32Array(N * N);
@@ -506,15 +534,17 @@ async function coarse(x: number, y: number): Promise<WorkOut> {
       raw[j * N + i] = Math.max(0, at(px, py));
       // Por debajo de lo que dibuja el detalle: mínimo del entorno
       let mn = Infinity;
-      for (let b = -3; b <= 3; b++) for (let a = -3; a <= 3; a++) mn = Math.min(mn, at(px + a, py + b));
-      low[j * N + i] = Math.max(0, mn) - 14;
+      const rr = mid ? 2 : 3;
+      for (let b = -rr; b <= rr; b++) for (let a = -rr; a <= rr; a++) mn = Math.min(mn, at(px + a, py + b));
+      // El nivel intermedio queda por encima del lejano y ambos por debajo del detalle
+      low[j * N + i] = Math.max(0, mn) - (mid ? 10 : 34);
     }
   // Textura: color por altura con sombreado del relieve y encima bosques, ciudades y agua
   // (dibujo propio, sin canvas: funciona igual en todos los navegadores)
   const rgba = new Uint8ClampedArray(T * T * 4);
   for (let py = 0; py < T; py++)
     for (let px = 0; px < T; px++) {
-      const e = at(px, py);
+      const e = at(Math.floor(px * tq), Math.floor(py * tq));
       let col: [number, number, number];
       if (e <= 0.5) col = [44, 98, 168];
       else if (e < 250) col = [104, 146, 74];
@@ -523,7 +553,9 @@ async function coarse(x: number, y: number): Promise<WorkOut> {
       else if (e < 2100) col = [128, 118, 96];
       else if (e < 2700) col = [138, 134, 130];
       else col = [236, 240, 248];
-      const sh = e <= 0.5 ? 1 : Math.min(1.35, Math.max(0.6, 1 + ((at(px - 1, py) - at(px + 1, py)) * 0.7 + (at(px, py - 1) - at(px, py + 1))) * 0.006));
+      const qx = Math.floor(px * tq);
+      const qy = Math.floor(py * tq);
+      const sh = e <= 0.5 ? 1 : Math.min(1.35, Math.max(0.6, 1 + ((at(qx - 1, qy) - at(qx + 1, qy)) * 0.7 + (at(qx, qy - 1) - at(qx, qy + 1))) * (mid ? 0.009 : 0.006)));
       const o = (py * T + px) * 4;
       rgba[o] = col[0] * sh;
       rgba[o + 1] = col[1] * sh;
@@ -573,16 +605,23 @@ async function coarse(x: number, y: number): Promise<WorkOut> {
     });
     draw('landuse', (p) => {
       const c2 = String(p.class);
-      if (['residential', 'suburb', 'neighbourhood', 'quarter', 'commercial', 'retail'].includes(c2)) return { fill: [150, 144, 138, 0.88] };
-      if (['industrial', 'railway', 'garages', 'quarry'].includes(c2)) return { fill: [138, 136, 148, 0.88] };
+      if (['residential', 'suburb', 'neighbourhood', 'quarter', 'commercial', 'retail'].includes(c2)) return { fill: [196, 186, 166, 0.92] };
+      if (['industrial', 'railway', 'garages', 'quarry'].includes(c2)) return { fill: [168, 166, 170, 0.9] };
       return null;
     });
     draw('water', (p) => (p.class === 'swimming_pool' ? null : { fill: [44, 98, 168, 1] }));
     draw('waterway', (p, ty) => (ty === 2 && (p.class === 'river' || p.class === 'canal') ? { stroke: [52, 108, 178, 1], w: 1.2 } : null));
-    draw('transportation', (p, ty) => (ty === 2 && (p.class === 'motorway' || p.class === 'trunk') ? { stroke: [70, 70, 78, 0.85], w: 0.9 } : null));
+    // Carreteras: en el nivel intermedio también las principales y secundarias
+    const roadW: Record<string, number> = mid ? { motorway: 1.8, trunk: 1.6, primary: 1.4, secondary: 1.1, tertiary: 0.9, minor: 0.6, rail: 0.7 } : { motorway: 0.9, trunk: 0.9 };
+    draw('transportation', (p, ty) => {
+      const w = roadW[String(p.class)];
+      if (ty !== 2 || !w || p.brunnel === 'tunnel') return null;
+      return { stroke: p.class === 'rail' ? [120, 104, 92, 0.9] : [62, 64, 70, 0.92], w };
+    });
+    if (mid) draw('building', (_p, ty) => (ty === 3 ? { fill: [214, 200, 178, 1] } : null));
     draw('aeroway', (p, ty) => (ty === 2 && p.class === 'runway' ? { stroke: [60, 60, 66, 1], w: 1.5 } : null));
   }
-  return { type: 'coarse', x, y, raw, low, rgba };
+  return { type: 'coarse', x, y, z, raw, low, rgba, places: vt ? placesOf(vt, z, x, y) : [] };
 }
 
 // ---------------------------------------------------------------- Mensajes
@@ -602,13 +641,13 @@ scope.onmessage = async (ev: MessageEvent<WorkIn>) => {
       r.diag = { ...diag };
       scope.postMessage(r, [r.elev.buffer, r.cls.buffer, r.rects.buffer]);
     } else {
-      const r = (await coarse(msg.x, msg.y)) as Extract<WorkOut, { type: 'coarse' }>;
+      const r = (await coarse(msg.x, msg.y, msg.z)) as Extract<WorkOut, { type: 'coarse' }>;
       r.diag = { ...diag };
       scope.postMessage(r, [r.raw.buffer, r.low.buffer, r.rgba.buffer]);
     }
   } catch (e) {
     const err = (e as Error).message || 'error';
     if (msg.type === 'region') scope.postMessage({ type: 'region', rx: msg.rx, rz: msg.rz, elev: new Float32Array(0), cls: new Uint8Array(0), rects: new Float32Array(0), error: err, diag: { ...diag } });
-    else scope.postMessage({ type: 'coarse', x: msg.x, y: msg.y, raw: new Float32Array(0), low: new Float32Array(0), rgba: new Uint8ClampedArray(0), error: err, diag: { ...diag } });
+    else scope.postMessage({ type: 'coarse', x: msg.x, y: msg.y, z: msg.z, raw: new Float32Array(0), low: new Float32Array(0), rgba: new Uint8ClampedArray(0), error: err, diag: { ...diag } });
   }
 };

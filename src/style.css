@@ -4707,3 +4707,87 @@ html.standalone .install {
 #open-status[hidden] {
   display: none;
 }
+
+/* Mundo abierto: ciudad y barrio que se sobrevuela */
+#place-label {
+  position: absolute;
+  top: calc(max(10px, env(safe-area-inset-top, 0px)) + 46px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 5px 16px 6px;
+  border-radius: 12px;
+  background: rgba(8, 14, 28, 0.62);
+  border: 1px solid rgba(120, 200, 255, 0.45);
+  color: #fff;
+  text-align: center;
+  pointer-events: none;
+  max-width: min(70vw, 420px);
+}
+
+#place-label b {
+  font-size: 17px;
+  letter-spacing: 0.03em;
+}
+
+#place-label b::before {
+  content: '📍 ';
+}
+
+#place-label span {
+  font-size: 12px;
+  color: #9fd8ff;
+}
+
+#place-label span:empty {
+  display: none;
+}
+
+#place-label[hidden] {
+  display: none;
+}
+
+#place-banner {
+  position: absolute;
+  top: 24%;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: clamp(28px, 6vw, 60px);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #fff;
+  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.35), 0 0 24px rgba(80, 180, 255, 0.6);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+}
+
+#place-banner.show {
+  animation: place-banner 3.2s ease-out forwards;
+}
+
+@keyframes place-banner {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(10px) scale(0.92);
+  }
+  12%,
+  70% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-8px) scale(1.02);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #place-banner.show {
+    animation-duration: 0.01s;
+  }
+}
