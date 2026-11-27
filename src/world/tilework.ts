@@ -6,8 +6,7 @@
  *  - «coarse»: una tesela z10 (~30 km) para ver a lo lejos: alturas 65×65 y una textura 256×256.
  * Datos: © colaboradores de OpenStreetMap (ODbL), OpenFreeMap, OpenMapTiles · relieve: Mapzen/Tilezen.
  */
-import { VectorTile, classifyRings } from '@mapbox/vector-tile';
-import Pbf from 'pbf';
+import { VectorTile, classifyRings } from './mvt';
 import { Geo, lat2tile, lon2tile, tile2lat, tile2lon } from './geo';
 import { unzlibSync } from 'fflate';
 import { CELL_B, CELL_C, CELL_E, COARSE_N, COARSE_TEX, COARSE_Z, NC, NE, REGION, type Diag, type WorkIn, type WorkOut } from './streamconst';
@@ -58,7 +57,7 @@ async function vectorTile(z: number, x: number, y: number): Promise<VectorTile |
   if (!r) return null;
   const buf = new Uint8Array(await r.arrayBuffer());
   if (!buf.length) return null;
-  return new VectorTile(new Pbf(buf));
+  return new VectorTile(buf);
 }
 
 /** Relieve Terrarium decodificado (metros) */
