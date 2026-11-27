@@ -1,4 +1,4 @@
-export type StageId = 'metropolis' | 'archipelago' | 'dusk' | 'jungle' | 'warzone' | 'canyon' | 'glacier' | 'cyber' | 'barcelona' | 'madrid' | 'nuevayork' | 'everest';
+export type StageId = 'metropolis' | 'archipelago' | 'dusk' | 'jungle' | 'warzone' | 'canyon' | 'glacier' | 'cyber' | 'barcelona' | 'madrid' | 'nuevayork' | 'everest' | 'europa';
 
 /** Tipo de mundo: ciudad o escenarios naturales / en ruinas */
 export type Biome = 'city' | 'jungle' | 'war' | 'canyon' | 'ice' | 'cyber' | 'real';
@@ -28,6 +28,8 @@ export interface Stage {
   tag?: string;
   /** Mundo real: id del mapa (public/real/<id>.dat) */
   real?: string;
+  /** Mundo abierto: punto de salida, destino y origen de coordenadas (los datos se cargan mientras se vuela) */
+  open?: { from: { name: string; lat: number; lon: number }; to: { name: string; lat: number; lon: number } };
   /** Mundo real: lugares destacados (posición en el mundo del juego, se rellenan al cargar) */
   sights?: { name: string; lat: number; lon: number }[];
   sky: { top: string; horizon: string; fog: string };
@@ -405,6 +407,50 @@ export const STAGES: Stage[] = [
       cloud: '#ffffff',
     },
     sights: [{ name: 'Everest', lat: 27.9881, lon: 86.9250 }, { name: 'Lhotse', lat: 27.9617, lon: 86.9333 }, { name: 'Nuptse', lat: 27.9670, lon: 86.8860 }, { name: 'Campo base', lat: 28.0026, lon: 86.8528 }],
+  },
+  {
+    id: 'europa',
+    name: 'Mundo abierto: Europa',
+    tag: 'Beta',
+    description: 'Despega en Barcelona y vuela hasta París sobre el mundo real: el terreno, las ciudades y los edificios se cargan mientras vuelas. Sube alto y pulsa Crucero (K) para viajar rápido.',
+    seed: 4242,
+    biome: 'real',
+    open: { from: { name: 'Barcelona', lat: 41.3874, lon: 2.1686 }, to: { name: 'París', lat: 48.8584, lon: 2.2945 } },
+    waterLevel: 0.5,
+    waterScale: 1400,
+    parkChance: 0,
+    heightMul: 1,
+    night: false,
+    weather: [['clear', 1]],
+    sky: { top: '#3a7ed4', horizon: '#c4dcf2', fog: '#c8dcee' },
+    fogDensity: 0.00024,
+    sun: { color: '#fff4e0', intensity: 2.2, dir: [0.5, 0.8, 0.3] },
+    hemi: { sky: '#cfe6ff', ground: '#6b7a5a', intensity: 1.3 },
+    palette: {
+      buildings: ['#e8d8b8', '#d9c29a', '#c8b8a0', '#b88a6a', '#e0d8c8', '#a89888', '#d8c8b0', '#9a9aa4'],
+      water: ['#1f5fb8', '#2f78d0', '#4f98e2'],
+      grass: ['#5aa840', '#4a9434'],
+      road: '#3a3c42',
+      sidewalk: '#cfc6b0',
+      sand: '#e6d49c',
+      lot: '#c9c0aa',
+      window: '#2c4f73',
+      tree: ['#3a7a2a', '#2e6a24'],
+      cloud: '#ffffff',
+    },
+    sights: [
+      { name: 'Sagrada Família', lat: 41.4036, lon: 2.1744 },
+      { name: 'Montseny', lat: 41.7744, lon: 2.3994 },
+      { name: 'Pirineos · Puigmal', lat: 42.3833, lon: 2.1167 },
+      { name: 'Carcasona', lat: 43.2065, lon: 2.3637 },
+      { name: 'Castres', lat: 43.6058, lon: 2.2403 },
+      { name: 'Rodez', lat: 44.3506, lon: 2.575 },
+      { name: 'Aurillac', lat: 44.9264, lon: 2.4397 },
+      { name: 'Montluçon', lat: 46.3401, lon: 2.6034 },
+      { name: 'Bourges', lat: 47.0810, lon: 2.3988 },
+      { name: 'Orleans', lat: 47.9029, lon: 1.9093 },
+      { name: 'Torre Eiffel', lat: 48.8584, lon: 2.2945 },
+    ],
   },
 ];
 

@@ -44,6 +44,10 @@ export interface HudData {
   /** Objetivo de navegación (anillo o hito) */
   navTarget: THREE.Vector3 | null;
   navLabel?: string;
+  /** distancia real al objetivo (si el marcador está más cerca) */
+  navDist?: number;
+  /** multiplicador de velocidad (crucero del mundo abierto) */
+  speedMul?: number;
   navGate?: boolean;
   camera: THREE.PerspectiveCamera;
   cockpit: boolean;
@@ -477,7 +481,7 @@ export class Hud {
 
   update(d: HudData) {
     const f = d.flight;
-    this.speed.textContent = String(Math.round(f.speedKmh));
+    this.speed.textContent = String(Math.round(f.speedKmh * (d.speedMul ?? 1)));
     this.ringsLabel.textContent = d.scoreLabel;
     this.rings.textContent = d.scoreValue;
     this.alt.textContent = String(Math.round(f.pos.y));
@@ -519,7 +523,7 @@ export class Hud {
     this.marker.style.display = 'flex';
     this.marker.style.transform = `translate(${sx}px, ${sy}px)`;
     this.marker.classList.toggle('edge', offscreen);
-    const dist = d.navTarget.distanceTo(d.flight.pos);
+    const dist = d.navDist ?? d.navTarget.distanceTo(d.flight.pos);
     this.markerDist.textContent = dist > 1000 ? `${(dist / 1000).toFixed(1)} km` : `${Math.round(dist)} m`;
     this.marker.classList.toggle('gate', !!d.navGate);
     this.navLabel.textContent = d.navLabel ?? '';

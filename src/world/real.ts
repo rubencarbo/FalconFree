@@ -21,6 +21,8 @@ export const RC = {
   INDUSTRIAL: 16,
   CEMETERY: 17,
   SEA: 18,
+  /** campo abierto sin datos de uso del suelo (mundo abierto) */
+  COUNTRY: 19,
   /** fuera del mapa */
   OUT: 255,
 } as const;
@@ -56,11 +58,28 @@ export interface RealRect {
   seed: number;
 }
 
+/** Fuente de datos reales: un mapa preparado (RealMap) o el mundo abierto por teselas (StreamWorld) */
+export interface RealSource {
+  ground(x: number, z: number): number;
+  clsAt(x: number, z: number): number;
+  rectsIn(bx: number, bz: number): RealRect[];
+  treesIn(bx: number, bz: number): [number, number][];
+  toWorld(lat: number, lon: number): [number, number];
+  /** distancia (m) fuera del mapa (0 en el mundo abierto) */
+  outside(x: number, z: number): number;
+  /** mapa con límites (cabecera), null en el mundo abierto */
+  readonly bounded: RealHeader | null;
+  /** fuera del mapa hay mar */
+  readonly seaOutside: boolean;
+  /** ¿hay datos con detalle en este punto? (si no, no se construye el trozo) */
+  ready(x: number, z: number): boolean;
+}
+
 const PERIOD = 80;
 const key = (bx: number, bz: number) => (bx + 32768) * 65536 + (bz + 32768);
 
 /** Mapa real descargado: relieve, clases de suelo, edificios y árboles */
-export class RealMap {
+export class RealMap implements RealSource {
   readonly elev: Int16Array;
   readonly cls: Uint8Array;
   private rects: RealRect[] = [];
@@ -111,6 +130,18 @@ export class RealMap {
       if (!l) this.treeBlock.set(k, (l = []));
       l.push(n);
     }
+  }
+
+  get bounded() {
+    return this.hd;
+  }
+
+  get seaOutside() {
+    return this.hd.base <= 0;
+  }
+
+  ready() {
+    return true;
   }
 
   static async load(id: string): Promise<RealMap> {

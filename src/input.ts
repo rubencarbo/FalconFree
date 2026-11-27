@@ -12,6 +12,7 @@ export class Input {
   private touchClimb = false;
   private touchBrake = false;
   onCamera?: () => void;
+  onCruise?: () => void;
   onPause?: () => void;
   onBoostStart?: () => void;
   onMissile?: () => void;
@@ -41,6 +42,7 @@ export class Input {
       if (e.metaKey || e.altKey) return;
       this.keys.add(e.code);
       if (e.code === 'KeyC') this.onCamera?.();
+      if (e.code === 'KeyK') this.onCruise?.();
       if (e.code === 'KeyP' || e.code === 'Escape') this.onPause?.();
       if (e.code === 'KeyQ') this.onMissile?.();
       if (e.code === 'KeyG') this.onFlare?.();

@@ -1,7 +1,7 @@
 import type { Stage } from '../stages';
 import { fbm, hash2, hash3, mulberry32 } from './noise';
 import { canyonFloor, canyonH, cyberBlock, genCanyonBlock, genIceBlock, genJungleBlock, ruinBlock } from './biomes';
-import { RC, realMap, type RealMap } from './real';
+import { RC, realMap, type RealSource } from './real';
 
 /** Ancho de calle (m) */
 export const ROAD = 16;
@@ -75,7 +75,7 @@ export class CityGen {
   private treeColors: number[];
 
   /** Mapa real (relieve, suelo y edificios de OpenStreetMap) si el escenario es del mundo real */
-  real: RealMap | null = null;
+  real: RealSource | null = null;
 
   constructor(public readonly stage: Stage) {
     this.treeColors = stage.palette.tree.map(hexToInt);
@@ -83,9 +83,15 @@ export class CityGen {
   }
 
   /** Pone el mapa real cuando termina de descargarse (y olvida las manzanas generadas sin él) */
-  setReal(m: RealMap) {
+  setReal(m: RealSource) {
     this.real = m;
     this.blockCache.clear();
+  }
+
+  /** Olvida las manzanas ya generadas en una zona (cuando llegan sus datos del mundo abierto) */
+  forgetBlocks(x0: number, z0: number, x1: number, z1: number) {
+    for (let bx = Math.floor(x0 / PERIOD) - 1; bx <= Math.floor(x1 / PERIOD) + 1; bx++)
+      for (let bz = Math.floor(z0 / PERIOD) - 1; bz <= Math.floor(z1 / PERIOD) + 1; bz++) this.blockCache.delete((bx + 32768) * 65536 + (bz + 32768));
   }
 
   get isReal() {

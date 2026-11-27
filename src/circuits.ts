@@ -8,7 +8,7 @@ export const MAX_GATES = 20;
 /** Distancia mínima entre hitos (m) */
 export const MIN_GATE_GAP = 200;
 
-const STAGE_IDS: StageId[] = ['metropolis', 'archipelago', 'dusk', 'jungle', 'warzone', 'canyon', 'glacier', 'cyber', 'barcelona', 'madrid', 'nuevayork', 'everest'];
+const STAGE_IDS: StageId[] = ['metropolis', 'archipelago', 'dusk', 'jungle', 'warzone', 'canyon', 'glacier', 'cyber', 'barcelona', 'madrid', 'nuevayork', 'everest', 'europa'];
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 export interface CircuitGate {

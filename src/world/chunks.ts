@@ -478,18 +478,50 @@ export class ChunkManager {
       this.replan(cx, cz);
     }
     const t0 = performance.now();
-    while (this.pending.length && performance.now() - t0 < budgetMs) {
-      const next = this.pending.shift()!;
+    const real = this.gen.real;
+    for (let i = 0; i < this.pending.length && performance.now() - t0 < budgetMs; ) {
+      const next = this.pending[i];
+      // Mundo abierto: los trozos sin datos esperan (se ve el relieve lejano)
+      if (real && !real.ready((next.cx + 0.5) * CHUNK, (next.cz + 0.5) * CHUNK)) {
+        i++;
+        continue;
+      }
+      this.pending.splice(i, 1);
       const key = `${next.cx},${next.cz}`;
       if (!this.chunks.has(key)) this.build(next.cx, next.cz);
     }
   }
 
+  /** Vuelve a planificar los trozos que faltan (p. ej. al llegar datos nuevos) */
+  kick() {
+    this.lastCx = Infinity;
+    this.lastCz = Infinity;
+  }
+
+  /** Quita los trozos de una zona para que se generen de nuevo */
+  dropArea(x0: number, z0: number, x1: number, z1: number) {
+    for (const [key, ch] of this.chunks) {
+      const cx = (ch.cx + 0.5) * CHUNK;
+      const cz = (ch.cz + 0.5) * CHUNK;
+      if (cx < x0 || cx > x1 || cz < z0 || cz > z1) continue;
+      this.disposeChunk(ch);
+      this.chunks.delete(key);
+    }
+    this.kick();
+  }
+
   /** Genera de forma síncrona los chunks más cercanos (al iniciar) */
   warmup(x: number, z: number, count: number) {
     this.update(x, z, 0);
-    for (let i = 0; i < count && this.pending.length; i++) {
-      const next = this.pending.shift()!;
+    const real = this.gen.real;
+    for (let i = 0, n = 0; n < count && i < this.pending.length; ) {
+      const next = this.pending[i];
+      if (real && !real.ready((next.cx + 0.5) * CHUNK, (next.cz + 0.5) * CHUNK)) {
+        i++;
+        continue;
+      }
+      this.pending.splice(i, 1);
+      n++;
       if (!this.chunks.has(`${next.cx},${next.cz}`)) this.build(next.cx, next.cz);
     }
   }
@@ -499,6 +531,9 @@ export class ChunkManager {
   }
 
   get loadingCount() {
+    // En el mundo abierto solo cuentan los trozos que ya tienen datos
+    const real = this.gen.real;
+    if (real && !real.bounded) return this.pending.filter((p) => real.ready((p.cx + 0.5) * CHUNK, (p.cz + 0.5) * CHUNK)).length;
     return this.pending.length;
   }
 
@@ -641,8 +676,8 @@ export class ChunkManager {
   /** Relieve lejano de un mapa real: una malla gruesa por debajo de los trozos con detalle */
   private buildRealFar() {
     const m = this.gen.real;
-    if (!m || this.realFar) return;
-    const h = m.hd;
+    if (!m || !m.bounded || this.realFar) return;
+    const h = m.bounded;
     const N = 160;
     const margin = 2400;
     const W = h.w + margin * 2;
@@ -1017,7 +1052,7 @@ export class ChunkManager {
     const n4 = hash2(Math.floor(x / 6), Math.floor(z / 6), 18);
     if (c === RC.OUT) {
       // Fuera del mapa: mar en las ciudades de costa (base a nivel del mar); campo o roca tierra adentro
-      c = m.hd.base <= 0 ? RC.SEA : this.gen.stage.real === 'everest' ? RC.ROCK : RC.FIELD;
+      c = m.seaOutside ? RC.SEA : this.gen.stage.real === 'everest' ? RC.ROCK : RC.FIELD;
     }
     // Montaña: las paredes muy empinadas no sujetan la nieve (roca oscura)
     if (this.gen.stage.real === 'everest' && (c === RC.GLACIER || c === RC.ROCK)) {
@@ -1060,6 +1095,8 @@ export class ChunkManager {
         return n < 0.85 ? [236, 242, 250] : [214, 226, 240];
       case RC.INDUSTRIAL:
         return n4 < 0.5 ? [150, 148, 144] : [140, 138, 134];
+      case RC.COUNTRY:
+        return n4 < 0.33 ? [118, 150, 80] : n4 < 0.66 ? [128, 156, 86] : [110, 140, 74];
       case RC.CEMETERY:
         return n < 0.3 ? [180, 176, 168] : C.grass[1];
     }

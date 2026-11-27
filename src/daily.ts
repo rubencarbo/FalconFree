@@ -24,7 +24,7 @@ export function dailyChallenge(d = new Date(), variant: DailyVariant = 'day'): {
   const n = dayNumber(d);
   const baseKey = dayKey(d);
   // Los mapas reales se descargan aparte: no entran en el desafío diario
-  const dayStages = STAGES.filter((s) => !s.night && !s.real);
+  const dayStages = STAGES.filter((s) => !s.night && !s.real && !s.open);
   const nightStage = STAGES.find((s) => s.night) ?? STAGES[0];
   const stage = variant === 'night' ? nightStage : dayStages[n % dayStages.length];
   const gates = 12 + (n % 4);

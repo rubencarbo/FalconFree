@@ -20,6 +20,7 @@ import { Race, SKIP_PENALTY, GOLD_BONUS, MEDAL_ICONS, MEDAL_LABELS, medalFor, me
 import { Input } from './input';
 import { Hud, type HealthBar } from './hud';
 import { loadRealMap } from './world/real';
+import { StreamWorld } from './world/stream';
 import { GameAudio } from './audio';
 import { firebase, countryName, playerCountry } from './firebase';
 import { Room, NetError, type PauseState, formatCode, normalizeCode, MAX_PLAYERS, PLAYER_COLORS, type NetEvent, type PublicRoom, type RoomMeta, type RoomMode, type VoiceChunk } from './net';
@@ -445,6 +446,8 @@ class Game {
     );
     this.applySettings();
     this.input.onCamera = () => this.cycleCamera();
+    this.input.onCruise = () => this.toggleCruise();
+    $('btn-cruise').addEventListener('click', () => this.toggleCruise());
     this.input.onPause = () => {
       if (this.replaying) this.endReplay();
       else if (this.screen === 'playing') this.setPaused(!this.paused);
@@ -511,6 +514,18 @@ class Game {
     this.chunks = new ChunkManager(this.scene, this.gen, this.viewRadius());
     this.chunks.setPuffyClouds(this.arcade);
     if (stage.real && !this.gen.real) this.fetchRealMap(stage);
+    if (stage.open) {
+      // Mundo abierto: los datos llegan por teselas mientras se vuela
+      const sw = new StreamWorld(this.scene, stage.open.from.lat, stage.open.from.lon);
+      this.stream = sw;
+      this.gen.setReal(sw);
+      sw.onRegion = (x0, z0, x1, z1) => {
+        this.gen.forgetBlocks(x0, z0, x1, z1);
+        this.chunks.dropArea(x0, z0, x1, z1);
+      };
+      sw.update(0, 0, performance.now());
+      if (import.meta.env.VITE_ARTIFACT === '1') this.hud.toast('El mundo abierto descarga mapas de internet: pruébalo en la versión de Firebase', 6000);
+    }
     this.showRealCredit();
     this.rings = new Rings(this.scene, this.gen);
     this.powerups = new PowerUps(this.scene, this.gen);
@@ -530,6 +545,7 @@ class Game {
     this.sky = new Sky(stage);
     this.scene.add(this.sky.mesh);
     this.far = new FarGround(stage);
+    this.far.mesh.visible = !stage.open;
     this.scene.add(this.far.mesh);
     this.hemi = new THREE.HemisphereLight(stage.hemi.sky, stage.hemi.ground, stage.hemi.intensity);
     this.sun = new THREE.DirectionalLight(stage.sun.color, stage.sun.intensity);
@@ -587,12 +603,20 @@ class Game {
     this.bloom.strength = stage.night ? 1 : 0.8;
     this.applyLoadout();
 
-    this.spawnAt(new THREE.Vector3(0, this.safeAltitude(0, 0), 0), Math.random() * Math.PI * 2);
+    this.spawnAt(new THREE.Vector3(0, this.safeAltitude(0, 0), 0), this.spawnYaw());
     this.chunks.warmup(this.flight.pos.x, this.flight.pos.z, 12);
     this.refreshStageLists();
   }
 
   private disposeWorld() {
+    this.stream?.dispose();
+    this.stream = null;
+    $('btn-cruise').hidden = true;
+    this.camera.far = 9000;
+    this.camera.near = 1;
+    this.camera.updateProjectionMatrix();
+    this.cruise = 1;
+    this.cruiseOn = false;
     this.stageAurora?.dispose();
     this.stageAurora = null;
     this.traffic?.dispose();
@@ -677,6 +701,14 @@ class Game {
     if (this.room && mp && mp.plane !== variant) void this.room.setProfile({ plane: variant });
   }
 
+  /** Rumbo al aparecer: al azar, o hacia el destino en el mundo abierto */
+  private spawnYaw() {
+    const o = this.stage?.open;
+    if (!o || !this.stream) return Math.random() * Math.PI * 2;
+    const [x, z] = this.stream.toWorld(o.to.lat, o.to.lon);
+    return Math.atan2(-x, -z);
+  }
+
   private safeAltitude(x: number, z: number) {
     return Math.max(420, this.gen.maxHeightNear(x, z, 400) + 120);
   }
@@ -748,7 +780,7 @@ class Game {
     this.audio.init();
     this.mode = 'free';
     this.resetSession();
-    this.spawnAt(new THREE.Vector3(0, this.safeAltitude(0, 0), 0), Math.random() * Math.PI * 2);
+    this.spawnAt(new THREE.Vector3(0, this.safeAltitude(0, 0), 0), this.spawnYaw());
     this.rings.respawnAll(this.chunks.loaded());
     this.powerups.setEnabled(true, this.chunks.loaded());
     this.drones.setActive(true);
@@ -1205,7 +1237,7 @@ class Game {
     this.mode = 'delivery';
     this.resetSession();
     this.drones.setActive(false);
-    this.spawnAt(new THREE.Vector3(0, this.safeAltitude(0, 0), 0), Math.random() * Math.PI * 2);
+    this.spawnAt(new THREE.Vector3(0, this.safeAltitude(0, 0), 0), this.spawnYaw());
     this.rings.respawnAll(this.chunks.loaded());
     this.powerups.setEnabled(true, this.chunks.loaded());
     this.delivery = new Delivery(this.scene, this.gen);
@@ -1392,7 +1424,7 @@ class Game {
     this.mode = 'waves';
     this.resetSession();
     this.drones.setActive(false);
-    this.spawnAt(new THREE.Vector3(0, this.safeAltitude(0, 0), 0), Math.random() * Math.PI * 2);
+    this.spawnAt(new THREE.Vector3(0, this.safeAltitude(0, 0), 0), this.spawnYaw());
     this.rings.respawnAll(this.chunks.loaded());
     this.powerups.setEnabled(true, this.chunks.loaded());
     this.setScreen('playing');
@@ -2780,6 +2812,7 @@ class Game {
     if (this.alive && this.shield > 0 && !frozen) this.fx.shieldSpark(this.flight.pos);
 
     const focus = (this.spectating && this.spectateFlight()?.pos) || this.flight.pos;
+    if (this.stream) this.updateOpenWorld(focus);
     this.chunks.update(focus.x, focus.z);
     this.far.update(focus);
     this.sky.update(this.camera);
@@ -2840,6 +2873,76 @@ class Game {
     );
   }
 
+  /** Mundo abierto: pide datos, ajusta lo lejos que se ve (según la altura) y la niebla */
+  private updateOpenWorld(focus: THREE.Vector3) {
+    const sw = this.stream!;
+    sw.detail = this.cruise < 1.6;
+    sw.update(focus.x, focus.z, performance.now());
+    const alt = Math.max(0, focus.y - Math.max(0, sw.ground(focus.x, focus.z)));
+    const far = THREE.MathUtils.clamp(9000 + focus.y * 22, 9000, 140000);
+    const near = THREE.MathUtils.clamp(alt / 500, 1, 6);
+    const cam = this.camera;
+    if (Math.abs(cam.far - far) > far * 0.05 || Math.abs(cam.near - near) > 0.3) {
+      cam.far = far;
+      cam.near = near;
+      cam.updateProjectionMatrix();
+    }
+    const fog = this.scene.fog as THREE.FogExp2;
+    fog.density = this.stage.fogDensity * (1400 / (1400 + focus.y));
+    // En crucero no se generan trozos con detalle
+    const r = this.cruise > 1.6 ? 1 : this.viewRadius();
+    this.chunks.setRadius(r);
+  }
+
+  /** Crucero (K): viaje rápido a gran altura en el mundo abierto */
+  private toggleCruise() {
+    if (!this.stream || this.screen !== 'playing' || !this.alive) return;
+    if (this.cruiseOn) {
+      this.cruiseOn = false;
+      this.hud.toast('Crucero desactivado', 1200);
+      return;
+    }
+    const f = this.flight;
+    const agl = f.pos.y - this.stream.ground(f.pos.x, f.pos.z);
+    if (agl < 1000) {
+      this.hud.toast('Sube por encima de 1.000 m sobre el suelo para el crucero', 2200);
+      return;
+    }
+    this.cruiseOn = true;
+    this.hud.toast('✈ Crucero: velocidad de viaje', 1500);
+  }
+
+  /** Avance extra del crucero (después de la física normal) */
+  private updateCruise(dt: number) {
+    const sw = this.stream;
+    if (!sw) return;
+    const f = this.flight;
+    const agl = f.pos.y - sw.ground(f.pos.x, f.pos.z);
+    if (this.cruiseOn) {
+      // Se corta solo: poca altura o una montaña delante
+      const fw = f.forward(new THREE.Vector3()).setY(0).normalize();
+      const ahead = Math.max(sw.ground(f.pos.x + fw.x * 2500, f.pos.z + fw.z * 2500), sw.ground(f.pos.x + fw.x * 6000, f.pos.z + fw.z * 6000));
+      if (agl < 800 || ahead > f.pos.y - 350 || !this.alive) {
+        this.cruiseOn = false;
+        this.hud.toast(agl < 800 ? 'Crucero desactivado: poca altura' : '⚠ Montaña delante: crucero desactivado', 2000);
+      }
+    }
+    const target = this.cruiseOn ? 12 : 1;
+    this.cruise += (target - this.cruise) * Math.min(1, dt * (this.cruiseOn ? 0.6 : 1.5));
+    if (Math.abs(this.cruise - 1) < 0.02) this.cruise = 1;
+    if (this.cruise > 1 && !f.frozen) {
+      const fw = f.forward(new THREE.Vector3()).setY(0);
+      f.pos.addScaledVector(fw, f.speed * (this.cruise - 1) * dt);
+    }
+    this.cruiseWarnT -= dt;
+    const btn = document.getElementById('btn-cruise');
+    if (btn) {
+      btn.hidden = false;
+      btn.classList.toggle('on', this.cruiseOn);
+      btn.textContent = this.cruiseOn ? `✈ Crucero ×${this.cruise.toFixed(0)}` : '✈ Crucero';
+    }
+  }
+
   /** Crédito obligatorio de los datos (licencia ODbL de OpenStreetMap) mientras se juega en un mapa real */
   private showRealCredit() {
     let el = document.getElementById('real-credit');
@@ -2854,6 +2957,12 @@ class Game {
 
   /** Mundo real: al salir del mapa se avisa y el avión gira solo hacia el centro */
   private realBoundsT = 0;
+  /** Mundo abierto: teselas que se cargan mientras se vuela */
+  stream: StreamWorld | null = null;
+  /** Crucero: multiplicador actual de velocidad (1 = normal) y si está pedido */
+  cruise = 1;
+  cruiseOn = false;
+  private cruiseWarnT = 0;
   private sightT = 0;
   private sightSeen = new Map<string, number>();
   private updateRealBounds(dt: number) {
@@ -2866,7 +2975,8 @@ class Game {
       this.sightT = 0.5;
       for (const sg of this.stage.sights ?? []) {
         const [sx, sz] = m.toWorld(sg.lat, sg.lon);
-        if (Math.hypot(f.pos.x - sx, f.pos.z - sz) > 450 || f.pos.y - m.ground(sx, sz) > 900) continue;
+        const open = !!this.stage.open;
+        if (Math.hypot(f.pos.x - sx, f.pos.z - sz) > (open ? 4000 : 450) || f.pos.y - m.ground(sx, sz) > (open ? 9000 : 900)) continue;
         const last = this.sightSeen.get(sg.name) ?? -1e9;
         if (this.time - last < 120) continue;
         this.sightSeen.set(sg.name, this.time);
@@ -2882,8 +2992,9 @@ class Game {
       this.realBoundsT = 4;
     }
     if (out > 500 && !f.frozen) {
-      const cx = m.hd.x0 + m.hd.w / 2 - f.pos.x;
-      const cz = m.hd.z0 + m.hd.h / 2 - f.pos.z;
+      const hd = m.bounded!;
+      const cx = hd.x0 + hd.w / 2 - f.pos.x;
+      const cz = hd.z0 + hd.h / 2 - f.pos.z;
       const want = Math.atan2(-cx, -cz);
       let d = want - f.yaw;
       d = Math.atan2(Math.sin(d), Math.cos(d));
@@ -3017,6 +3128,7 @@ class Game {
       if (!f.frozen && this.checkCollision()) break;
     }
     if (!this.alive) return;
+    if (this.stream) this.updateCruise(dt);
 
     if (this.war) this.updateWar(dt);
     if (this.chutes.list.length) this.updateRescue(dt);
@@ -3599,7 +3711,7 @@ class Game {
     this.editGates = [];
     this.editId = randomCode(8);
     this.savedCircuit = null;
-    this.spawnAt(new THREE.Vector3(0, this.safeAltitude(0, 0), 0), Math.random() * Math.PI * 2);
+    this.spawnAt(new THREE.Vector3(0, this.safeAltitude(0, 0), 0), this.spawnYaw());
     show('editor-bar', true);
     this.updateEditorBar();
     this.setScreen('playing');
@@ -4432,6 +4544,7 @@ class Game {
     let navTarget: THREE.Vector3 | null = null;
     let navLabel = '';
     let navGate = false;
+    let navDist: number | undefined;
     const items: RadarItem[] = [];
     let route: THREE.Vector3[] = [];
     let arrowTarget: THREE.Vector3 | null = null;
@@ -4507,6 +4620,20 @@ class Game {
         scoreValue = `${this.ringCount} · ${this.kills}`;
       }
       if (this.screen === 'playing' && this.alive) navTarget = this.rings.nearest(f.pos);
+      // Mundo abierto: el destino del viaje manda sobre los aros
+      const o = this.stage.open;
+      if (o && this.stream && this.screen === 'playing') {
+        const [dx, dz] = this.stream.toWorld(o.to.lat, o.to.lon);
+        const dest = new THREE.Vector3(dx, f.pos.y, dz);
+        const dist = Math.hypot(dx - f.pos.x, dz - f.pos.z);
+        // Marcador a 3 km en la dirección del destino (el real está más allá de lo que se dibuja)
+        navTarget = dist > 3000 ? f.pos.clone().add(dest.sub(f.pos).setLength(3000)) : dest;
+        navDist = dist;
+        navLabel = o.to.name.toUpperCase();
+        navGate = true;
+        arrowTarget = navTarget;
+        arrowColor = 0x40d0ff;
+      }
       for (const d of this.drones.list) if (d.alive) items.push({ pos: d.pos, kind: 'drone' });
     }
     if (this.mode !== 'race') {
@@ -4638,6 +4765,8 @@ class Game {
       navTarget,
       navLabel,
       navGate,
+      navDist,
+      speedMul: this.cruise,
       camera: this.camera,
       cockpit: this.rig.mode === 'cockpit' && this.alive,
       hp01: this.hp / this.maxHp,

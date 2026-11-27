@@ -21,7 +21,15 @@ export default defineConfig({
             cleanupOutdatedCaches: true,
             clientsClaim: true,
             // Mapas del mundo real: se guardan al descargarlos la primera vez (para jugar sin conexión)
-            runtimeCaching: [{ urlPattern: /\/real\/.*\.dat$/, handler: 'CacheFirst', options: { cacheName: 'real-maps', expiration: { maxEntries: 8 } } }],
+            runtimeCaching: [
+              { urlPattern: /\/real\/.*\.dat$/, handler: 'CacheFirst', options: { cacheName: 'real-maps', expiration: { maxEntries: 8 } } },
+              // Mundo abierto: teselas de OpenFreeMap y de relieve (los viajes repetidos cargan al instante)
+              {
+                urlPattern: /^https:\/\/(tiles\.openfreemap\.org\/planet\/.+\.pbf|s3\.amazonaws\.com\/elevation-tiles-prod\/)/,
+                handler: 'CacheFirst',
+                options: { cacheName: 'open-world-tiles', expiration: { maxEntries: 3000, maxAgeSeconds: 30 * 24 * 3600 }, cacheableResponse: { statuses: [0, 200] } },
+              },
+            ],
           },
           manifest: {
             id: '/',

@@ -16,7 +16,7 @@
             ".validate": "newData.val() === 'free' || newData.val() === 'race' || newData.val() === 'battle' || newData.val() === 'war'"
           },
           "stage": {
-            ".validate": "newData.val() === 'metropolis' || newData.val() === 'archipelago' || newData.val() === 'dusk' || newData.val() === 'jungle' || newData.val() === 'warzone' || newData.val() === 'canyon' || newData.val() === 'glacier' || newData.val() === 'cyber' || newData.val() === 'barcelona' || newData.val() === 'madrid' || newData.val() === 'nuevayork' || newData.val() === 'everest'"
+            ".validate": "newData.val() === 'metropolis' || newData.val() === 'archipelago' || newData.val() === 'dusk' || newData.val() === 'jungle' || newData.val() === 'warzone' || newData.val() === 'canyon' || newData.val() === 'glacier' || newData.val() === 'cyber' || newData.val() === 'barcelona' || newData.val() === 'madrid' || newData.val() === 'nuevayork' || newData.val() === 'everest' || newData.val() === 'europa'"
           },
           "course": {
             ".validate": "newData.isString() && newData.val().length <= 20"

@@ -4680,3 +4680,14 @@ html.standalone .install {
 #real-credit[hidden] {
   display: none;
 }
+
+/* Crucero del mundo abierto */
+#btn-cruise[hidden] {
+  display: none;
+}
+
+#btn-cruise.on {
+  background: #1f8fd0;
+  color: #fff;
+  box-shadow: 0 0 12px rgba(64, 200, 255, 0.6);
+}
