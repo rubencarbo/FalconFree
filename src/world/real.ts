@@ -115,7 +115,9 @@ export class RealMap {
 
   static async load(id: string): Promise<RealMap> {
     const base = import.meta.env.BASE_URL || './';
-    const r = await fetch(`${base}real/${id}.dat`);
+    // En el artefacto de prueba los mapas se publican como .wasm (el visor no sirve .dat)
+    const ext = import.meta.env.VITE_ARTIFACT === '1' ? 'wasm' : 'dat';
+    const r = await fetch(`${base}real/${id}.${ext}`);
     if (!r.ok) throw new Error(`No se pudo descargar el mapa (${r.status})`);
     const gz = new Uint8Array(await r.arrayBuffer());
     // El servidor puede haberlo descomprimido ya (Content-Encoding): gzip empieza por 1f 8b
